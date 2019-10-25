@@ -51,53 +51,54 @@ noisyimg_gpu = cp.random.poisson(img_gpu) + cp.random.normal(scale=readnoise, si
 imgweights_gpu = 1/(readnoise**2 + noisyimg_gpu.clip(0, 1e6))
 
 #########################
-def extract_gpu(noisyimg_gpu, imgweights_gpu, A_gpu):
+def extract(noisyimg_gpu, imgweights_gpu, A_gpu):
     #- Set up the equation to solve (B&S eq 4)
     W_gpu = cpx.scipy.sparse.spdiags(data=imgweights_gpu.ravel(), diags=[0,], m=npix, n=npix)
-    
+
     iCov_gpu = A_gpu.T.dot(W_gpu.dot(A_gpu))
-    
+
     y_gpu = A_gpu.T.dot(W_gpu.dot(noisyimg_gpu.ravel()))
-    
-    #- Solve f (B&S eq 4)
-    f_gpu_tup = cpx.scipy.sparse.linalg.lsqr(iCov_gpu, y_gpu)
-    #returns f_gpu as a tuple... need to reshape?
-    f_gpu_0 = f_gpu_tup[0] #take only zeroth element of tuple, rest are None for some reason
-    f_gpu = cp.asarray(f_gpu_0).reshape(nspec, nwave) #the tuple thing is dumb bc i think it goes back to the cpu, have to manually bring it back as a cupy array
+
+    ##- Solve f (B&S eq 4)
+    f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu) #requires array, not sparse object
 
     #- Eigen-decompose iCov to assist in upcoming steps
     u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
-    
+
     #- Calculate C^-1 = QQ (B&S eq 10)
     d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
-    
+
     Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
-    
+
     #- normalization vector (B&S eq 11)
     norm_vector_gpu = cp.sum(Q_gpu, axis=1)
-    
+
     #- Resolution matrix (B&S eq 12)
     R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
-    
+
     #- Decorrelated covariance matrix (B&S eq 13-15)
     udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
-    
+
     Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
-    
+
     Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
-    
+
     #- Decorrelated flux (B&S eq 16)
     fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
-    
+
     #- Variance on f (B&S eq 13)
     varfx_gpu = cp.diagonal(Cx_gpu)
 
     return fx_gpu, varfx_gpu, R_gpu
 
-fx_gpu, varfx_gpu, R_gpu = extract_gpu(noisyimg_gpu, imgweights_gpu, A_gpu)
+fx_gpu, varfx_gpu, R_gpu = extract(noisyimg_gpu, imgweights_gpu, A_gpu)
 
+
+#be careful
 fx_cpu = fx_gpu.get()
 varfx_cpu = varfx_gpu.get()
 R_cpu = R_gpu.get()
 
-np.savez('extract_gpu_out',fx_cpu=fx_cpu, varfx_cpu=varfx_cpu, R_cpu=R_cpu)
+np.savez('extract_gpu_out',fx_gpu=fx_cpu, varfx_gpu=varfx_cpu, R_gpu=R_cpu)
+
+

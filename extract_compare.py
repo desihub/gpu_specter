@@ -79,15 +79,25 @@ def extract(noisyimg_gpu, imgweights_gpu, A_gpu):
     assert np.allclose(y_cpu, y_yank)
     #passes
 
-    ##- Solve f (B&S eq 4)
-    #f_gpu_tup = cpx.scipy.sparse.linalg.lsqr(iCov_gpu, y_gpu)
-    ##returns f_gpu as a tuple... need to reshape?
+    ###- Solve f (B&S eq 4) 
+    ##f_gpu_tup = cpx.scipy.sparse.linalg.lsqr(iCov_gpu, y_gpu)
+    ###returns f_gpu as a tuple... need to reshape?
     #f_gpu_0 = f_gpu_tup[0] #take only zeroth element of tuple, rest are None for some reason
     #f_gpu = cp.asarray(f_gpu_0).reshape(nspec, nwave) #the tuple thing is dumb bc i think it goes back to the cpu, have to manually bring it back as a cupy array
     #f_cpu_0 = scipy.sparse.linalg.lsqr(iCov_cpu, y_cpu)[0] #need to take 0th element of tuple
     #f_cpu = np.asarray(f_cpu_0).reshape(nspec, nwave) #and then reshape, make less confusing in separate step
-    ##yank back and compare
+    ###yank back and compare
     #f_yank = f_gpu.get()
+    #f_diff = f_yank - f_cpu
+    #print("f_yank")
+    #print(f_yank)
+
+    #print("f_cpu")
+    #print(f_cpu)
+
+    #print("f_diff")
+    #print(f_diff)
+
     #assert np.allclose(f_cpu, f_yank)
     ##fails! #maybe lsqr is the problem
     ##what was the other one?
