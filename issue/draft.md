@@ -1,4 +1,4 @@
-#####ndarray.dot produces wrong values
+### ndarray.dot produces wrong values
 
 Some numpy arrays have non-native endianess. Numpy uses dtype.isnative to denote the endianness of an object and handles both non-native and native endianness gracefully. However, cupy.ndarray.dot seems to ignore this flag. This leads to incorrect values being calculated on the gpu.
 
