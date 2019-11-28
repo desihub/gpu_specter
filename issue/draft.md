@@ -3,15 +3,15 @@
 Some numpy arrays have non-native endianess. Numpy uses dtype.isnative to denote the endianness of an object and handles both non-native and native endianness gracefully. However, cupy.ndarray.dot seems to ignore this flag. This leads to incorrect values being calculated on the gpu.
 
 * Conditions
-CuPy Version          : 6.4.0
-CUDA Root             : /usr/common/software/cuda/10.1.168
-CUDA Build Version    : 10010
-CUDA Driver Version   : 10010
-CUDA Runtime Version  : 10010
-cuDNN Build Version   : 7603
-cuDNN Version         : 7603
-NCCL Build Version    : 2402
-NCCL Runtime Version  : 2402
+ - CuPy Version          : 6.4.0
+ - CUDA Root             : /usr/common/software/cuda/10.1.168
+ - CUDA Build Version    : 10010
+ - CUDA Driver Version   : 10010
+ - CUDA Runtime Version  : 10010
+ - cuDNN Build Version   : 7603
+ - cuDNN Version         : 7603
+ - NCCL Build Version    : 2402
+ - NCCL Runtime Version  : 2402
 * Code to reproduce
 Download these numpy array files and place them in the same folder with the script below: [coeff.npy](https://github.com/ziyaointl/gpu_specter/blob/cupy_legvander/issue/coeff.npy?raw=true) [L.npy](https://github.com/ziyaointl/gpu_specter/blob/cupy_legvander/issue/L.npy?raw=true)
 
