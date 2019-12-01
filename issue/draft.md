@@ -14,52 +14,75 @@ Some numpy arrays have non-native endianess. Numpy uses dtype.isnative to denote
  - NCCL Runtime Version  : 2402
 
 ### Code to reproduce
-Download these numpy array files and place them in the same folder with the script below: [coeff.npy](https://github.com/ziyaointl/gpu_specter/blob/cupy_legvander/issue/coeff.npy?raw=true) [L.npy](https://github.com/ziyaointl/gpu_specter/blob/cupy_legvander/issue/L.npy?raw=true)
 
 ```python
 import numpy as np
 import cupy as cp
 
-# Load arrays, coeff_cpu is not in native endianness
-L_cpu = np.load('L.npy')
-coeff_cpu = np.load('coeff.npy')
-coeff_cpu_byteswapped = coeff_cpu.byteswap().newbyteorder() # Swap endianness
-L_gpu = cp.array(L_cpu)
-coeff_gpu = cp.array(coeff_cpu)
-coeff_gpu_byteswapped = cp.array(coeff_cpu_byteswapped)
+# Create example arrays
+A_cpu = np.arange(9.0).reshape(3,3)
+x_cpu_native = np.arange(3.0)
+x_cpu_nonnative = x_cpu_native.byteswap().newbyteorder() # create a copy of x that has non-native endianness
+A_gpu = cp.array(A_cpu)
+x_gpu_nonnative = cp.array(x_cpu_nonnative)
+x_gpu_native = cp.array(x_cpu_native)
 
-# Simply transferring the array to the gpu and back seems to produce the expected result
+# Simply transferring a non-native array to the gpu and back seems to preserver endianness information
 # As we'll later see, this is not the case when properforming a dot product on the gpu
-assert np.allclose(coeff_cpu, coeff_gpu.get())
+assert np.allclose(x_cpu_native, x_gpu_nonnative.get())
 
-# Print endianness
-print('coeff_cpu.dtype.isnative:', coeff_cpu.dtype.isnative) # False
-print('coeff_cpu_byteswapped.dtype.isnative', coeff_cpu_byteswapped.dtype.isnative) # True
+# Chenck endianness
+# CPU
+assert not x_cpu_nonnative.dtype.isnative
+assert x_cpu_native.dtype.isnative
+# GPU
+assert not x_gpu_nonnative.dtype.isnative
+assert x_gpu_native.dtype.isnative
+# Fetching from GPU to CPU
+assert not x_gpu_nonnative.get().dtype.isnative
+assert x_gpu_native.get().dtype.isnative
 
 # Dot product
 # CPU
-result_cpu = L_cpu.dot(coeff_cpu)
-result_cpu_byteswapped = L_cpu.dot(coeff_cpu_byteswapped)
+Ax_cpu_nonnative = A_cpu.dot(x_cpu_nonnative)
+Ax_cpu_native = A_cpu.dot(x_cpu_native)
 # GPU
-result_gpu = L_gpu.dot(coeff_gpu)
-result_gpu_byteswapped = L_gpu.dot(coeff_gpu_byteswapped)
+Ax_gpu_nonnative = A_gpu.dot(x_gpu_nonnative)
+Ax_gpu_native = A_gpu.dot(x_gpu_native)
+
+# Print variables
+print('A_cpu:')
+print(A_cpu)
+print('x_cpu_native: ', x_cpu_native)
+print('Ax_cpu_native: ', Ax_cpu_native)
+print('Ax_cpu_nonnative: ', Ax_cpu_nonnative)
+print('Ax_gpu_native: ', Ax_gpu_native)
+print('Ax_gpu_nonnative: ', Ax_gpu_nonnative)
 
 # Compare
 # After byte-swapping, the dot products on the cpu remain the same
-assert np.allclose(result_cpu, result_cpu_byteswapped)
-# The dot product on the cpu and the dot product of the byteswapped version on the gpu is also the same
-assert np.allclose(result_cpu, result_gpu_byteswapped.get())
-# Without byteswapping, the gpu result disagrees with the cpu
-assert np.allclose(result_cpu, result_gpu.get())
+assert np.allclose(Ax_cpu_nonnative, Ax_cpu_native)
+# The dot product on the cpu and the dot product of the native version on the gpu is also the same
+assert np.allclose(Ax_cpu_nonnative, Ax_gpu_native.get())
+# However, when the nonnative version is used on the gpu, dot product returns the wrong answer
+assert np.allclose(Ax_cpu_nonnative, Ax_gpu_nonnative.get())
 ```
 
 ### Error messages, stack traces, or logs
 ```
-coeff_cpu.dtype.isnative: False
-coeff_cpu_byteswapped.dtype.isnative True
+A_cpu:
+[[0. 1. 2.]
+ [3. 4. 5.]
+ [6. 7. 8.]]
+x_cpu_native:  [0. 1. 2.]
+Ax_cpu_native:  [ 5. 14. 23.]
+Ax_cpu_nonnative:  [ 5. 14. 23.]
+Ax_gpu_native:  [ 5. 14. 23.]
+Ax_gpu_nonnative:  [3.044976e-319 1.217042e-318 2.129586e-318]
+
 Traceback (most recent call last):
-  File "endianness.py", line 34, in <module>
-    assert np.allclose(result_cpu, result_gpu.get())
+  File "endianness.py", line 50, in <module>
+    assert np.allclose(Ax_cpu_nonnative, Ax_gpu_nonnative.get())
 AssertionError
 ```
 
