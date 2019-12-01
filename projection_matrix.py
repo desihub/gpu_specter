@@ -28,6 +28,20 @@ def legvander_wrapper(x, deg):
     legvander[numblocks, blocksize](x, deg, output)
     return output
 
+def native_endian(data):
+    """Temporary function, sourced from desispec.io
+    Convert numpy array data to native endianness if needed.
+    Returns new array if endianness is swapped, otherwise returns input data
+    Context:
+    By default, FITS data from astropy.io.fits.getdata() are not Intel
+    native endianness and scipy 0.14 sparse matrices have a bug with
+    non-native endian data.
+    """
+    if data.dtype.isnative:
+        return data
+    else:
+        return data.byteswap().newbyteorder()
+
 def evalcoeffs(wavelengths, psfdata):
     '''
     wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
@@ -69,7 +83,7 @@ def evalcoeffs(wavelengths, psfdata):
     p_gpu['GH'] = cp.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
 
     # Init coeff on GPU
-    coeff_gpu = cp.array(psfdata['COEFF'])
+    coeff_gpu = cp.array(native_endian(psfdata['COEFF']))
 
     # Main loop
     # CPU
@@ -85,18 +99,7 @@ def evalcoeffs(wavelengths, psfdata):
     # GPU
     start = time()
     k = 0
-    assert np.allclose(L, L_gpu.get())
     for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
-        L_gpu_new = cp.array(L)
-        np.save('L', L)
-        np.save('coeff', coeff.T)
-        coeff_gpu_new = cp.array(coeff.byteswap().newbyteorder())
-        print('L.dtype.isnative', L.dtype.isnative)
-        print('coeff.dtype.isnative', coeff.dtype.isnative)
-        assert np.allclose(L.dot(coeff.T), L_gpu_new.dot(coeff_gpu_new.T).get())
-        assert np.allclose(coeff, coeff_gpu[k].get())
-        assert np.allclose(coeff.T, coeff_gpu[k].T.get())
-        assert np.allclose(L.dot(coeff.T), L_gpu.dot(coeff_gpu[k].T).get())
         name = name.strip()
         if name.startswith('GH-'):
             i, j = map(int, name.split('-')[1:3])
@@ -107,11 +110,7 @@ def evalcoeffs(wavelengths, psfdata):
     print('GPU Dot products took', time() - start, 's')
 
     # Test if results are the same
-    # gh_gpu = p_gpu['GH'].get()
-    # for i in range(len(p['GH'])):
-    #     for j in range(len(p['GH'][i])):
-    #         print('CPU', p['GH'][i][j], 'GPU', gh_gpu[i][j])
-    # assert np.allclose(p['GH'], p_gpu['GH'].get())
+    assert np.allclose(p['GH'], p_gpu['GH'].get())
 
     #- Include some additional keywords that we'll need
     for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
