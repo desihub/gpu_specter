@@ -28,7 +28,7 @@ x_gpu_nonnative = cp.array(x_cpu_nonnative)
 x_gpu_native = cp.array(x_cpu_native)
 
 # Simply transferring a non-native array to the gpu and back seems to preserver endianness information
-# As we'll later see, this is not the case when properforming a dot product on the gpu
+# As we'll later see, the dot product function on the gpu seems to ignore this flag
 assert np.allclose(x_cpu_native, x_gpu_nonnative.get())
 
 # Chenck endianness
