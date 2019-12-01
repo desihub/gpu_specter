@@ -32,7 +32,7 @@ Ax_cpu_native = A_cpu.dot(x_cpu_native)
 Ax_gpu_nonnative = A_gpu.dot(x_gpu_nonnative)
 Ax_gpu_native = A_gpu.dot(x_gpu_native)
 
-# Print Axs
+# Print variables
 print('A_cpu:')
 print(A_cpu)
 print('x_cpu_native: ', x_cpu_native)
