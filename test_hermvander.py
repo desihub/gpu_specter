@@ -15,7 +15,7 @@ def hermvander(x, deg, output_matrix):
             output_matrix[i][1] = x[i] * 2 # x2 is always stored in output_matrix[i][1]
             for j in range(2, deg + 1):
                 output_matrix[i][j] = output_matrix[i][j - 1] * output_matrix[i][1] \
-                                    - output_matrix[i][j - 2] * 2 * (i - 1)
+                                    - output_matrix[i][j - 2] * 2 * (j - 1)
 
 def hermvander_wrapper(x, deg):
     """Temprorary wrapper the allocates memory and calls hermvander_gpu
@@ -34,11 +34,11 @@ def test_hermvander():
     x_gpu = cp.array(x_cpu)
 
     # Calculate on cpu
-    hermvander_cpu = np.hermvander(x, degree)
+    hermvander_cpu = np.polynomial.hermite.hermvander(x_cpu, degree)
 
     # Calculate on gpu
     hermvander_gpu = hermvander_wrapper(x_gpu, degree)
 
     # Compare
-    assert np.allclose(legvander_cpu, legvander_gpu.get())
+    assert np.allclose(hermvander_cpu, hermvander_gpu.get())
 
