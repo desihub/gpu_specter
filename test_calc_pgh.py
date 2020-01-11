@@ -3,6 +3,7 @@ import numpy as np
 from astropy.table import Table
 import scipy.special
 import cupy as cp
+from test_hermevander import hermevander_wrapper # importing a temporary wrapper function from a temporary test file
 
 def evalcoeffs(wavelengths, psfdata):
     '''Directly copied from the notebook. Testing use only'''
@@ -48,24 +49,33 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- spot size (ny,nx)
     nx = p['HSIZEX']
     ny = p['HSIZEY']
-    nx_gpu = cp.array(nx)
-    ny_gpu = cp.array(ny)
-    assert np.allclose(nx, nx_gpu.get())
-    assert np.allclose(ny, ny_gpu.get())
     nwave = len(wavelengths)
+    p_gpu = {}
+    p_gpu['X'], p_gpu['Y'], p_gpu['GHSIGX'], p_gpu['GHSIGY'] = \
+    cp.array(p['X']), cp.array(p['Y']), cp.array(p['GHSIGX']), cp.array(p['GHSIGY'])
 
     #- x and y edges of bins that span the center of the PSF spot
+    # CPU
     xedges = np.repeat(np.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
     yedges = np.repeat(np.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+    # GPU
+    xedges_gpu = cp.repeat(cp.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
+    yedges_gpu = cp.repeat(cp.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+    assert np.allclose(xedges, xedges_gpu.get())
+    assert np.allclose(yedges, yedges_gpu.get())
 
     #- Shift to be relative to the PSF center at 0 and normalize
     #- by the PSF sigma (GHSIGX, GHSIGY)
     #- xedges[nx+1, nwave]
     #- yedges[ny+1, nwave]
-    xedges = ((xedges - p['X'][ispec]%1)/p['GHSIGX'][ispec])
-    yedges = ((yedges - p['Y'][ispec]%1)/p['GHSIGY'][ispec])
-#     print('xedges.shape = {}'.format(xedges.shape))
-#     print('yedges.shape = {}'.format(yedges.shape))
+    # CPU
+    xedges = (xedges - p['X'][ispec]%1)/p['GHSIGX'][ispec]
+    yedges = (yedges - p['Y'][ispec]%1)/p['GHSIGY'][ispec]
+    # GPU
+    xedges_gpu = (xedges_gpu - p_gpu['X'][ispec]%1)/p_gpu['GHSIGX'][ispec]
+    yedges_gpu = (yedges_gpu - p_gpu['Y'][ispec]%1)/p_gpu['GHSIGY'][ispec]
+    assert np.allclose(xedges, xedges_gpu.get())
+    assert np.allclose(yedges, yedges_gpu.get())
 
     #- Degree of the Gauss-Hermite polynomials
     ghdegx = p['GHDEGX']
@@ -76,8 +86,10 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- HVy[ghdegy+1, nwave, ny+1]
     HVx = He.hermevander(xedges, ghdegx).T
     HVy = He.hermevander(yedges, ghdegy).T
-    # print('HVx.shape = {}'.format(HVx.shape))
-    # print('HVy.shape = {}'.format(HVy.shape))
+    HVx_gpu = hermevander_wrapper(xedges_gpu, ghdegx).T
+    HVy_gpu = hermevander_wrapper(yedges_gpu, ghdegy).T
+    assert np.allclose(HVx, HVx_gpu.get())
+    assert np.allclose(HVy, HVy_gpu.get())
 
     #- Evaluate the Gaussians at the pixel edges
     #- Gx[nwave, nx+1]
