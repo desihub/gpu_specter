@@ -3,6 +3,7 @@ import numpy as np
 from astropy.table import Table
 import scipy.special
 import cupy as cp
+import cupyx.scipy.special
 from test_hermevander import hermevander_wrapper # importing a temporary wrapper function from a temporary test file
 
 def evalcoeffs(wavelengths, psfdata):
@@ -84,8 +85,10 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- Evaluate the Hermite polynomials at the pixel edges
     #- HVx[ghdegx+1, nwave, nx+1]
     #- HVy[ghdegy+1, nwave, ny+1]
+    # CPU
     HVx = He.hermevander(xedges, ghdegx).T
     HVy = He.hermevander(yedges, ghdegy).T
+    # GPU
     HVx_gpu = hermevander_wrapper(xedges_gpu, ghdegx).T
     HVy_gpu = hermevander_wrapper(yedges_gpu, ghdegy).T
     assert np.allclose(HVx, HVx_gpu.get())
@@ -94,30 +97,46 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- Evaluate the Gaussians at the pixel edges
     #- Gx[nwave, nx+1]
     #- Gy[nwave, ny+1]
+    # CPU
     Gx = np.exp(-0.5*xedges**2).T / np.sqrt(2. * np.pi)   # (nwave, nedges)
     Gy = np.exp(-0.5*yedges**2).T / np.sqrt(2. * np.pi)
-    # print('Gx.shape = {}'.format(Gx.shape))
-    # print('Gy.shape = {}'.format(Gy.shape))
+    # GPU
+    Gx_gpu = cp.exp(-0.5*xedges_gpu**2).T / cp.sqrt(2. * cp.pi)
+    Gy_gpu = cp.exp(-0.5*yedges_gpu**2).T / cp.sqrt(2. * cp.pi)
+    assert np.allclose(Gx, Gx_gpu.get())
+    assert np.allclose(Gy, Gy_gpu.get())
 
     #- Combine into Gauss*Hermite
     GHx = HVx * Gx
     GHy = HVy * Gy
+    GHx_gpu = HVx_gpu * Gx_gpu
+    GHy_gpu = HVy_gpu * Gy_gpu
+    assert np.allclose(GHx, GHx_gpu.get())
+    assert np.allclose(GHy, GHy_gpu.get())
 
     #- Integrate over the pixels using the relationship
     #  Integral{ H_k(x) exp(-0.5 x^2) dx} = -H_{k-1}(x) exp(-0.5 x^2) + const
 
     #- pGHx[ghdegx+1, nwave, nx]
     #- pGHy[ghdegy+1, nwave, ny]
+    # CPU
     pGHx = np.zeros((ghdegx+1, nwave, nx))
     pGHy = np.zeros((ghdegy+1, nwave, ny))
     pGHx[0] = 0.5 * np.diff(scipy.special.erf(xedges/np.sqrt(2.)).T)
     pGHy[0] = 0.5 * np.diff(scipy.special.erf(yedges/np.sqrt(2.)).T)
     pGHx[1:] = GHx[:ghdegx,:,0:nx] - GHx[:ghdegx,:,1:nx+1]
     pGHy[1:] = GHy[:ghdegy,:,0:ny] - GHy[:ghdegy,:,1:ny+1]
-    # print('pGHx.shape = {}'.format(pGHx.shape))
-    # print('pGHy.shape = {}'.format(pGHy.shape))
-
-    return pGHx, pGHy
+    # GPU
+    pGHx_gpu = cp.zeros((ghdegx+1, nwave, nx))
+    pGHy_gpu = cp.zeros((ghdegy+1, nwave, ny))
+    pGHx_gpu[0] = 0.5 * cp.diff(cupyx.scipy.special.erf(xedges_gpu/cp.sqrt(2.)).T)
+    pGHy_gpu[0] = 0.5 * cp.diff(cupyx.scipy.special.erf(yedges_gpu/cp.sqrt(2.)).T)
+    pGHx_gpu[1:] = GHx_gpu[:ghdegx,:,0:nx] - GHx_gpu[:ghdegx,:,1:nx+1]
+    pGHy_gpu[1:] = GHy_gpu[:ghdegy,:,0:ny] - GHy_gpu[:ghdegy,:,1:ny+1]
+    assert np.allclose(pGHx, pGHx_gpu.get())
+    assert np.allclose(pGHy, pGHy_gpu.get())
+    
+    return pGHx_gpu, pGHy_gpu
 
 def test_calc_pgh():
     # Generate inputs
