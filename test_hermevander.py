@@ -6,27 +6,26 @@ from time import time
 from astropy.table import Table
 
 @cuda.jit
-def hermvander(x, deg, output_matrix):
+def hermevander(x, deg, output_matrix):
     i = cuda.grid(1)
     stride = cuda.gridsize(1)
     for i in range(i, x.shape[0], stride):
         output_matrix[i][0] = 1
         if deg > 0:
-            output_matrix[i][1] = x[i] * 2 # x2 is always stored in output_matrix[i][1]
+            output_matrix[i][1] = x[i]
             for j in range(2, deg + 1):
-                output_matrix[i][j] = output_matrix[i][j - 1] * output_matrix[i][1] \
-                                    - output_matrix[i][j - 2] * 2 * (j - 1)
+                output_matrix[i][j] = output_matrix[i][j-1]*x[i] - output_matrix[i][j-2]*(j-1)
 
-def hermvander_wrapper(x, deg):
-    """Temprorary wrapper the allocates memory and calls hermvander_gpu
+def hermevander_wrapper(x, deg):
+    """Temprorary wrapper the allocates memory and calls hermevander_gpu
     """
     output = cp.ndarray((len(x), deg + 1))
     blocksize = 256
     numblocks = (len(x) + blocksize - 1) // blocksize
-    hermvander[numblocks, blocksize](x, deg, output)
+    hermevander[numblocks, blocksize](x, deg, output)
     return output
 
-def test_hermvander():
+def test_hermevander():
     # Generate dummy input
     degree = 10
     np.random.seed = 1
@@ -34,11 +33,11 @@ def test_hermvander():
     x_gpu = cp.array(x_cpu)
 
     # Calculate on cpu
-    hermvander_cpu = np.polynomial.hermite.hermvander(x_cpu, degree)
+    hermevander_cpu = np.polynomial.hermite_e.hermevander(x_cpu, degree)
 
     # Calculate on gpu
-    hermvander_gpu = hermvander_wrapper(x_gpu, degree)
+    hermevander_gpu = hermevander_wrapper(x_gpu, degree)
 
     # Compare
-    assert np.allclose(hermvander_cpu, hermvander_gpu.get())
+    assert np.allclose(hermevander_cpu, hermevander_gpu.get())
 
