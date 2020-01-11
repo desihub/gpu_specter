@@ -7,7 +7,8 @@ from astropy.table import Table
 
 @cuda.jit
 def hermevander(x, deg, output_matrix):
-    i, j = cuda.grid(2)
+    i = cuda.blockIdx.x
+    _, j = cuda.grid(2)
     _, stride = cuda.gridsize(2)
     for j in range(j, x.shape[1], stride):
         output_matrix[i][j][0] = 1
@@ -31,7 +32,7 @@ def test_hermevander():
     # Generate dummy input
     degree = 10
     np.random.seed = 1
-    x_cpu = np.random.rand(100)
+    x_cpu = np.random.rand(10, 100)
     x_gpu = cp.array(x_cpu)
 
     # Calculate on cpu
