@@ -1,4 +1,5 @@
 # This file contains reference functions directly copied from ProjectionMatrix.ipynb
+import numpy as np
 
 def evalcoeffs(wavelengths, psfdata):
     '''
