@@ -32,26 +32,9 @@ def test_legvander():
     #Compare
     assert np.allclose(legvander_cpu, legvander_gpu.get())
 
-def native_endian(data):
-    """Temporary function, sourced from desispec.io
-    Convert numpy array data to native endianness if needed.
-    Returns new array if endianness is swapped, otherwise returns input data
-    Context:
-    By default, FITS data from astropy.io.fits.getdata() are not Intel
-    native endianness and scipy 0.14 sparse matrices have a bug with
-    non-native endian data.
-    """
-    if data.dtype.isnative:
-        return data
-    else:
-        return data.byteswap().newbyteorder()
-
-def test_evalcoeffs():
+def test_evalcoeffs(capsys):
     # Read data
-    psfdata_cpu = Table.read('psf.fits')
-    psfdata_gpu = psfdata_cpu
-    psfdata_gpu['COEFF'] = cp.array(native_endian(psfdata['COEFF']))
-
+    psfdata = Table.read('psf.fits')
     wavelengths_cpu = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8)
     wavelengths_gpu = cp.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8)
     
@@ -59,4 +42,5 @@ def test_evalcoeffs():
     p_cpu = evalcoeffs_cpu(wavelengths_cpu, psfdata)
     p_gpu = evalcoeffs_gpu(wavelengths_gpu, psfdata)
     # Compare
-    assert np.allclose(p_cpu, p_gpu.get())
+    for k in p_cpu:
+        assert np.allclose(p_cpu[k], p_gpu[k])

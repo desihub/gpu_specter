@@ -1,6 +1,20 @@
 import cupy as cp
 from numba import cuda
 
+def native_endian(data):
+    """Temporary function, sourced from desispec.io
+    Convert numpy array data to native endianness if needed.
+    Returns new array if endianness is swapped, otherwise returns input data
+    Context:
+    By default, FITS data from astropy.io.fits.getdata() are not Intel
+    native endianness and scipy 0.14 sparse matrices have a bug with
+    non-native endian data.
+    """
+    if data.dtype.isnative:
+        return data
+    else:
+        return data.byteswap().newbyteorder()
+
 @cuda.jit
 def hermevander(x, deg, output_matrix):
     i = cuda.blockIdx.x
@@ -73,17 +87,17 @@ def evalcoeffs(wavelengths, psfdata):
 
     # Init zeros
     p['GH'] = cp.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
-    # Init coeff
-    coeff = psfdata['COEFF']
+    # Init gpu coeff
+    coeff_gpu = cp.array(native_endian(psfdata['COEFF']))
 
     k = 0
     for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
         name = name.strip()
         if name.startswith('GH-'):
             i, j = map(int, name.split('-')[1:3])
-            p['GH'][i,j] = L.dot(coeff[k].T).T
+            p['GH'][i,j] = L.dot(coeff_gpu[k].T).T
         else:
-            p[name] = L.dot(coeff[k].T).T
+            p[name] = L.dot(coeff_gpu[k].T).T
         k += 1
 
     #- Include some additional keywords that we'll need
