@@ -5,29 +5,6 @@ import numba, pytest
 from time import time
 from astropy.table import Table
 
-@cuda.jit
-def legvander(x, deg, output_matrix):
-    i = cuda.grid(1)
-    stride = cuda.gridsize(1)
-    for i in range(i, x.shape[0], stride):
-        output_matrix[i][0] = 1
-        output_matrix[i][1] = x[i]
-        for j in range(2, deg + 1):
-            output_matrix[i][j] = (output_matrix[i][j-1]*x[i]*(2*j - 1) - output_matrix[i][j-2]*(j - 1)) / j
-
-def legvander_wrapper(x, deg):
-    """Temporary wrapper that allocates memory and defines grid before calling legvander.
-    Probably won't be needed once cupy has the correpsponding legvander function.
-
-    Input: Same as legvander
-    Output: legvander matrix, cp.ndarray
-    """
-    output = cp.ndarray((len(x), deg + 1))
-    blocksize = 256
-    numblocks = (len(x) + blocksize - 1) // blocksize
-    legvander[numblocks, blocksize](x, deg, output)
-    return output
-
 def native_endian(data):
     """Temporary function, sourced from desispec.io
     Convert numpy array data to native endianness if needed.
@@ -117,22 +94,6 @@ def evalcoeffs(wavelengths, psfdata):
         p[key] = psfdata.meta[key]
 
     return p
-
-def test_legvander():
-    # Generate dummy input
-    degree = 10
-    np.random.seed(1)
-    x_cpu = np.random.rand(100)
-    x_gpu = cp.array(x_cpu)
-
-    # Calculate on cpu
-    legvander_cpu = np.polynomial.legendre.legvander(x_cpu, degree)
-
-    # Calculate on gpu
-    legvander_gpu = legvander_wrapper(x_gpu, degree)
-
-    #Compare
-    assert np.allclose(legvander_cpu, legvander_gpu.get())
 
 def test_evalcoeffs():
     # Read data
