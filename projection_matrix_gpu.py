@@ -46,3 +46,48 @@ def legvander_wrapper(x, deg):
     numblocks = (len(x) + blocksize - 1) // blocksize
     legvander[numblocks, blocksize](x, deg, output)
     return output
+
+def evalcoeffs(wavelengths, psfdata):
+    '''
+    wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
+    psfdata: Table of parameter data ready from a GaussHermite format PSF file
+
+    Returns a dictionary params[paramname] = value[nspec, nwave]
+
+    The Gauss Hermite coefficients are treated differently:
+
+        params['GH'] = value[i,j,nspec,nwave]
+
+    The dictionary also contains scalars with the recommended spot size HSIZEX, HSIZEY
+    and Gauss-Hermite degrees GHDEGX, GHDEGY (which is also derivable from the dimensions
+    of params['GH'])
+    '''
+    # Initialization
+    wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
+    wx = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+
+    L = legvander_wrapper(wx, psfdata.meta['LEGDEG'])
+    p = dict(WAVE=wavelengths) # p doesn't live on the gpu, but it's last-level values do
+    nparam, nspec, ndeg = psfdata['COEFF'].shape
+    nwave = L.shape[0]
+
+    # Init zeros
+    p['GH'] = cp.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
+    # Init coeff
+    coeff = psfdata['COEFF']
+
+    k = 0
+    for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
+        name = name.strip()
+        if name.startswith('GH-'):
+            i, j = map(int, name.split('-')[1:3])
+            p['GH'][i,j] = L.dot(coeff[k].T).T
+        else:
+            p[name] = L.dot(coeff[k].T).T
+        k += 1
+
+    #- Include some additional keywords that we'll need
+    for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
+        p[key] = psfdata.meta[key]
+
+    return p
