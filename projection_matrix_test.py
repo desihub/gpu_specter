@@ -1,13 +1,14 @@
 import cupy as cp
 import numpy as np
-from projectin_matrix_gpu import hermevander_wrapper, legvander_wrapper
-from projectin_matrix_gpu import evalcoeffs as evalcoeffs_gpu
-from projectin_matrix_reference import evalcoeffs as evalcoeffs_cpu
+from astropy.table import Table
+from projection_matrix_gpu import hermevander_wrapper, legvander_wrapper
+from projection_matrix_gpu import evalcoeffs as evalcoeffs_gpu
+from projection_matrix_reference import evalcoeffs as evalcoeffs_cpu
 
 def test_hermevander():
     # Generate dummy input
     degree = 10
-    np.random.seed = 1
+    np.random.seed(1)
     x_cpu = np.random.rand(10, 100)
     x_gpu = cp.array(x_cpu)
     
