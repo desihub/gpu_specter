@@ -1,9 +1,5 @@
 import cupy as cp
 from numba import cuda
-import numpy as np
-import numba, pytest
-from time import time
-from astropy.table import Table
 
 @cuda.jit
 def hermevander(x, deg, output_matrix):
@@ -27,22 +23,4 @@ def hermevander_wrapper(x, deg):
     numblocks = (x.shape[0], (x.shape[1] + blocksize - 1) // blocksize)
     hermevander[numblocks, blocksize](x, deg, output)
     return cp.squeeze(output)
-
-def test_hermevander():
-    # Generate dummy input
-    degree = 10
-    np.random.seed = 1
-    x_cpu = np.random.rand(10, 100)
-    x_gpu = cp.array(x_cpu)
-
-    # Calculate on cpu
-    hermevander_cpu = np.polynomial.hermite_e.hermevander(x_cpu, degree)
-
-    # Calculate on gpu
-    hermevander_gpu = hermevander_wrapper(x_gpu, degree)
-
-    print(hermevander_cpu, hermevander_gpu.get())
-
-    # Compare
-    assert np.allclose(hermevander_cpu, hermevander_gpu.get())
 
