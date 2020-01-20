@@ -7,6 +7,10 @@ from projection_matrix_gpu import calc_pgh as calc_pgh_gpu
 from projection_matrix_reference import evalcoeffs as evalcoeffs_cpu
 from projection_matrix_reference import calc_pgh as calc_pgh_cpu
 
+##########################################
+# Unit Tests Start
+##########################################
+
 def test_hermevander():
     # Generate dummy input
     degree = 10
@@ -60,3 +64,15 @@ def test_calc_pgh():
     # Compare
     assert np.allclose(pGHx_cpu, pGHx_gpu)
     assert np.allclose(pGHy_cpu, pGHy_gpu)
+
+##########################################
+# Unit Tests End
+##########################################
+
+##########################################
+# Integration Tests Start
+##########################################
+
+##########################################
+# Integration Tests End
+##########################################
