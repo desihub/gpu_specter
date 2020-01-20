@@ -3,7 +3,9 @@ import numpy as np
 from astropy.table import Table
 from projection_matrix_gpu import hermevander_wrapper, legvander_wrapper
 from projection_matrix_gpu import evalcoeffs as evalcoeffs_gpu
+from projection_matrix_gpu import calc_pgh as calc_pgh_gpu
 from projection_matrix_reference import evalcoeffs as evalcoeffs_cpu
+from projection_matrix_reference import calc_pgh as calc_pgh_cpu
 
 def test_hermevander():
     # Generate dummy input
@@ -45,3 +47,16 @@ def test_evalcoeffs(capsys):
     # Compare
     for k in p_cpu:
         assert np.allclose(p_cpu[k], p_gpu[k])
+
+def test_calc_pgh():
+    # Generate inputs
+    psfdata = Table.read('psf.fits')
+    wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8)
+    p = evalcoeffs_cpu(wavelengths, psfdata) # Use the cpu version to prevent bugs from cascading
+
+    # Call pgh function
+    pGHx_cpu, pGHy_cpu = calc_pgh_cpu(0, wavelengths, p)
+    pGHx_gpu, pGHy_gpu = calc_pgh_gpu(0, cp.array(wavelengths), p)
+    # Compare
+    assert np.allclose(pGHx_cpu, pGHx_gpu)
+    assert np.allclose(pGHy_cpu, pGHy_gpu)
