@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 
 #ideally we could do this whole thing without touching specter
-import specter
+#import specter
 from astropy.io import fits
 from astropy.table import Table
 from gpu_extract import ex2d

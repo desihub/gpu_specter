@@ -11,7 +11,7 @@ from scipy.sparse.linalg import spsolve
 import time
 
 #should use numpy outer?
-from specter.util import outer
+#from specter.util import outer
 
 #for cpu version
 
