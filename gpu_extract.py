@@ -10,18 +10,51 @@ from scipy.sparse import spdiags, issparse
 from scipy.sparse.linalg import spsolve
 import time
 
-#should use numpy outer?
-#from specter.util import outer
-
-#for cpu version
-
 from numpy.polynomial import hermite_e as He
 
 import numba
 #import cupy as cp
 #import cupyx as cpx
 
-def calc_pgh(ispec, wavelengths, psfparams):
+#this is what gausshermite init does
+def evalcoeffs(wavelengths, psfdata):
+    '''
+    wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
+    psfdata: Table of parameter data ready from a GaussHermite format PSF file
+    
+    Returns a dictionary params[paramname] = value[nspec, nwave]
+    
+    The Gauss Hermite coefficients are treated differently:
+    
+        params['GH'] = value[i,j,nspec,nwave]
+        
+    The dictionary also contains scalars with the recommended spot size HSIZEX, HSIZEY
+    and Gauss-Hermite degrees GHDEGX, GHDEGY (which is also derivable from the dimensions
+    of params['GH'])
+    '''
+    wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
+    wx = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    L = np.polynomial.legendre.legvander(wx, psfdata.meta['LEGDEG'])
+
+    p = dict(WAVE=wavelengths)
+    nparam, nspec, ndeg = psfdata['COEFF'].shape
+    nwave = L.shape[0]
+    p['GH'] = np.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
+    for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
+        name = name.strip()
+        if name.startswith('GH-'):
+            i, j = map(int, name.split('-')[1:3])
+            p['GH'][i,j] = L.dot(coeff.T).T
+        else:
+            p[name] = L.dot(coeff.T).T
+
+    #- Include some additional keywords that we'll need
+    for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
+        p[key] = psfdata.meta[key]
+
+    return p
+
+def calc_pgh(ispec, wavelengths, p):
     '''
     Calculate the pixelated Gauss Hermite for all wavelengths of a single spectrum
 
@@ -37,9 +70,6 @@ def calc_pgh(ispec, wavelengths, psfparams):
 
     PSFcore = sum_ij c_ij outer(pGHy[j], pGHx[i])
     '''
-
-    #- shorthand
-    p = psfparams
 
     #- spot size (ny,nx)
     nx = p['HSIZEX']
@@ -136,7 +166,7 @@ def cache_spots(nspec, nwave, p, wavelengths):
         spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
         return spots
 
-@numba.jit
+#@numba.jit
 def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     '''
     Create the projection matrix A for p = Af
@@ -159,6 +189,20 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     '''
     ny, nx = spots.shape[2:4]
     xc, yc = corners
+    print("xc.shape")
+    print(xc.shape)
+    print("nx")
+    print(nx)
+    print("ny")
+    print(ny)
+    print("ispec")
+    print(ispec)
+    print("nspec")
+    print(nspec)
+    print("iwave")
+    print(iwave)
+    print("nwave")
+    print(nwave)
     xmin = np.min(xc[ispec:ispec+nspec, iwave:iwave+nwave])
     xmax = np.max(xc[ispec:ispec+nspec, iwave:iwave+nwave]) + nx
     ymin = np.min(yc[ispec:ispec+nspec, iwave:iwave+nwave])
@@ -174,7 +218,7 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 
     return A, ymin, xmin
 
-def ex2d(image, imageivar, p, psfdata, specmin, nspec, wavelengths, xyrange=None,
+def ex2d(image, imageivar, psfdata, specmin, nspec, wavelengths, xyrange=None,
          regularize=0.0, ndecorr=False, bundlesize=25, nsubbundles=1,
          wavesize=50, full_output=False, verbose=False, 
          debug=False, psferr=None):
@@ -230,6 +274,9 @@ Optional Inputs:
     wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
     wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8) #also a hack
 
+    #lets do evalcoeffs to create p (dict with keys)
+    p = evalcoeffs(wavelengths, psfdata)
+
     #do specrange ourselves (no subbundles)! 
     speclo = specmin
     spechi = specmin + nspec
@@ -274,11 +321,25 @@ Optional Inputs:
 
     psferr = 0.01 #double check!
 
-    #this caches spots for the entire bundle, size (500, 2802, 8, 14)
+    #do entire bundle
     spots = cache_spots(nspec, nwave, p, wavelengths)
+
+    #also need the bottom corners
+    xc = np.floor(p['X'][speclo:spechi,:] - p['HSIZEX']//2).astype(int)
+    yc = np.floor(p['Y'][speclo:spechi,:] - p['HSIZEY']//2).astype(int)
+    corners = (xc, yc)
+
+    ispecmin = speclo 
+    ispecmax = spechi
+
+    #print("ispecmin")
+    #print(ispecmin)
+    #print("ispecmax")
+    #print(ispecmax)
 
     #- Let's do some extractions
     #but no subbundles! wavelength patches only
+    #start, stop, step
     for iwave in range(0, len(wavelengths), wavesize):
         #- Low and High wavelengths for the core region
         wlo = wavelengths[iwave]
@@ -286,27 +347,26 @@ Optional Inputs:
             whi = wavelengths[iwave+wavesize]
         else:
             whi = wavelengths[-1]
-        
+
+
+        ##for easier bookkeeping put cache_spots here, but eventually move higher    
+        #spots = cache_spots(nspec, nwave, p, wavelengths)
+
         #- Identify subimage that covers the core wavelengths
         #subxyrange = xlo,xhi,ylo,yhi = psf.xyrange(specrange, (wlo, whi))
-        #do we need to reimplement xyrange? or do something different?
  
-        #xc and yc are in (ispec, iwave)
-        #double check this whole section!!!!!
-        xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
-        yc = np.floor(p['Y'] - p['HSIZEY']//2).astype(int)
-        corners = (xc, yc)
-        #i think this is wrong, i think this is a spot and not a patch
-        #double check this!!!
-        nx = p['HSIZEX']
-        ny = p['HSIZEY']
-        xlo = xc[ispec,iwave] #lower left corner
-        xhi = xlo + nx #is this right?
-        ylo = yc[ispec,iwave] #lower left corner
-        yhi = ylo + ny #is this right?
+        iwavemin = iwave
+        iwavemax= iwavemin + wavesize
+   
+        xlo = (p['X'][ispecmin,iwavemin] + 20).astype(int)
+        xhi = (p['X'][ispecmax,iwavemax] + 20).astype(int)
+        ylo = (p['Y'][ispecmin,iwavemin] - 20).astype(int)
+        yhi = (p['Y'][ispecmax,iwavemax] + 20).astype(int)
+
+        xyrange = [xlo, xhi, ylo, yhi]
 
         print("xlo %s, xhi %s, ylo %s, yhi %s" %(xlo, xhi, ylo, yhi))
-        
+    
         if xyrange is None:
             subxy = np.s_[ylo:yhi, xlo:xhi]
         else:
@@ -348,7 +408,7 @@ Optional Inputs:
         #pass in both p and psfdata for now, not sure if we really need both
         #pass spots so we can do projection_matrix inside 
         results = \
-            ex2d_patch(subimg, subivar, p, psfdata, spots,
+            ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
                 xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
                 full_output=True, use_cache=True)       
@@ -422,7 +482,6 @@ Optional Inputs:
                     # Rd dimensions [nspec, 2*ndiag+1, nwave]
                     Rd[ispec-specmin, :, iwave+j-nlo] = Rx[j-ndiag:j+ndiag+1, j]
 
-
     #- Add extra print because of carriage return \r progress trickery
     if verbose:
         print()
@@ -447,7 +506,8 @@ Optional Inputs:
         return flux, ivar, Rd
 
 
-def ex2d_patch(image, ivar, p, psfdata, spots, specmin, nspec, wavelengths, xyrange,
+def ex2d_patch(image, ivar, p, psfdata, spots, corners, 
+         iwave, specmin, nspec, wavelengths, xyrange,
          full_output=False, regularize=0.0, ndecorr=False, use_cache=None):
     """
     2D PSF extraction of flux from image patch given pixel inverse variance.
@@ -486,10 +546,25 @@ def ex2d_patch(image, ivar, p, psfdata, spots, specmin, nspec, wavelengths, xyra
     
     nspec = specrange[1] - specrange[0]
     nwave = len(wavelengths)
+    
+    #corners and spots are for the entire bundle!!!
+    #ispec starts again in the bundle
+    #iwave does not, varies per patch
+    ispec = 0
+    Araw, ymin, xmin = projection_matrix(ispec, nspec, iwave, nwave, spots, corners)
+    #reshape
+    nypix, nxpix = Araw.shape[0:2]
+    A = Araw.reshape(nypix*nxpix, nspec*nwave)
 
-    #corners in this case should just be the corner of the patch we are in?!?
-    #need help sorting out the bookkeeping here!
-    A, ymin, xmin = projection_matrix(specmin, nspec, wavelengths[0], nwave, spots, corners)
+    ###Args:
+    ###    ispec: starting spectrum index
+    ###    nspec: number of spectra
+    ###    iwave: starting wavelength index
+    ###    nwave: number of wavelengths
+    ###    spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+    ###    corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+    ###
+    ###Returns 4D A[iy, ix, ispec, iwave] projection matrix
 
     #- Pixel weights matrix
     w = ivar.ravel()
@@ -519,7 +594,13 @@ def ex2d_patch(image, ivar, p, psfdata, spots, specmin, nspec, wavelengths, xyra
     #- Original: exclude flux bins with 0 pixels contributing
     # ibad = (A.sum(axis=0).A == 0)[0]
     
-    #- Identify fluxes with very low weights of pixels contributing            
+    #- Identify fluxes with very low weights of pixels contributing  
+    
+    #!!!! fails here, A and W need to be the same size
+    print("A.shape")
+    print(A.shape)
+    print("W.shape")
+    print(W.shape)
     fluxweight = W.dot(A).sum(axis=0).A[0]
 
     # The following minweight is a regularization term needed to avoid ringing due to 
