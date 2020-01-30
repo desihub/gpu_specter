@@ -359,9 +359,9 @@ Optional Inputs:
         iwavemax= iwavemin + wavesize
    
         xlo = (p['X'][ispecmin,iwavemin] + 20).astype(int)
-        xhi = (p['X'][ispecmax,iwavemax] + 20).astype(int)
+        xhi = (p['X'][ispecmax-1,iwavemax-1] + 20).astype(int)
         ylo = (p['Y'][ispecmin,iwavemin] - 20).astype(int)
-        yhi = (p['Y'][ispecmax,iwavemax] + 20).astype(int)
+        yhi = (p['Y'][ispecmax-1,iwavemax-1] + 20).astype(int)
 
         xyrange = [xlo, xhi, ylo, yhi]
 
