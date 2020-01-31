@@ -382,8 +382,8 @@ Optional Inputs:
         #ny, nx = psf.pix(speclo, wlo).shape
         #ny, nx = psf_pix #load from our file, cheating
         #double check this whole section!!!
-        ymin = ylo-ny+2
-        ymax = yhi+ny-2
+        # ymin = ylo-ny+2
+        # ymax = yhi+ny-2
         
         #nlo = max(int((wlo - psf.wavelength(speclo, ymin))/dw)-1, ndiag)
         #nhi = max(int((psf.wavelength(speclo, ymax) - whi)/dw)-1, ndiag)
