@@ -207,7 +207,8 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     xmax = np.max(xc[ispec:ispec+nspec, iwave:iwave+nwave]) + nx
     ymin = np.min(yc[ispec:ispec+nspec, iwave:iwave+nwave])
     ymax = np.max(yc[ispec:ispec+nspec, iwave:iwave+nwave]) + ny
-    # print('ymin, ymax = {}, {}'.format(ymin, ymax))
+    print('### Projection matrix: xmin, xmax, ymin, ymax = {}, {}, {}, {}'.format(xmin, xmax, ymin, ymax))
+    print('### Projection matrix: nx, ny, ispec, nspec, iwave, nwave: {}, {}, {}, {}, {}, {}'.format(nx, ny, ispec, nspec, iwave, nwave))
     A = np.zeros((ymax-ymin,xmax-xmin,nspec,nwave))
     # print('A.shape = {}'.format(A.shape))
     for i in range(nspec):
@@ -268,8 +269,8 @@ Optional Inputs:
     npzfile = np.load('/global/cscratch1/sd/stephey/psf_data_file.npz', allow_pickle=True)
     psf_wdisp = npzfile['arr_0'] #double check!
     psf_pix = npzfile['arr_1'] #double check!
-    ny = psf_pix[0]
-    nx = psf_pix[1]
+    # ny = psf_pix[0]
+    # nx = psf_pix[1]
 
     wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
     wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8) #also a hack
@@ -325,8 +326,8 @@ Optional Inputs:
     spots = cache_spots(nspec, nwave, p, wavelengths)
 
     #also need the bottom corners
-    xc = np.floor(p['X'][speclo:spechi,:] - p['HSIZEX']//2).astype(int)
-    yc = np.floor(p['Y'][speclo:spechi,:] - p['HSIZEY']//2).astype(int)
+    xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
+    yc = np.floor(p['Y'] - p['HSIZEY']//2).astype(int)
     corners = (xc, yc)
 
     ispecmin = speclo 
@@ -358,33 +359,11 @@ Optional Inputs:
         iwavemin = iwave
         iwavemax= iwavemin + wavesize
    
-        xlo = (p['X'][ispecmin,iwavemin] + 20).astype(int)
-        xhi = (p['X'][ispecmax-1,iwavemax-1] + 20).astype(int)
-        ylo = (p['Y'][ispecmin,iwavemin] - 20).astype(int)
-        yhi = (p['Y'][ispecmax-1,iwavemax-1] + 20).astype(int)
+        # xlo = (p['X'][ispecmin,iwavemin] + 20).astype(int)
+        # xhi = (p['X'][ispecmax-1,iwavemax-1] + 20).astype(int)
+        # ylo = (p['Y'][ispecmin,iwavemin] - 20).astype(int)
+        # yhi = (p['Y'][ispecmax-1,iwavemax-1] + 20).astype(int)
 
-        xyrange = [xlo, xhi, ylo, yhi]
-
-        print("xlo %s, xhi %s, ylo %s, yhi %s" %(xlo, xhi, ylo, yhi))
-    
-        if xyrange is None:
-            subxy = np.s_[ylo:yhi, xlo:xhi]
-        else:
-            subxy = np.s_[ylo-xyrange[2]:yhi-xyrange[2], xlo-xyrange[0]:xhi-xyrange[0]]
-        
-
-        #want to send this to the gpu once, re-use
-        #have outer wrapper pass in subset of image to save memory?
-        subimg = image[subxy]
-        subivar = imageivar[subxy]
- 
-        #- Determine extra border wavelength extent: nlo,nhi extra wavelength bins
-        #ny, nx = psf.pix(speclo, wlo).shape
-        #ny, nx = psf_pix #load from our file, cheating
-        #double check this whole section!!!
-        ymin = ylo-ny+2
-        ymax = yhi+ny-2
-        
         #nlo = max(int((wlo - psf.wavelength(speclo, ymin))/dw)-1, ndiag)
         #nhi = max(int((psf.wavelength(speclo, ymax) - whi)/dw)-1, ndiag)
         #cheat for now, maybe check specter for expected dimensions
@@ -394,6 +373,31 @@ Optional Inputs:
         ww = np.arange(wlo-nlo*dw, whi+(nhi+0.5)*dw, dw)
         wmin, wmax = ww[0], ww[-1]
         nw = len(ww)
+
+        ny, nx = spots.shape[2:4]
+        xlo = np.min(xc[0:spechi-speclo, iwave:iwave+nw])
+        xhi = np.max(xc[0:spechi-speclo, iwave:iwave+nw]) + nx
+        ylo = np.min(yc[0:spechi-speclo, iwave:iwave+nw])
+        yhi = np.max(yc[0:spechi-speclo, iwave:iwave+nw]) + ny
+        print('### ex2d: xmin, xmax, ymin, ymax = {}, {}, {}, {}'.format(xlo, xhi, ylo, yhi))
+        print('### ex2d: nx, ny, ispec, nspec, iwave, nwave: {}, {}, {}, {}, {}, {}'.format(nx, ny, ispec, spechi-speclo, iwave, nw))
+        print("xlo %s, xhi %s, ylo %s, yhi %s" %(xlo, xhi, ylo, yhi))
+        print("xmax-xmin {} ymax-ymin {}".format(xhi-xlo, yhi-ylo))
+        xyrange = [xlo, xhi, ylo, yhi]
+        subxy = np.s_[ylo-xyrange[2]:yhi-xyrange[2], xlo-xyrange[0]:xhi-xyrange[0]]
+
+        #want to send this to the gpu once, re-use
+        #have outer wrapper pass in subset of image to save memory?
+        print("imageivar.shape", imageivar.shape)
+        subimg = image[subxy]
+        subivar = imageivar[subxy]
+ 
+        #- Determine extra border wavelength extent: nlo,nhi extra wavelength bins
+        #ny, nx = psf.pix(speclo, wlo).shape
+        #ny, nx = psf_pix #load from our file, cheating
+        #double check this whole section!!!
+        # ymin = ylo-ny+2
+        # ymax = yhi+ny-2
 
         #- include \r carriage return to prevent scrolling
         if verbose:
@@ -576,6 +580,7 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #imgweights_cpu = imgweights_gpu.get()
     #A_cpu = A_gpu.get()
 
+    print("ivar", ivar)
     W = scipy.sparse.spdiags(data=ivar.ravel(), diags=[0,], m=npix, n=npix) #scipy sparse object
     #W_gpu = cpx.scipy.sparse.spdiags(data=imgweights_gpu.ravel(), diags=[0,], m=npix, n=npix)
     #yank gpu back to cpu so we can compare
@@ -601,7 +606,11 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     print(A.shape)
     print("W.shape")
     print(W.shape)
-    fluxweight = W.dot(A).sum(axis=0).A[0]
+    fluxweight = W.dot(A).sum(axis=0)[0]
+    print("W", W)
+    print("A", A)
+    print("W.dot(A)", W.dot(A))
+    print("fluxweight", fluxweight)
 
     # The following minweight is a regularization term needed to avoid ringing due to 
     # a flux bias on the edge flux bins in the
