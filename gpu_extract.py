@@ -558,7 +558,8 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     Araw, ymin, xmin = projection_matrix(ispec, nspec, iwave, nwave, spots, corners)
     #reshape
     nypix, nxpix = Araw.shape[0:2]
-    A = Araw.reshape(nypix*nxpix, nspec*nwave)
+    A_dense = Araw.reshape(nypix*nxpix, nspec*nwave)
+    A = scipy.sparse.csr_matrix(A_dense)
 
     ###Args:
     ###    ispec: starting spectrum index
@@ -580,7 +581,7 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #imgweights_cpu = imgweights_gpu.get()
     #A_cpu = A_gpu.get()
 
-    print("ivar", ivar)
+    print("ivar.shape", ivar.shape)
     W = scipy.sparse.spdiags(data=ivar.ravel(), diags=[0,], m=npix, n=npix) #scipy sparse object
     #W_gpu = cpx.scipy.sparse.spdiags(data=imgweights_gpu.ravel(), diags=[0,], m=npix, n=npix)
     #yank gpu back to cpu so we can compare
@@ -606,11 +607,8 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     print(A.shape)
     print("W.shape")
     print(W.shape)
-    fluxweight = W.dot(A).sum(axis=0)[0]
-    print("W", W)
-    print("A", A)
-    print("W.dot(A)", W.dot(A))
-    print("fluxweight", fluxweight)
+    fluxweight = W.dot(A).sum(axis=0).A[0]
+    print("fluxweight.shape", fluxweight.shape)
 
     # The following minweight is a regularization term needed to avoid ringing due to 
     # a flux bias on the edge flux bins in the
@@ -657,6 +655,7 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #make our new and improved wx using specter cleanup
     #Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
     Wx_cpu = scipy.sparse.spdiags(wx, 0, len(wx), len(wx))
+    Wx = Wx_cpu
 
     #iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
     iCov_cpu = Ax.T.dot(Wx.dot(Ax))
@@ -769,12 +768,12 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #passes
 
     ##pull back to cpu to return to ex2d
-    #flux = fx_gpu.get()
-    #ivar = varfx_gpu.get()
-    #R = R_gpu.get()
-    #xflux = f_gpu.get()
-    ##A is on the cpu for now
-    #iCov = iCov_gpu.get()
+    flux = fx_cpu
+    ivar = varfx_cpu
+    R = R_cpu
+    xflux = f_cpu
+    #A is on the cpu for now
+    iCov = iCov_cpu
 
     if full_output:
         results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
