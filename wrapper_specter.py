@@ -18,7 +18,8 @@ import argparse
 import numpy as np
 
 #ideally we could do this whole thing without touching specter
-#import specter
+#at least we aren't using it in the extraction part anyway
+import specter
 from astropy.io import fits
 from astropy.table import Table
 from gpu_extract import ex2d
@@ -294,14 +295,14 @@ def main(args, comm=None, timing=None):
             mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
             mask[chi2pix>100.0] |= specmask.BAD2DFIT
 
-            if heliocentric_correction_factor != 1 :
-                #- Apply heliocentric correction factor to the wavelength
-                #- without touching the spectra, that is the whole point
-                wave   *= heliocentric_correction_factor
-                wstart *= heliocentric_correction_factor
-                wstop  *= heliocentric_correction_factor
-                dw     *= heliocentric_correction_factor
-                img.meta['HELIOCOR']   = heliocentric_correction_factor
+            #if heliocentric_correction_factor != 1 :
+            #    #- Apply heliocentric correction factor to the wavelength
+            #    #- without touching the spectra, that is the whole point
+            #    wave   *= heliocentric_correction_factor
+            #    wstart *= heliocentric_correction_factor
+            #    wstop  *= heliocentric_correction_factor
+            #    dw     *= heliocentric_correction_factor
+            #    img.meta['HELIOCOR']   = heliocentric_correction_factor
 
             #- Augment input image header for output
             img.meta['NSPEC']   = (nspec, 'Number of spectra')
@@ -312,34 +313,39 @@ def main(args, comm=None, timing=None):
             img.meta['IN_PSF']  = (_trim(psf_file), 'Input spectral PSF')
             img.meta['IN_IMG']  = (_trim(input_file), 'Input image')
 
-            if fibermap is not None:
-                bfibermap = fibermap[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
-            else:
-                bfibermap = None
+            #if fibermap is not None:
+            #    bfibermap = fibermap[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
+            #else:
+            #lets stick with fibermap default
+            bfibermap = None
 
             bfibers = fibers[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
 
-            frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
-                        fibers=bfibers, meta=img.meta, fibermap=bfibermap,
-                        chi2pix=chi2pix)
 
-            #- Add unit
-            #   In specter.extract.ex2d one has flux /= dwave
-            #   to convert the measured total number of electrons per
-            #   wavelength node to an electron 'density'
-            frame.meta['BUNIT'] = 'count/Angstrom'
+            ###print("wave.shape", wave.shape)
+            ###print("flux.shape", flux.shape)
+            ###this fails because wave is shape (3202,) and flux.shape is (25,2802)
+            ###frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
+            ###            fibers=bfibers, meta=img.meta, fibermap=bfibermap,
+            ###            chi2pix=chi2pix)
 
-            #- Add scores to frame
-            compute_and_append_frame_scores(frame,suffix="RAW")
+            ####- Add unit
+            ####   In specter.extract.ex2d one has flux /= dwave
+            ####   to convert the measured total number of electrons per
+            ####   wavelength node to an electron 'density'
+            ###frame.meta['BUNIT'] = 'count/Angstrom'
+
+            ####- Add scores to frame
+            ####compute_and_append_frame_scores(frame,suffix="RAW")
 
             mark_extraction = time.time()
 
-            #- Write output
-            io.write_frame(outbundle, frame)
+            ####- Write output
+            ###io.write_frame(outbundle, frame)
 
-            if args.model is not None:
-                from astropy.io import fits
-                fits.writeto(outmodel, results['modelimage'], header=frame.meta)
+            ###if args.model is not None:
+            ###    from astropy.io import fits
+            ###    fits.writeto(outmodel, results['modelimage'], header=frame.meta)
 
             log.info('extract:  Done {} spectra {}:{} at {}'.format(os.path.basename(input_file),
                 bspecmin[b], bspecmin[b]+bnspec[b], time.asctime()))
@@ -367,33 +373,33 @@ def main(args, comm=None, timing=None):
         raise RuntimeError("some extraction bundles failed")
 
     time_merge = None
-    if rank == 0:
-        mark_merge_start = time.time()
-        mergeopts = [
-            '--output', args.output,
-            '--force',
-            '--delete'
-        ]
-        mergeopts.extend([ "{}_{:02d}.fits".format(outroot, b) for b in bundles ])
-        mergeargs = mergebundles.parse(mergeopts)
-        mergebundles.main(mergeargs)
+    ###if rank == 0:
+    mark_merge_start = time.time()
+    ###    mergeopts = [
+    ###        '--output', args.output,
+    ###        '--force',
+    ###        '--delete'
+    ###    ]
+    ###    mergeopts.extend([ "{}_{:02d}.fits".format(outroot, b) for b in bundles ])
+    ###    mergeargs = mergebundles.parse(mergeopts)
+    ###    mergebundles.main(mergeargs)
 
-        if args.model is not None:
-            model = None
-            for b in bundles:
-                outmodel = "{}_model_{:02d}.fits".format(outroot, b)
-                if model is None:
-                    model = fits.getdata(outmodel)
-                else:
-                    #- TODO: test and warn if models overlap for pixels with
-                    #- non-zero values
-                    model += fits.getdata(outmodel)
+    ###    if args.model is not None:
+    ###        model = None
+    ###        for b in bundles:
+    ###            outmodel = "{}_model_{:02d}.fits".format(outroot, b)
+    ###            if model is None:
+    ###                model = fits.getdata(outmodel)
+    ###            else:
+    ###                #- TODO: test and warn if models overlap for pixels with
+    ###                #- non-zero values
+    ###                model += fits.getdata(outmodel)
 
-                os.remove(outmodel)
+    ###            os.remove(outmodel)
 
-            fits.writeto(args.model, model)
-        mark_merge_end = time.time()
-        time_merge = mark_merge_end - mark_merge_start
+    ###        fits.writeto(args.model, model)
+    mark_merge_end = time.time()
+    time_merge = mark_merge_end - mark_merge_start
 
     # Resolve difference timer data
 
