@@ -1,14 +1,20 @@
 This is a README file for the DESI gpu hackathon code.
 
-There are two scripts:
+Directions to run (now working!) mini app
 
-`wrapper_specter.py` is the outer script that, does the arg parse, divides into bundles,
-launches the mpi ranks
+`ssh cori.nersc.gov`
+`cd $SCRATCH`
+`git clone https://github.com/sbailey/gpu_specter/`
+`cd gpu_specter`
+`git fetch
+`git checkout hackathon`
 
-`gpu_extract.py` does most of the work, including `projection_matrix`
+`source /global/cfs/cdirs/desi/software/desi_environment.sh master`
+`salloc -N 1 -t 30 -C haswell -q interactive`
 
-and the extraction kernel.
+`time srun -u -n 20 -c 2 python -u wrapper_specter.py -o test.fits`
 
-To run: 
+`wrapper_specter.py` which divides the ccd frame into 20 bundles and launches 20 mpi ranks
+then calls `gpu_extract.py` which does the prep for the projection matrix, actual projection matrix, and the extraction kernel
 
-`time srun -u -n 32 -c 2 python -u wrapper_specter.py -o test.fits`
+The answers are wrong and some bookkeeping issues need to be fixed, but this is good enough to get started for our purposes of moving this to the gpu
