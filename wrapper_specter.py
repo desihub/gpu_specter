@@ -36,7 +36,8 @@ from desispec.specscore import compute_and_append_frame_scores
 from desispec.heliocentric import heliocentric_velocity_multiplicative_corr
 
 #import our hackathon stuff
-from gpu_extract import ex2d
+#from cpu_extract import ex2d #for cpu
+from gpu_extract import ex2d #for gpu
 
 
 def parse(options=None):
