@@ -61,6 +61,7 @@ To run the gpu version
 You'll also need desi's `desispec` and `desiutil` libraries
 
 `git clone https://github.com/desihub/desispec`
+
 `git glone https://github.com/desihub/desiutil`
 
 Don't source the desi environment on the gpu. desi's mpi will not work on our gpus! this
@@ -83,6 +84,7 @@ https://docs-dev.nersc.gov/cgpu/software/#mpi4py
 When you have your custom conda environment ready to go
 
 `module load python`
+
 `module load cuda/10.1.243`
 
 `source activate <your_custom_conda_env>`
@@ -105,4 +107,19 @@ And launch the program, which currently runs for a few seconds and then fails:
 
 `time srun -u -n 5 -c 2 python -u wrapper_specter.py -o test.fits`
 
+Here is the current failure message you can expect to see:
 
+INFO:wrapper_specter.py:278:main: extract:  Rank 4 extracting pix-r0-00003578.fits spectra 425:450 at Tue Feb 11 11:35:40 2020
+ERROR:wrapper_specter.py:362:main: extract:  FAILED bundle 12, spectrum range 300:325
+ERROR:wrapper_specter.py:365:main: Traceback (most recent call last):
+  File "wrapper_specter.py", line 287, in main
+    full_output=True, nsubbundles=args.nsubbundles)
+  File "/global/cscratch1/sd/stephey/git_repo/gpu_specter/gpu_extract.py", line 482, in ex2d
+    full_output=True, use_cache=True)
+  File "/global/cscratch1/sd/stephey/git_repo/gpu_specter/gpu_extract.py", line 782, in ex2d_patch
+    f_cpu = np.linalg.solve(iCov_cpu.todense(), y_cpu).reshape((nspec, nwave)) #requires array, not sparse object
+  File "/global/homes/s/stephey/.conda/envs/desi_gpu_default/lib/python3.7/site-packages/numpy/linalg/linalg.py", line 403, in solve
+    r = gufunc(a, b, signature=signature, extobj=extobj)
+  File "/global/homes/s/stephey/.conda/envs/desi_gpu_default/lib/python3.7/site-packages/numpy/linalg/linalg.py", line 97, in _raise_linalgerror_singular
+    raise LinAlgError("Singular matrix")
+numpy.linalg.LinAlgError: Singular matrix
