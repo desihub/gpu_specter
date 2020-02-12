@@ -6,28 +6,25 @@ For the cpu version:
 
 `ssh cori.nersc.gov`
 
-`cd $SCRATCH`
+All files you need show now live in `/global/common/software/m1759/desi`
 
-`git clone https://github.com/sbailey/gpu_specter/`
+`cd /global/common/software/m1759/desi`
 
-`cd gpu_specter`
+`module load python`
 
-`git fetch`
+`source activate /global/common/software/m1759/desi/desi_gpu`
 
-`git checkout hackathon`
+`source desi_libs.sh`
 
-`source /global/cfs/cdirs/desi/software/desi_environment.sh master`
+Get an interactive Haswell node:
 
 `salloc -N 1 -t 30 -C haswell -q interactive`
 
-To run the cpu version of the code you'll need to change the line
-`from gpu_extract import ex2d`
-to 
-`from cpu_extract import ex2d`
+`cd gpu_specter`
 
-`time srun -u -n 20 -c 2 python -u wrapper_specter.py -o test.fits`
+`time srun -u -n 20 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
-`wrapper_specter.py` divides the ccd frame into 20 bundles and launches
+`cpu_wrapper_specter.py` divides the ccd frame into 20 bundles and launches
 20 mpi ranks then calls `gpu_extract.py` which does the prep for the projection
 matrix, actual projection matrix, and the extraction kernel.
 
@@ -54,58 +51,37 @@ To run the gpu version
 
 `ssh cori.nersc.gov`
 
-`cd $SCRATCH`
-
-`git clone https://github.com/sbailey/gpu_specter/`
-
-You'll also need desi's `desispec` and `desiutil` libraries
-
-`git clone https://github.com/desihub/desispec`
-
-`git glone https://github.com/desihub/desiutil`
-
-Don't source the desi environment on the gpu. desi's mpi will not work on our gpus! this
-is why we manually install and source the packages we need instead.
-
-`cd gpu_specter`
-
-`git fetch`
-
-`git checkout hackathon`
-
-You'll need to construct a custom conda environment with numba and cupy. You'll need to follow our directions here:
-
-https://docs-dev.nersc.gov/cgpu/software/#python
-
-You'll also have to install mpi4py into your conda environment. Follow the directions here:
-
-https://docs-dev.nersc.gov/cgpu/software/#mpi4py
-
-When you have your custom conda environment ready to go
-
-`module load python`
-
-`module load cuda/10.1.243`
-
-`source activate <your_custom_conda_env>`
-
-And source the desi libraries (you'll need to edit this file to point to wherever you installed
-desispec and desiutil):
-
-`source desi_libs.sh`
+`module load esslurm`
 
 Get a gpu node:
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A <account>`
 
-Make sure that the line in `wrapper_specter.py` calls the gpu version of the code:
-`from cpu_extract import ex2d`
-to
-`from gpu_extract import ex2d`
+All files you need show now live in `/global/common/software/m1759/desi`
+
+`cd /global/common/software/m1759/desi`
+
+`module load python`
+
+`module load cuda/10.1.243`
+
+Cuda must be version 10.1 to be compatible with the latest release of CuPy (also 10.1)
+
+`source activate /global/common/software/m1759/desi/desi_gpu`
+
+This ugly conda environment should have everything you need to run the desi code (both cpu and gpu versions). 
+
+Then source the custom desi modules 
+
+`source desi_libs.sh`
+
+`cd gpu_specter`
+
+Branch should by default be `Hackathon`
 
 And launch the program, which currently runs for a few seconds and then fails:
 
-`time srun -u -n 5 -c 2 python -u wrapper_specter.py -o test.fits`
+`time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
 
 Here is the current failure message you can expect to see:
 

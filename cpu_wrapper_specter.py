@@ -19,7 +19,7 @@ import numpy as np
 
 #ideally we could do this whole thing without touching specter
 #at least we aren't using it in the extraction part anyway
-import specter
+#import specter
 from astropy.io import fits
 from astropy.table import Table
 from gpu_extract import ex2d
@@ -36,8 +36,8 @@ from desispec.specscore import compute_and_append_frame_scores
 from desispec.heliocentric import heliocentric_velocity_multiplicative_corr
 
 #import our hackathon stuff
-#from cpu_extract import ex2d #for cpu
-from gpu_extract import ex2d #for gpu
+from cpu_extract import ex2d #for cpu
+#from gpu_extract import ex2d #for gpu
 
 
 def parse(options=None):
