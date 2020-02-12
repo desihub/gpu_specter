@@ -6,21 +6,23 @@ For the cpu version:
 
 `ssh cori.nersc.gov`
 
-All files you need show now live in `/global/common/software/m1759/desi`
-
-`cd /global/common/software/m1759/desi`
-
-`module load python`
-
-`source activate /global/common/software/m1759/desi/desi_gpu`
-
-`source desi_libs.sh`
-
 Get an interactive Haswell node:
 
 `salloc -N 1 -t 30 -C haswell -q interactive`
 
+Use our special conda environment for running desi on the cpu:
+
+`module load python`
+
+`source activate /global/common/software/m1759/desi/desi_cpu`
+
+`cd /global/common/software/m1759/desi`
+
+`source desi_libs.sh`
+
 `cd gpu_specter`
+
+Branch should be `Hackathon`
 
 `time srun -u -n 20 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
@@ -42,7 +44,7 @@ For the gpu version:
 GPU conversion is in progress. `cache_spots` and `projection_matrix` are
 now completely on the gpu. We have an error in the gpu function `projection_matrix`
 that results in zeros for the final wavelength patch. This causes singular matrices
-and the whole program crashes. We hope to solve this soon. 
+and the whole program crashes. We are actively trying to solve this.
 
 After this point, we can flip our numpy functions in `ex2d_patch` over to cupy functions.
 This part has been previously tested so it should hopefully work as desired.
@@ -67,9 +69,9 @@ All files you need show now live in `/global/common/software/m1759/desi`
 
 Cuda must be version 10.1 to be compatible with the latest release of CuPy (also 10.1)
 
-`source activate /global/common/software/m1759/desi/desi_gpu`
+Source our special desi gpu conda environment:
 
-This ugly conda environment should have everything you need to run the desi code (both cpu and gpu versions). 
+`source activate /global/common/software/m1759/desi/desi_gpu`
 
 Then source the custom desi modules 
 

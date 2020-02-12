@@ -243,8 +243,8 @@ def projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
             #A[iyc:iyc+ny, ixc:ixc+nx, i, j] = spots[ispec+i,iwave+j]
             #this fancy indexing is not allowed in numba gpu (although it is in numba cpu...)
             #try this instead
-            for iy, y in enumerate(range(iyc,iyc+ny)):
-                for ix, x in enumerate(range(ixc,ixc+nx)):
+            for ix, x in enumerate(range(ixc,ixc+nx)):
+                for iy, y in enumerate(range(iyc,iyc+ny)):
                     temp_spot = spots[ispec+i, iwave+j][iy, ix]
                     A[y, x, i, j] += temp_spot
 
