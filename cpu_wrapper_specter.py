@@ -22,7 +22,6 @@ import numpy as np
 #import specter
 from astropy.io import fits
 from astropy.table import Table
-from gpu_extract import ex2d
 
 #we should get rid of desispec too
 #we'll worry about that later
