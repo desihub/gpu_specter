@@ -48,6 +48,18 @@ To run the cpu version:
 
 This runs in about 3 mins on the skylake using 1/8 of a cpu.
 
+You'll see some mpi warning messages at the end but don't panic, apparently these are `normal` on corigpu for mpi4py
+
+Everything ran correctly if you see all 20 ranks report:
+
+```
+INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 375:400 at Wed Feb 12 12:41:56 2020
+INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 275:300 at Wed Feb 12 12:41:56 2020
+INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 175:200 at Wed Feb 12 12:41:57 2020
+INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 475:500 at Wed Feb 12 12:41:57 2020
+INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 75:100 at Wed Feb 12 12:41:58 2020
+```
+
 To run the gpu version (which currently runs for a few seconds and then fails):
 
 `time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
