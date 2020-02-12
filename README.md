@@ -10,19 +10,20 @@ Get an interactive Haswell node:
 
 `salloc -N 1 -t 30 -C haswell -q interactive`
 
-Use our special conda environment for running desi on the cpu:
+for now use the desi environment (if you can)
+if you don't have permission to access please let me know
 
-`module load python`
+`source activate /global/cfs/cdirs/desi/software/desi_environment.sh master`
 
-`source activate /global/common/software/m1759/desi/desi_cpu`
+`cd $SCRATCH`
 
-`cd /global/common/software/m1759/desi`
-
-`source desi_libs.sh`
+`git clone https://github.com/sbailey/gpu_specter`
 
 `cd gpu_specter`
 
-Branch should be `Hackathon`
+`git fetch`
+
+`git checkout hackathon`
 
 `time srun -u -n 20 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
@@ -47,7 +48,7 @@ and the whole program crashes. We are actively trying to solve this.
 After this point, we can flip our numpy functions in `ex2d_patch` over to cupy functions.
 This part has been previously tested so it should hopefully work as desired.
 
-To run the gpu version
+To run the gpu version (everyone should be able to run, no linux group necessary)
 
 `ssh cori.nersc.gov`
 
@@ -57,10 +58,6 @@ Get a gpu node:
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A <account>`
 
-All files you need show now live in `/global/common/software/m1759/desi`
-
-`cd /global/common/software/m1759/desi`
-
 `module load python`
 
 `module load cuda/10.1.243`
@@ -69,22 +66,21 @@ Cuda must be version 10.1 to be compatible with the latest release of CuPy (also
 
 Source our special desi gpu conda environment:
 
-`source activate /global/common/software/m1759/desi/desi_gpu`
+`source activate /global/cfs/cdirs/m1759/desi/desi_gpu`
 
 Then source the custom desi modules 
 
-`source desi_libs.sh`
+`source /global/cfs/cdirs/m1759/desi/desi_libs.sh`
 
-`cd gpu_specter`
+`cd /global/cfs/cdirs/m1759/desi/gpu_specter`
 
-Branch should by default be `Hackathon`
-
-And launch the program, which currently runs for a few seconds and then fails:
+And launch the program which currently runs for a few seconds and then fails:
 
 `time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
 
 Here is the current failure message you can expect to see:
 
+```
 INFO:wrapper_specter.py:278:main: extract:  Rank 4 extracting pix-r0-00003578.fits spectra 425:450 at Tue Feb 11 11:35:40 2020
 ERROR:wrapper_specter.py:362:main: extract:  FAILED bundle 12, spectrum range 300:325
 ERROR:wrapper_specter.py:365:main: Traceback (most recent call last):
@@ -99,3 +95,5 @@ ERROR:wrapper_specter.py:365:main: Traceback (most recent call last):
   File "/global/homes/s/stephey/.conda/envs/desi_gpu_default/lib/python3.7/site-packages/numpy/linalg/linalg.py", line 97, in _raise_linalgerror_singular
     raise LinAlgError("Singular matrix")
 numpy.linalg.LinAlgError: Singular matrix
+```
+
