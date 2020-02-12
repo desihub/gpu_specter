@@ -28,13 +28,12 @@ if you don't have permission to access please let me know
 `time srun -u -n 20 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
 `cpu_wrapper_specter.py` divides the ccd frame into 20 bundles and launches
-20 mpi ranks then calls `gpu_extract.py` which does the prep for the projection
+20 mpi ranks then calls `cpu_extract.py` which does the prep for the projection
 matrix, actual projection matrix, and the extraction kernel.
 
 The answers are wrong and some bookkeeping issues need to be fixed, but this is
 good enough to get started for our purposes of moving this to the gpu. 
 
-Seems to be running slowly on `global/common`. We'll keep an eye on this. 
 
 #####################
 
