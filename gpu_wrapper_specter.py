@@ -19,7 +19,7 @@ import numpy as np
 
 #ideally we could do this whole thing without touching specter
 #at least we aren't using it in the extraction part anyway
-#import specter
+import specter #need this for io stuff
 from astropy.io import fits
 from astropy.table import Table
 
