@@ -33,9 +33,7 @@ matrix, actual projection matrix, and the extraction kernel.
 The answers are wrong and some bookkeeping issues need to be fixed, but this is
 good enough to get started for our purposes of moving this to the gpu. 
 
-Right now this runs in about 2 mins on Haswell (although it is missing the
-somewhat expensive reassembly steps at the end). 
-
+Seems to be running slowly on `global/common`. We'll keep an eye on this. 
 
 #####################
 
