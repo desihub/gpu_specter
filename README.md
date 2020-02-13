@@ -1,12 +1,8 @@
 This is a README file for the DESI gpu hackathon code.
 
-The answers are wrong and some bookkeeping issues need to be fixed, but this is
-good enough to get started for our purposes of moving this to the gpu. 
+The answers are wrong and some bookkeeping issues need to be fixed (so it can't be swapped directly into the desi pipeline), but this is good enough to get started for our purposes of moving this to the gpu. 
 
-
-#####################
-
-For both the cpu and gpu versions:
+# For both the cpu and gpu:
 
 To run the both versions on our cori gpu skylakes/v100s (everyone should be able to run, no linux group necessary)
 
@@ -34,7 +30,7 @@ Then source the custom desi modules
 
 `cd /global/cfs/cdirs/m1759/desi/gpu_specter`
 
-To run the cpu version:
+# To run the cpu version:
 
 `time srun -u -n 5 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
@@ -52,8 +48,18 @@ INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectr
 INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 75:100 at Wed Feb 12 12:41:58 2020
 ```
 
-To run the gpu version:
+# To run the gpu version:
 
 `time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
+
+Right now it successfully runs on 1 cori gpu (and 1/8 skylake) in about 4 mins (slower than the cpu version).
+`cache_spots` and `projection_matrix` are now on the gpu.
+
+# Next steps
+
+* cpu profiling
+* gpu profiling
+* Flipping cpu functions to gpu functions in `ex2d_patch` extraction kernel (be careful, probably will OOM)
+* Removing mpi, running whole frame on a single gpu
 
 
