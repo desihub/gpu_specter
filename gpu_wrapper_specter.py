@@ -37,6 +37,7 @@ from desispec.heliocentric import heliocentric_velocity_multiplicative_corr
 #import our hackathon stuff
 #from cpu_extract import ex2d #for cpu
 from gpu_extract import ex2d #for gpu
+#from both_extract import ex2d #for debugging
 
 
 def parse(options=None):
@@ -104,7 +105,10 @@ def main(args, comm=None, timing=None):
     #lets try it
     psf_file = 'psf.fits'
     psfdata = Table.read(psf_file)
-    wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8)
+    #print("psfdata.keys", list(psfdata.keys()))
+
+    #hack!
+    wavelengths = np.arange(psfdata['WAVEMIN'][0]+100, psfdata['WAVEMAX'][0]-100, 0.8)
  
     #right now cache_spots happens once per bundle to make bookkeeping less of a nighmare
     #and also not to blow memory

@@ -10,12 +10,15 @@ from scipy.sparse import spdiags, issparse
 from scipy.sparse.linalg import spsolve
 import time
 import math
+from numpy.polynomial import hermite_e as He
 
 import numba
 import cupy as cp
 import cupyx as cpx
 import cupyx.scipy.special
 from numba import cuda
+
+###########gpu functions
 
 def native_endian(data):
     """Temporary function, sourced from desispec.io
@@ -209,8 +212,7 @@ def multispot(pGHx, pGHy, ghc, mspots):
                 for iy in range(len(py)):
                     for ix in range(len(px)):
                         mspots[iwave, iy, ix] += c * py[iy] * px[ix]
-
-
+    
 def cache_spots(nx, ny, nspec, nwave, p, wavelengths):
     spots = cp.zeros((nspec, nwave, ny, nx))
     #use mark's numblocks and blocksize method
@@ -223,7 +225,6 @@ def cache_spots(nx, ny, nspec, nwave, p, wavelengths):
         multispot[numblocks, blocksize](pGHx, pGHy, ghc, mspots)
         spots[ispec] = mspots
     return spots
-
 
 @cuda.jit()
 def projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
@@ -241,6 +242,187 @@ def projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
             for ix, x in enumerate(range(ixc,ixc+nx)):
                 temp_spot = spots[ispec+i, iwave+j][iy, ix]
                 A[y, x, i, j] += temp_spot
+
+#####################cpu functions
+
+def evalcoeffs_cpu(wavelengths, psfdata):
+    '''
+    wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
+    psfdata: Table of parameter data ready from a GaussHermite format PSF file
+
+    Returns a dictionary params[paramname] = value[nspec, nwave]
+
+    The Gauss Hermite coefficients are treated differently:
+
+        params['GH'] = value[i,j,nspec,nwave]
+
+    The dictionary also contains scalars with the recommended spot size HSIZEX, HSIZEY
+    and Gauss-Hermite degrees GHDEGX, GHDEGY (which is also derivable from the dimensions
+    of params['GH'])
+    '''
+    wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
+    wx = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    L = np.polynomial.legendre.legvander(wx, psfdata.meta['LEGDEG'])
+
+    p = dict(WAVE=wavelengths)
+    nparam, nspec, ndeg = psfdata['COEFF'].shape
+    nwave = L.shape[0]
+    p['GH'] = np.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
+    for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
+        name = name.strip()
+        if name.startswith('GH-'):
+            i, j = map(int, name.split('-')[1:3])
+            p['GH'][i,j] = L.dot(coeff.T).T
+        else:
+            p[name] = L.dot(coeff.T).T
+
+    #- Include some additional keywords that we'll need
+    for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
+        p[key] = psfdata.meta[key]
+
+    return p
+
+def calc_pgh_cpu(ispec, wavelengths, p_cpu):
+    '''
+    Calculate the pixelated Gauss Hermite for all wavelengths of a single spectrum
+    ispec : integer spectrum number
+    wavelengths : array of wavelengths to evaluate
+    psfparams : dictionary of PSF parameters returned by evalcoeffs
+    returns pGHx, pGHy
+    where pGHx[ghdeg+1, nwave, nbinsx] contains the pixel-integrated Gauss-Hermite polynomial
+    for all degrees at all wavelengths across nbinsx bins spaning the PSF spot, and similarly
+    for pGHy.  The core PSF will then be evaluated as
+    PSFcore = sum_ij c_ij outer(pGHy[j], pGHx[i])
+    '''
+
+    #- spot size (ny,nx)
+    nx = p_cpu['HSIZEX']
+    ny = p_cpu['HSIZEY']
+    nwave = len(wavelengths)
+    # print('Spot size (ny,nx) = {},{}'.format(ny, nx))
+    # print('nwave = {}'.format(nwave))
+
+    #- x and y edges of bins that span the center of the PSF spot
+    xedges = np.repeat(np.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
+    yedges = np.repeat(np.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+
+    #- Shift to be relative to the PSF center at 0 and normalize
+    #- by the PSF sigma (GHSIGX, GHSIGY)
+    #- xedges[nx+1, nwave]
+    #- yedges[ny+1, nwave]
+    xedges = ((xedges - p_cpu['X'][ispec]%1)/p_cpu['GHSIGX'][ispec])
+    yedges = ((yedges - p_cpu['Y'][ispec]%1)/p_cpu['GHSIGY'][ispec])
+#     print('xedges.shape = {}'.format(xedges.shape))
+#     print('yedges.shape = {}'.format(yedges.shape))
+
+    #- Degree of the Gauss-Hermite polynomials
+    ghdegx = p_cpu['GHDEGX']
+    ghdegy = p_cpu['GHDEGY']
+
+    #- Evaluate the Hermite polynomials at the pixel edges
+    #- HVx[ghdegx+1, nwave, nx+1]
+    #- HVy[ghdegy+1, nwave, ny+1]
+    HVx = He.hermevander(xedges, ghdegx).T
+    HVy = He.hermevander(yedges, ghdegy).T
+    # print('HVx.shape = {}'.format(HVx.shape))
+    # print('HVy.shape = {}'.format(HVy.shape))
+
+    #- Evaluate the Gaussians at the pixel edges
+    #- Gx[nwave, nx+1]
+    #- Gy[nwave, ny+1]
+    Gx = np.exp(-0.5*xedges**2).T / np.sqrt(2. * np.pi)   # (nwave, nedges)
+    Gy = np.exp(-0.5*yedges**2).T / np.sqrt(2. * np.pi)
+    # print('Gx.shape = {}'.format(Gx.shape))
+    # print('Gy.shape = {}'.format(Gy.shape))
+
+    #- Combine into Gauss*Hermite
+    GHx = HVx * Gx
+    GHy = HVy * Gy
+
+    #- Integrate over the pixels using the relationship
+    #  Integral{ H_k(x) exp(-0.5 x^2) dx} = -H_{k-1}(x) exp(-0.5 x^2) + const
+
+    #- pGHx[ghdegx+1, nwave, nx]
+    #- pGHy[ghdegy+1, nwave, ny]
+    pGHx = np.zeros((ghdegx+1, nwave, nx))
+    pGHy = np.zeros((ghdegy+1, nwave, ny))
+    pGHx[0] = 0.5 * np.diff(scipy.special.erf(xedges/np.sqrt(2.)).T)
+    pGHy[0] = 0.5 * np.diff(scipy.special.erf(yedges/np.sqrt(2.)).T)
+    pGHx[1:] = GHx[:ghdegx,:,0:nx] - GHx[:ghdegx,:,1:nx+1]
+    pGHy[1:] = GHy[:ghdegy,:,0:ny] - GHy[:ghdegy,:,1:ny+1]
+    # print('pGHx.shape = {}'.format(pGHx.shape))
+    # print('pGHy.shape = {}'.format(pGHy.shape))
+
+    return pGHx, pGHy
+
+
+@numba.jit(nopython=True)
+def multispot_cpu(pGHx, pGHy, ghc):
+    nx = pGHx.shape[-1]
+    ny = pGHy.shape[-1]
+    nwave = pGHx.shape[1]
+    spots = np.zeros((nwave, ny, nx))
+
+    tmpspot = np.zeros((ny,nx))
+    for iwave in range(nwave):
+        for i in range(pGHx.shape[0]):
+            px = pGHx[i,iwave]
+            for j in range(0, pGHy.shape[0]):
+                py = pGHy[j,iwave]
+                c = ghc[i,j,iwave]
+                #- c * outer(py, px)
+                for iy in range(len(py)):
+                    for ix in range(len(px)):
+                        spots[iwave, iy, ix] += c * py[iy] * px[ix]
+
+    return spots
+
+def cache_spots_cpu(nspec, nwave, p_cpu, wavelengths):
+    nx = p_cpu['HSIZEX']
+    ny = p_cpu['HSIZEY']
+    spots = np.zeros((nspec, nwave, ny, nx))
+    for ispec in range(nspec):
+        pGHx, pGHy = calc_pgh_cpu(ispec, wavelengths, p_cpu)
+        spots[ispec] = multispot_cpu(pGHx, pGHy, p_cpu['GH'][:,:,ispec,:])
+    return spots
+
+@numba.jit
+def projection_matrix_cpu(ispec, nspec, iwave, nwave, spots, corners):
+    '''
+    Create the projection matrix A for p = Af
+    
+    Args:
+        ispec: starting spectrum index
+        nspec: number of spectra
+        iwave: starting wavelength index
+        nwave: number of wavelengths
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+    
+    Returns 4D A[iy, ix, ispec, iwave] projection matrix
+    
+    Cast to 2D for using with linear algebra:
+    
+        nypix, nxpix, nspec, nwave = A.shape
+        A2D = A.reshape((nypix*nxpix, nspec*nwave))
+        pix1D = A2D.dot(flux1D)
+    '''
+    ny, nx = spots.shape[2:4]
+    xc, yc = corners
+    xmin = np.min(xc[ispec:ispec+nspec, iwave:iwave+nwave])
+    xmax = np.max(xc[ispec:ispec+nspec, iwave:iwave+nwave]) + nx
+    ymin = np.min(yc[ispec:ispec+nspec, iwave:iwave+nwave])
+    ymax = np.max(yc[ispec:ispec+nspec, iwave:iwave+nwave]) + ny
+    # print('ymin, ymax = {}, {}'.format(ymin, ymax))
+    A = np.zeros((ymax-ymin,xmax-xmin,nspec,nwave))
+    # print('A.shape = {}'.format(A.shape))
+    for i in range(nspec):
+        for j in range(nwave):
+            ixc = xc[ispec+i, iwave+j] - xmin
+            iyc = yc[ispec+i, iwave+j] - ymin
+            A[iyc:iyc+ny, ixc:ixc+nx, i, j] = spots[ispec+i,iwave+j]
+    
+    return A, ymin, xmin
 
 
 def ex2d(image, imageivar, psfdata, specmin, nspec, wavelengths, xyrange=None,
@@ -298,11 +480,23 @@ Optional Inputs:
 
     wavemin, wavemax = wavelengths[0], wavelengths[-1]
 
-    #wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
-    #wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8) #also a hack
-
     #lets do evalcoeffs to create p (dict with keys)
+    #!!!!!!!!!!!!our first cpu/gpu test
+    p_cpu = evalcoeffs_cpu(wavelengths, psfdata)
     p = evalcoeffs(wavelengths, psfdata)
+    #print("p.keys()")
+    #print(p.keys())
+    #there are a lot of keys here
+    #dict_keys(['WAVE', 'GH', 'X', 'Y', 'GHSIGX', 'GHSIGY', 'TAILAMP', 'TAILCORE', 'TAILXSCA', 'TAILYSCA', 'TAILINDE', 'CONT', 'HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY'])
+    #lets compare only a few or we'll be here all night
+    WAVE_cpu = p_cpu['WAVE']
+    WAVE_gpu = p['WAVE']
+    assert np.allclose(WAVE_cpu, WAVE_gpu) #passes
+    GH_cpu = p_cpu['GH']
+    GH_gpu = p['GH'].get()
+    assert np.allclose(GH_cpu, GH_gpu) #passes
+    #ok we can declare that cpu and gpu evalcoeffs are most likely the same
+    print("evalcoeffs check passed")
 
     #need nx and ny for cache_spots
     nx = p['HSIZEX']
@@ -316,7 +510,7 @@ Optional Inputs:
     #keep
     #[ True  True  True  True False]
     #do keep ourselves too
-    keep = np.ones(25,dtype=bool) #keep the whole bundle, is this right? probably not...
+    keep = np.ones(25,dtype=bool) #keep the whole bundle, is this right?
 
     #- TODO: check input dimensionality etc.
 
@@ -357,9 +551,16 @@ Optional Inputs:
 
     psferr = 0.01 #double check!
 
-    #do entire bundle
-    #ok cache_spots seems to work here
+    #!!!!!!!!!!!!!!!!!!!!!!next cpu/gpu comparison
+    spots_cpu = cache_spots_cpu(nspec, nwave, p_cpu, wavelengths)
     spots = cache_spots(nx, ny, nspec, nwave, p, wavelengths)
+    #yank back and compare
+    spots_gpu = spots.get()
+
+    #np.save('spots_cpu.npy', spots_cpu)
+    #np.save('spots_gpu.npy', spots_gpu)
+    assert np.allclose(spots, spots_cpu)
+    print("spots check passed")
 
     #also need the bottom corners
     xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
@@ -456,7 +657,7 @@ Optional Inputs:
         #print("iwave", iwave)
 
         results = \
-            ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
+            ex2d_patch(subimg, subivar, p, psfdata, spots, spots_cpu, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
                 xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
                 full_output=True, use_cache=True)       
@@ -574,7 +775,7 @@ Optional Inputs:
         return flux, ivar, Rd
 
 
-def ex2d_patch(image, ivar, p, psfdata, spots, corners, 
+def ex2d_patch(image, ivar, p, psfdata, spots, spots_cpu, corners, 
          iwave, tws, specmin, nspec, wavelengths, xyrange,
          full_output=False, regularize=0.0, ndecorr=False, use_cache=None):
     """
@@ -638,8 +839,16 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
 
+    xc_cpu = xc.get()
+    yc_cpu = yc.get()
+    corners_cpu = xc_cpu, yc_cpu
+
+    A_cpu, ymin, xmin = projection_matrix_cpu(ispec, nspec, iwave, nwave, spots_cpu, corners_cpu)
     projection_matrix[blocks_per_grid, threads_per_block](A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
-    #A returns to the cpu automatically
+    A_gpu = A #automaticlly back on cpu
+    assert np.allclose(A_cpu, A_gpu)
+    print("projection_matrix test passed")
+    
     #reshape
     Araw = A
     #print("Araw", Araw)
@@ -667,8 +876,6 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
 
     ####################################################################################
     #patch specter cleanup in here 
-    #this is all on the cpu for right now, needs to be converted to gpu!
-
 
     #-----
     #- Extend A with an optional regularization term to limit ringing.

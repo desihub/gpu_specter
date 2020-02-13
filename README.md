@@ -8,14 +8,6 @@ good enough to get started for our purposes of moving this to the gpu.
 
 For both the cpu and gpu versions:
 
-GPU conversion is in progress. `cache_spots` and `projection_matrix` are
-now on the gpu. We have an error in the gpu function `projection_matrix`
-that results in zeros for the final wavelength patch. This causes singular matrices
-and the whole program crashes. We are actively trying to solve this.
-
-After this point, we can flip our numpy functions in `ex2d_patch` over to cupy functions.
-This part has been previously tested so it should hopefully work as desired.
-
 To run the both versions on our cori gpu skylakes/v100s (everyone should be able to run, no linux group necessary)
 
 `ssh cori.nersc.gov`
@@ -24,7 +16,7 @@ To run the both versions on our cori gpu skylakes/v100s (everyone should be able
 
 Get a cori gpu node:
 
-`salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A <account>`
+`salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
 
 `module load python`
 
@@ -60,26 +52,8 @@ INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectr
 INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 75:100 at Wed Feb 12 12:41:58 2020
 ```
 
-To run the gpu version (which currently runs for a few seconds and then fails):
+To run the gpu version:
 
 `time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
 
-Here is the current failure message you can expect to see:
-
-```
-INFO:wrapper_specter.py:278:main: extract:  Rank 4 extracting pix-r0-00003578.fits spectra 425:450 at Tue Feb 11 11:35:40 2020
-ERROR:wrapper_specter.py:362:main: extract:  FAILED bundle 12, spectrum range 300:325
-ERROR:wrapper_specter.py:365:main: Traceback (most recent call last):
-  File "wrapper_specter.py", line 287, in main
-    full_output=True, nsubbundles=args.nsubbundles)
-  File "/global/cscratch1/sd/stephey/git_repo/gpu_specter/gpu_extract.py", line 482, in ex2d
-    full_output=True, use_cache=True)
-  File "/global/cscratch1/sd/stephey/git_repo/gpu_specter/gpu_extract.py", line 782, in ex2d_patch
-    f_cpu = np.linalg.solve(iCov_cpu.todense(), y_cpu).reshape((nspec, nwave)) #requires array, not sparse object
-  File "/global/homes/s/stephey/.conda/envs/desi_gpu_default/lib/python3.7/site-packages/numpy/linalg/linalg.py", line 403, in solve
-    r = gufunc(a, b, signature=signature, extobj=extobj)
-  File "/global/homes/s/stephey/.conda/envs/desi_gpu_default/lib/python3.7/site-packages/numpy/linalg/linalg.py", line 97, in _raise_linalgerror_singular
-    raise LinAlgError("Singular matrix")
-numpy.linalg.LinAlgError: Singular matrix
-```
 

@@ -13,10 +13,7 @@ import time
 from numpy.polynomial import hermite_e as He
 
 import numba
-#import cupy as cp
-#import cupyx as cpx
 
-#this is what gausshermite init does
 def evalcoeffs(wavelengths, psfdata):
     '''
     wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
@@ -132,7 +129,6 @@ def calc_pgh(ispec, wavelengths, p):
     return pGHx, pGHy
 
 
-#this might be like generate_core? which is in _xypix
 @numba.jit(nopython=True)
 def multispot(pGHx, pGHy, ghc):
     '''
@@ -164,7 +160,7 @@ def cache_spots(nspec, nwave, p, wavelengths):
     for ispec in range(nspec):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
         spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
-        return spots
+    return spots
 
 #@numba.jit
 def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
@@ -189,32 +185,13 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     '''
     ny, nx = spots.shape[2:4]
     xc, yc = corners
-    #print("xc.shape")
-    #print(xc.shape)
-    #print("nx")
-    #print(nx)
-    #print("ny")
-    #print(ny)
-    #print("ispec")
-    #print(ispec)
-    #print("nspec")
-    #print(nspec)
-    #print("iwave")
-    #print(iwave)
-    #print("nwave")
-    #print(nwave)
     xmin = np.min(xc[ispec:ispec+nspec, iwave:iwave+nwave])
     xmax = np.max(xc[ispec:ispec+nspec, iwave:iwave+nwave]) + nx
     ymin = np.min(yc[ispec:ispec+nspec, iwave:iwave+nwave])
     ymax = np.max(yc[ispec:ispec+nspec, iwave:iwave+nwave]) + ny
-    #print('### Projection matrix: xmin, xmax, ymin, ymax = {}, {}, {}, {}'.format(xmin, xmax, ymin, ymax))
-    #print('### Projection matrix: nx, ny, ispec, nspec, iwave, nwave: {}, {}, {}, {}, {}, {}'.format(nx, ny, ispec, nspec, iwave, nwave))
     A = np.zeros((ymax-ymin,xmax-xmin,nspec,nwave))
-    # print('A.shape = {}'.format(A.shape))
     for i in range(nspec):
         for j in range(nwave):
-            #needs to add some kind of check for the end of the wavelength range, runs out of values
-            #for now let's handle that in the function call, not here
             ixc = xc[ispec+i, iwave+j] - xmin
             iyc = yc[ispec+i, iwave+j] - ymin
             A[iyc:iyc+ny, ixc:ixc+nx, i, j] = spots[ispec+i,iwave+j]
