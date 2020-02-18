@@ -1,363 +1,81 @@
-==79595== Profiling result:
-==79597==             Type  Time(%)      Time     Calls       Avg       Min       Max  Name
-Profiling result:
- GPU activities:   48.69%  2.39582s       176  13.613ms  1.7920us  73.557ms  [CUDA memcpy DtoH]
-                   32.72%  1.61030s        65  24.774ms  1.7280us  62.571ms  [CUDA memcpy HtoD]
-==79599== Profiling result:
-==79596==             Type  Time(%)      Time     Calls       Avg       Min       Max  Name
-Profiling result:
- GPU activities:   48.67%  2.17431s       162  13.422ms  1.7600us  74.396ms  [CUDA memcpy DtoH]
-                    7.75%  381.39ms       100  3.8139ms  1.3118ms  8.2782ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
-                   32.04%  1.43144s        60  23.857ms  1.9520us  61.252ms  [CUDA memcpy HtoD]
+==79524== NVPROF is profiling process 79524, command: python -u gpu_wrapper_specter.py -o test.fits
+==79524== Profiling application: python -u gpu_wrapper_specter.py -o test.fits
+==79524== Profiling result:
             Type  Time(%)      Time     Calls       Avg       Min       Max  Name
-                    5.05%  248.33ms       200  1.2416ms  376.45us  7.5120ms  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
-            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
- GPU activities:   51.42%  2.39844s       176  13.627ms  1.7600us  73.014ms  [CUDA memcpy DtoH]
-                    3.19%  156.74ms      1044  150.13us  1.2800us  7.2685ms  cupy_copy
-                    8.54%  381.46ms       100  3.8146ms  1.3123ms  8.3570ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
- GPU activities:   56.52%  2.27661s       174  13.084ms  1.7600us  75.868ms  [CUDA memcpy DtoH]
-                   31.14%  1.45249s        65  22.346ms  1.6960us  57.804ms  [CUDA memcpy HtoD]
-                   34.48%  1.38895s        63  22.047ms  1.7920us  101.77ms  [CUDA memcpy HtoD]
-                    1.58%  77.717ms        28  2.7756ms  2.4765ms  4.9550ms  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
-                    5.57%  248.93ms       200  1.2447ms  374.75us  7.5935ms  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
-                    3.10%  138.52ms      1036  133.71us  1.2480us  7.2662ms  cupy_copy
-                    7.29%  340.14ms       100  3.4014ms  1.3077ms  8.2703ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
-                    0.46%  22.621ms       364  62.146us  18.784us  7.2774ms  volta_dgemm_64x64_tn
-                    0.24%  11.677ms       500  23.354us  1.2480us  4.4646ms  [CUDA memcpy DtoD]
-                    3.31%  133.30ms       100  1.3330ms  1.3091ms  2.0980ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
-                    0.16%  7.6288ms       600  12.714us  1.3440us  4.7931ms  cupy_multiply
-                    5.00%  233.00ms       200  1.1650ms  378.62us  7.7960ms  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
-                    0.06%  3.0482ms       808  3.7720us  1.4080us  36.928us  cupy_subtract
-                    1.49%  66.405ms        25  2.6562ms  2.4679ms  4.8047ms  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
-                    2.21%  88.863ms       200  444.32us  376.06us  3.0521ms  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
-                    2.48%  115.49ms      1044  110.62us  1.2800us  7.1736ms  cupy_copy
-                    0.28%  12.432ms       364  34.153us  18.784us  4.8919ms  volta_dgemm_64x64_tn
-                    0.03%  1.7012ms       600  2.8350us  1.7280us  14.080us  cupy_true_divide
-                    0.01%  689.06us       200  3.4450us  2.2400us  8.0000us  cupy_power
-                    0.07%  3.0063ms       808  3.7200us  1.3760us  36.704us  cupy_subtract
-                    0.01%  608.77us       400  1.5210us  1.1510us  9.3760us  cupy_sqrt
-                    0.06%  2.8487ms       600  4.7470us  1.3760us  15.648us  cupy_multiply
-                    0.01%  538.27us       200  2.6910us  1.8880us  8.5760us  cupyx_scipy_erf
-                    1.80%  72.642ms        27  2.6904ms  2.4754ms  4.8063ms  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
-                    0.06%  2.5841ms       500  5.1680us  1.2790us  24.608us  [CUDA memcpy DtoD]
-                    1.92%  89.700ms        28  3.2036ms  2.4786ms  9.3733ms  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
-                    1.14%  45.908ms      1044  43.973us  1.2800us  2.6703ms  cupy_copy
-                    0.04%  1.6633ms       600  2.7720us  1.8560us  8.6720us  cupy_true_divide
-                    0.01%  528.16us       200  2.6400us  1.8880us  14.592us  cupy_remainder
-                    0.19%  7.6264ms       364  20.951us  19.040us  34.336us  volta_dgemm_64x64_tn
-                    0.02%  690.11us       200  3.4500us  2.2400us  11.008us  cupy_power
-                    0.32%  14.816ms       364  40.703us  18.975us  7.3062ms  volta_dgemm_64x64_tn
-                    0.08%  3.1145ms       500  6.2290us  1.2800us  29.824us  [CUDA memcpy DtoD]
-                    0.01%  638.75us       400  1.5960us  1.1190us  8.9280us  cupy_sqrt
-                    0.01%  463.33us       200  2.3160us  1.6000us  8.1920us  cupy_exp
-                    0.08%  3.0362ms       808  3.7570us  1.3760us  34.336us  cupy_subtract
-                    0.01%  550.59us       200  2.7520us  1.9200us  10.080us  cupyx_scipy_erf
-                    0.20%  9.3718ms       500  18.743us  1.3120us  6.7590ms  [CUDA memcpy DtoD]
-                    0.07%  2.7109ms       600  4.5180us  1.4080us  15.392us  cupy_multiply
-                    0.01%  504.54us       200  2.5220us  1.8240us  10.208us  cupy_remainder
-                    0.01%  378.14us       200  1.8900us  1.1200us  9.9520us  cupy_arange
-                    0.06%  2.9722ms       808  3.6780us  1.4080us  35.776us  cupy_subtract
-                    0.01%  448.74us       200  2.2430us  1.5680us  9.9520us  cupy_exp
-                    0.01%  364.74us       212  1.7200us  1.2480us  6.2080us  [CUDA memset]
-                    0.04%  1.6690ms       600  2.7810us  1.7600us  11.936us  cupy_true_divide
-                    0.01%  390.49us       212  1.8410us  1.2480us  8.8960us  [CUDA memset]
-                    0.00%  235.10us         8  29.387us  26.559us  30.208us  cupy_floor
-==79591== Profiling result:
-            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
- GPU activities:   50.05%  2.36625s       176  13.445ms  1.7600us  71.566ms  [CUDA memcpy DtoH]
-                   33.15%  1.56739s        65  24.114ms  1.6960us  67.450ms  [CUDA memcpy HtoD]
-                    7.49%  354.14ms       100  3.5414ms  1.3119ms  8.3354ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
-                    4.30%  203.15ms       200  1.0158ms  380.00us  7.5669ms  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
-                    2.75%  130.01ms      1044  124.53us  1.2800us  7.4949ms  cupy_copy
-                    1.65%  77.844ms        28  2.7801ms  2.4722ms  7.0234ms  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
-                    0.31%  14.542ms       364  39.951us  18.752us  7.0466ms  volta_dgemm_64x64_tn
-                    0.06%  3.0566ms       808  3.7820us  1.4070us  36.928us  cupy_subtract
-                    0.06%  2.8827ms       600  4.8040us  1.3760us  24.576us  cupy_multiply
-                    0.06%  2.7879ms       500  5.5750us  1.2470us  25.248us  [CUDA memcpy DtoD]
-                    0.04%  1.6881ms       600  2.8130us  1.7600us  12.448us  cupy_true_divide
-                    0.01%  690.11us       200  3.4500us  2.2720us  15.264us  cupy_power
-                    0.01%  643.17us       400  1.6070us  1.1200us  9.9520us  cupy_sqrt
-                    0.01%  555.26us       200  2.7760us  1.9200us  8.5440us  cupyx_scipy_erf
-                    0.01%  498.21us       200  2.4910us  1.9520us  9.8560us  cupy_remainder
-                    0.01%  484.38us       200  2.4210us  1.6000us  16.064us  cupy_exp
-                    0.01%  362.69us       200  1.8130us  1.1200us  8.6720us  cupy_arange
-                    0.01%  354.85us       212  1.6730us  1.2480us  9.2160us  [CUDA memset]
-                    0.01%  237.21us         8  29.651us  29.055us  30.304us  cupy_floor
-                    0.00%  18.304us         4  4.5760us  4.0320us  4.8640us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
-      API calls:   35.32%  2.39695s        60  39.949ms  30.842us  76.290ms  cuMemcpyDtoH
-                   24.99%  1.69608s         7  242.30ms     961ns  1.21890s  cudaFree
-                   23.24%  1.57717s        60  26.286ms  28.765us  67.321ms  cuMemcpyHtoD
-                    6.82%  462.68ms       117  3.9546ms  16.567us  205.04ms  cudaMemcpy
-                    6.02%  408.66ms        33  12.384ms  6.1810us  383.06ms  cudaMalloc
-                    1.27%  85.996ms        64  1.3437ms  18.668us  11.080ms  cuMemAlloc
-                    0.70%  47.306ms      4792  9.8710us  5.9880us  580.41us  cuLaunchKernel
-                    0.54%  36.443ms        59  617.68us  23.446us  1.8285ms  cuMemFree
-                    0.41%  28.019ms        18  1.5566ms  241.53us  10.891ms  cuModuleLoadData
-                    0.14%  9.2722ms       504  18.397us  11.936us  45.688us  cudaMemcpyAsync
-                    0.12%  8.2362ms       285  28.898us     128ns  4.6854ms  cuDeviceGetAttribute
-                    0.11%  7.5677ms     10508     720ns     398ns  16.438us  cudaGetDevice
-                    0.05%  3.7254ms       364  10.234us  7.7930us  50.307us  cudaLaunchKernel
-                    0.05%  3.3931ms       212  16.005us  8.0160us  47.911us  cudaMemsetAsync
-                    0.03%  2.2394ms      1720  1.3020us     496ns  17.381us  cuPointerGetAttribute
-                    0.03%  1.9094ms         1  1.9094ms  1.9094ms  1.9094ms  cudaHostAlloc
-                                 0.00%  19.520us         4  4.8800us  4.8320us  4.9280us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
-      API calls:   33.50%  2.42532s        60  40.422ms  33.172us  78.326ms  cuMemcpyDtoH
-                   23.97%  1.73501s         7  247.86ms  1.0250us  1.29225s  cudaFree
-                   22.38%  1.62022s        60  27.004ms  25.949us  63.445ms  cuMemcpyHtoD
-                    9.17%  663.93ms        33  20.119ms  5.7400us  638.39ms  cudaMalloc
-                    7.50%  543.20ms       117  4.6427ms  14.772us  203.84ms  cudaMemcpy
-                    1.46%  105.77ms        63  1.6789ms  17.299us  17.863ms  cuMemAlloc
-                    0.66%  47.998ms        60  799.97us  20.547us  6.5401ms  cuMemFree
-                    0.64%  46.238ms      4792  9.6490us  5.9290us  615.34us  cuLaunchKernel
-                    0.12%  8.9352ms       504  17.728us  11.148us  38.503us  cudaMemcpyAsync
-                    0.10%  7.5290ms     10508     716ns     410ns  17.024us  cudaGetDevice
-                    0.10%  7.4395ms       285  26.103us     131ns  1.8858ms  cuDeviceGetAttribute
-                    0.08%  5.6500ms        18  313.89us  243.93us  464.04us  cuModuleLoadData
-                    0.05%  3.7261ms       364  10.236us  7.9840us  46.831us  cudaLaunchKernel
-                    0.04%  3.0895ms       212  14.573us  7.8820us  56.021us  cudaMemsetAsync
-                    0.03%  2.1620ms         1  2.1620ms  2.1620ms  2.1620ms  cudaHostAlloc
-                    0.03%  2.1289ms      1720  1.2370us     485ns  16.028us  cuPointerGetAttribute
-                    0.03%  1.9586ms         4  489.66us  285.25us  1.0412ms  cuModuleLoadDataEx
-                    0.02%  1.7022ms         3  567.39us  232.06us  744.73us  cuDeviceTotalMem
-                    0.02%  1.6845ms         8  210.57us  116.99us  344.57us  cuModuleUnload
-                    0.02%  1.6162ms         4  404.05us  362.40us  445.50us  cuLinkAddData
-                    0.02%  1.2379ms      2572     481ns     210ns  16.768us  cuCtxGetCurrent
-                    0.01%  756.29us      2572     294ns     189ns     850ns  cuCtxGetDevice
-                    0.01%  705.57us         4  176.39us  114.86us  338.71us  cuDeviceGetName
-                    0.01%  462.98us         4  115.74us  108.40us  122.85us  cuLinkComplete
-                    0.00%  254.24us         4  63.560us  53.322us  76.373us  cuLinkCreate
-                    0.00%  149.37us       114  1.3100us     731ns  3.7350us  cudaSetDevice
-                    0.00%  97.036us       364     266ns     201ns     593ns  cudaGetLastError
-                    0.00%  77.850us         1  77.850us  77.850us  77.850us  cudaMemGetInfo
-                    0.00%  56.176us        90     624ns     446ns  2.1860us  cudaFuncSetAttribute
-                    0.00%  45.389us         7  6.4840us  2.7020us  11.987us  cudaEventQuery
-                    0.00%  35.210us         1  35.210us  35.210us  35.210us  cuMemGetInfo
-                    0.00%  33.916us        21  1.6150us     481ns  8.7670us  cudaEventDestroy
-                    0.00%  30.783us        22  1.3990us     517ns  5.3750us  cudaEventCreateWithFlags
-                    0.00%  22.407us         4  5.6010us  1.4750us  16.084us  cudaDeviceSynchronize
-                    0.00%  18.474us        22     839ns     644ns  1.1970us  cuModuleGetFunction
-                    0.00%  17.330us         4  4.3320us  3.9910us  5.0150us  cudaEventRecord
-                    0.00%  8.3850us         3  2.7950us  1.9500us  4.2220us  cuInit
-                    0.00%  7.3280us        13     563ns     357ns  1.5350us  cudaDeviceGetAttribute
-                    0.00%  6.9620us        20     348ns     246ns     670ns  cuFuncGetAttribute
-                    0.00%  4.2910us         1  4.2910us  4.2910us  4.2910us  cuDeviceGetPCIBusId
-                    0.00%  3.4920us         1  3.4920us  3.4920us  3.4920us  cudaDeviceCanAccessPeer
-                    0.00%  3.4410us         6     573ns     203ns  1.4560u                    0.02%  677.44us       400  1.6930us  1.1200us  9.3760us  cupy_sqrt
-                    0.01%  603.20us       200  3.0150us  2.2720us  5.7280us  cupy_power
-                    0.01%  507.97us       200  2.5390us  1.6960us  14.688us  cupy_remainder
-                    0.01%  507.26us       200  2.5360us  1.9200us  10.720us  cupyx_scipy_erf
-                    0.01%  462.94us       200  2.3140us  1.5990us  5.7600us  cupy_exp
-                    0.01%  418.88us       212  1.9750us  1.2470us  10.016us  [CUDA memset]
-                    0.01%  394.02us       200  1.9700us  1.0880us  6.3670us  cupy_arange
-                    0.01%  235.17us         8  29.395us  28.704us  30.048us  cupy_floor
-                    0.00%  18.816us         4  4.7040us  4.5760us  4.8320us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
-      API calls:   46.53%  2.29413s        58  39.554ms  29.549us  79.110ms  cuMemcpyDtoH
-                   28.39%  1.39987s        58  24.136ms  28.199us  102.19ms  cuMemcpyHtoD
-                   12.37%  609.73ms         7  87.105ms     983ns  434.17ms  cudaFree
-                    6.41%  315.97ms        33  9.5747ms  5.0450us  297.80ms  cudaMalloc
-                    2.10%  103.68ms       117  886.16us  14.683us  25.078ms  cudaMemcpy
-                    1.65%  81.239ms        61  1.3318ms  16.895us  9.5592ms  cuMemAlloc
-                    0.95%  47.044ms      4791  9.8190us  5.9190us  53.525us  cuLaunchKernel
-                    0.65%  31.984ms        54  592.29us  20.759us  2.8408ms  cuMemFree
-                    0.19%  9.1675ms       504  18.189us  11.216us  42.926us  cudaMemcpyAsync
-                    0.17%  8.2750ms     10508     787ns     408ns  581.73us  cudaGetDevice
-                    0.12%  6.0706ms        18  337.26us  235.53us  896.42us  cuModuleLoadData
-                    0.07%  3.6920ms       364  10.142us  8.0770us  36.352us  cudaLaunchKernel
-                    0.07%  3.6285ms       285  12.731us     126ns  1.2349ms  cuDeviceGetAttribute
-                    0.07%  3.4118ms       212  16.093us  7.8320us  56.417us  cudaMemsetAsync
-                    0.04%  2.1005ms      1718  1.2220us     443ns  18.122us  cuPointerGetAttribute
-                    0.04%  1.8757ms         1  1.8757ms  1.8757ms  1.8757ms  cudaHostAlloc
-                    0.03%  1.5486ms         4  387.14us  323.51us  483.08us  cuLinkAddData
-                    0.03%  1.3813ms         7  197.33us  110.87us  438.65us  cuModuleUnload
-                    0.03%  1.2422ms      2565     484ns     205ns  18.758us  cuCtxGetCurrent
-                    0.03%  1.2340ms         4  308.50us  272.82us  356.25us  cuModuleLoadDataEx
-                    0.02%  1.1476ms         3  382.52us  307.82us  483.77us  cuDeviceTotalMem
-                    0.02%  777.37us      2565     303ns     193ns  4.0510us  cuCtxGetDevice
-                    0.01%  448.77us         4  112.19us  105.39us  122.25us  cuLinkComplete
-                    0.01%  392.22us         4  98.054us  75.532us  116.78us  cuDeviceGetName
-                    0.00%  233.64us         4  58.409us  53.142us  65.370us  cuLinkCreate
-                    0.00%  164.05us       114  1.4390us     730ns  13.129us  cudaSetDevice
-                    0.00%  100.06us       364     274ns     212ns  1.7370us  cudaGetLastError
-                    0.00%  78.592us         1  78.592us  78.592us  78.592us  cudaMemGetInfo
-                    0.00%  54.849us        90     609ns     433ns  2.0170us  cudaFuncSetAttribute
-                    0.00%  49.428us         7  7.0610us  2.7620us  14.927us  cudaEventQuery
-                    0.00%  36.107us        21  1.7190us     475ns  8.4640us  cudaEventDestroy
-                    0.00%  32.187us        22  1.4630us     511ns  6.0470us  cudaEventCreateWithFlags
-                    0.00%  31.433us         1  31.433us  31.433us  31.433us  cuMemGetInfo
-                    0.00%  25.947us         4  6.4860us  1.5220us  19.190us  cudaDeviceSynchronize
-                    0.00%  1                    0.01%  357.22us       200  1.7860us  1.0880us  9.9200us  cupy_arange
-                    0.01%  237.85us         8  29.731us  28.864us  30.656us  cupy_floor
-                    0.00%  24.031us         4  6.0070us  4.7030us  9.6000us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
-      API calls:   31.98%  2.19244s        54  40.601ms  31.335us  81.086ms  cuMemcpyDtoH
-                   25.50%  1.74792s         7  249.70ms     897ns  1.30057s  cudaFree
-                   21.08%  1.44529s        55  26.278ms  27.481us  61.717ms  cuMemcpyHtoD
-                   10.08%  690.69ms        33  20.930ms  7.1420us  664.96ms  cudaMalloc
-                    7.52%  515.35ms       109  4.7280ms  16.998us  204.36ms  cudaMemcpy
-                    1.89%  129.76ms        64  2.0274ms  19.564us  17.733ms  cuMemAlloc
-                    0.68%  46.359ms      4781  9.6960us  6.0420us  502.93us  cuLaunchKernel
-                    0.43%  29.703ms        54  550.05us  21.081us  2.4928ms  cuMemFree
-                    0.13%  9.0451ms       504  17.946us  11.326us  47.485us  cudaMemcpyAsync
-                    0.11%  7.5290ms     10484     718ns     410ns  17.988us  cudaGetDevice
-                    0.11%  7.2267ms       285  25.356us     134ns  1.8776ms  cuDeviceGetAttribute
-                    0.10%  6.8578ms        18  380.99us  243.76us  660.52us  cuModuleLoadData
-                    0.09%  6.3084ms         4  1.5771ms  347.48us  4.5525ms  cuModuleLoadDataEx
-                    0.05%  3.6610ms       364  10.057us  7.9870us  42.532us  cudaLaunchKernel
-                    0.04%  3.0669ms       212  14.466us  7.8870us  46.249us  cudaMemsetAsync
-                    0.03%  2.1342ms         1  2.1342ms  2.1342ms  2.1342ms  cudaHostAlloc
-                    0.03%  2.1044ms      1712  1.2290us     496ns  17.282us  cuPointerGetAttribute
-                    0.03%  1.9679ms         7  281.12us  110.87us  442.43us  cuModuleUnload
-                    0.03%  1.8799ms         3  626.62us  275.49us  1.1303ms  cuDeviceTotalMem
-                    0.02%  1.4747ms         4  368.67us  320.93us  469.81us  cuLinkAddData
-                    0.02%  1.1604ms      2545     455ns     216ns  3.1990us  cuCtxGetCurrent
-                    0.01%  745.32us      2545     292ns     190ns     962ns  cuCtxGetDevice
-                    0.01%  685.58us         4  171.40us  90.816us  325.70us  cuDeviceGetName
-                    0.01%  452.48us         4  113.12us  105.48us  118.75us  cuLinkComplete
-                    0.00%  222.93us         4  55.733us  54.151us  57.073us  cuLinkCreate
-                    0.00%  157.60us       106  1.4860us     746ns  17.435us  cudaSetDevice
-                    0.00%  97.286us       364     267ns     210ns     518ns  cudaGetLastError
-                    0.00%  78.353us         1  78.353us  78.353us  78.353us  cudaMemGetInfo
-                    0.00%  53.545us        90     594ns     447ns  2.7730us  cudaFuncSetAttribute
-                    0.00%  46.643us         7  6.6630us  2.6870us  11.362us  cudaEventQuery
-                    0.00%  35.298us        22  1.6040us     514ns  6.5970us  cudaEventCreateWithFlags
-                    0.00%  35.253us        21  1.6780us     504ns  9.4650us  cudaEventDestroy
-                    0.00%  33.450us         1  33.450us  33.450us  33.450us  cuMemGetInfo
-                    0.00%  26.541us         4  6.6350us  1.5710us  19.182us  cudaDeviceSynchronize
-                    0.00%  19.229us         4  4.8070us  4.2840us  5.6900us  cudaEventRecord
-                    0.00%  18.376us        22     835ns     664ns  1.2870us  cuModuleGetFunction
-                    0.00%  8.9300us         1  8.9300us  8.9300us  8.9300us  cuDeviceGetPCIBusId
-                    0.00%  8.2880us         3  2.7620us  2.3400us  3.5800us  cuInit
-                    0.00%  7.9400us        20     397ns     255ns     818ns  cuFuncGetAttribute
-                    0.00%  7.8590us        13     604ns     361ns  1.8900us  cudaDeviceGetAttribut                    0.06%  2.6887ms       600  4.4810us  1.3760us  15.488us  cupy_multiply
-                    0.03%  1.6107ms       600  2.6840us  1.7920us  14.912us  cupy_true_divide
-                    0.01%  633.89us       200  3.1690us  2.2720us  5.5360us  cupy_power
-                    0.01%  523.20us       400  1.3070us  1.1510us  8.7680us  cupy_sqrt
-                    0.01%  515.01us       200  2.5750us  1.9200us  8.7040us  cupyx_scipy_erf
-                    0.01%  485.89us       200  2.4290us  1.8560us  8.8640us  cupy_remainder
-                    0.01%  414.11us       200  2.0700us  1.6000us  5.6960us  cupy_exp
-                    0.01%  345.98us       200  1.7290us  1.1200us  8.6080us  cupy_arange
-                    0.01%  305.54us       212  1.4410us  1.2480us  7.5520us  [CUDA memset]
-                    0.01%  236.10us         8  29.511us  29.216us  30.016us  cupy_floor
-                    0.00%  18.688us         4  4.6720us  4.5760us  4.7360us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
-      API calls:   34.52%  2.44131s        60  40.689ms  30.150us  77.611ms  cuMemcpyDtoH
-                   24.66%  1.74357s         7  249.08ms  1.1310us  1.29559s  cudaFree
-                   20.66%  1.46120s        60  24.353ms  25.759us  57.840ms  cuMemcpyHtoD
-                    9.73%  687.82ms        33  20.843ms  6.4730us  664.66ms  cudaMalloc
-                    6.89%  487.11ms       117  4.1633ms  16.597us  200.50ms  cudaMemcpy
-                    1.47%  103.83ms        62  1.6746ms  17.094us  16.320ms  cuMemAlloc
-                    0.68%  48.055ms      4792  10.028us  5.9760us  598.43us  cuLaunchKernel
-                    0.63%  44.481ms        56  794.30us  21.824us  9.1643ms  cuMemFree
-                    0.13%  9.4190ms       504  18.688us  11.283us  43.443us  cudaMemcpyAsync
-                    0.11%  7.6417ms     10508     727ns     410ns  24.469us  cudaGetDevice
-                    0.10%  7.1046ms        18  394.70us  241.84us  1.4752ms  cuModuleLoadData
-                    0.07%  5.1173ms       285  17.955us     130ns  1.3011ms  cuDeviceGetAttribute
-                    0.05%  3.6677ms       364  10.076us  8.0140us  43.357us  cudaLaunchKernel
-                    0.05%  3.3345ms       212  15.728us  8.0080us  62.650us  cudaMemsetAsync
-                    0.05%  3.3060ms         4  826.49us  473.63us  1.4944ms  cuModuleLoadDataEx
-                    0.03%  2.2438ms      1720  1.3040us     485ns  17.886us  cuPointerGetAttribute
-                    0.03%  2.2009ms      2572     855ns     213ns  973.91us  cuCtxGetCurrent
-                    0.03%  1.9224ms         7  274.63us  147.54us  489.31us  cuModuleUnload
-                    0.03%  1.8677ms         1  1.8677ms  1.8677ms  1.8677ms  cudaHostAlloc
-                    0.02%  1.5765ms         3  525.50us  234.45us  992.31us  cuDeviceTotalMem
-                    0.02%  1.5700ms         4  392.49us  347.88us  442.31us  cuLinkAddData
-                    0.01%  765.70us      2572     297ns     194ns  3.1500us  cuCtxGetDevice
-                    0.01%  606.02us         4  151.50us  84.596us  285.35us  cuDeviceGetName
-                    0.01%  465.49us         4  116.37us  110.88us  125.65us  cuLinkComplete
-                    0.00%  214.31us         4  53.577us  50.765us  57.192us  cuLinkCreate
-                    0.00%  164.02us       114  1.4380us     677ns  11.370us  cudaSetDevice
-                    0.00%  138.29us         1  138.29us  138.29us  138.29us  cuMemGetInfo
-                    0.00%  99.293us       364     272ns     208ns  1.7050us  cudaGetLastError
-                    0.00%  77.912us         1  77.912us  77.912us  77.912us  cudaMemGetInfo
-                    0.00%  56.845us        90     631ns     450ns  2.0890us  cudaFuncSetAttribute
-                    0.00%  43.555us         7  6.2220us  2.7470us  10.838us  cudaEventQuery
-                    0.00%  36.497us        21  1.7370us     489ns  9.9950us  cudaEventDestroy
-                    0.00%  34.603us        2       0.03%  1.7333ms         2  866.65us  826.59us  906.71us  cudaGetDeviceProperties
-                    0.02%  1.6757ms         7  239.39us  117.62us  530.11us  cuModuleUnload
-                    0.02%  1.6714ms         4  417.86us  368.86us  463.66us  cuLinkAddData
-                    0.02%  1.2859ms         4  321.47us  289.62us  352.32us  cuModuleLoadDataEx
-                    0.02%  1.2565ms      2572     488ns     216ns  11.293us  cuCtxGetCurrent
-                    0.02%  1.0438ms         3  347.95us  283.01us  403.34us  cuDeviceTotalMem
-                    0.01%  768.01us      2572     298ns     190ns  13.239us  cuCtxGetDevice
-                    0.01%  573.34us         4  143.33us  75.630us  318.95us  cuDeviceGetName
-s  cuDeviceGetCount
-                    0.00%  2.7410us         5     548ns     179ns  1.4330us  cuDeviceGet
-                    0.00%  2.5890us         4     647ns     499ns     721ns  cuLinkDestroy
-                    0.00%     866ns         3     288ns     205ns     446ns  cuDeviceGetUuid
-                    0.00%     803ns         1     803ns     803ns     803ns  cuDeviceComputeCapability
-                    0.00%     731ns         2     365ns     302ns     429ns  cuDriverGetVersion
-                    0.00%     689ns         1     689ns     689ns     689ns  cuDevicePrimaryCtxRetain
-                    0.00%     573ns         1     573ns     573ns     573ns  cudaRuntimeGetVersion
-8.439us         4  4.6090us  4.4140us  4.9690us  cudaEventRecord
-                    0.00%  17.415us        22     791ns     595ns  1.3170us  cuModuleGetFunction
-                    0.00%  8.0480us         3  2.6820us  2.1060us  3.3720us  cuInit
-                    0.00%  6.9330us        20     346ns     229ns     601ns  cuFuncGetAttribute
-                    0.00%  6.9040us        13     531ns     356ns  1.2540us  cudaDeviceGetAttribute
-                    0.00%  4.7910us         1  4.7910us  4.7910us  4.7910us  cuDeviceGetPCIBusId
-                    0.00%  3.6260us         6     604ns     142ns  1.4380us  cuDeviceGetCount
-                    0.00%  3.3180us         1  3.3180us  3.3180us  3.3180us  cudaDeviceCanAccessPeer
-                    0.00%  2.9350us         5     587ns     196ns  1.6410us  cuDeviceGet
-                    0.00%  2.4890us         4     622ns     559ns     748ns  cuLinkDestroy
-                    0.00%  1.2440us         1  1.2440us  1.2440us  1.2440us  cuDevicePrimaryCtxRetain
-                    0.00%     742ns         3     247ns     200ns     300ns  cuDeviceGetUuid
-                    0.00%     741ns         2     370ns     370ns     371ns  cuDriverGetVersion
-                    0.00%     637ns         1     637ns     637ns     637ns  cuDeviceComputeCapability
-                    0.00%     316ns         1     316ns     316ns     316ns  cudaRuntimeGetVersion
-e
-                    0.00%  3.4010us         6     566ns     156ns  1.5150us  cuDeviceGetCount
-                    0.00%  3.3280us         1  3.3280us  3.3280us  3.3280us  cudaDeviceCanAccessPeer
-                    0.00%  2.7870us         4     696ns     642ns     751ns  cuLinkDestroy
-                    0.00%  2.6440us         5     528ns     177ns  1.1330us  cuDeviceGet
-                    0.00%     970ns         1     970ns     970ns     970ns  cuDeviceComputeCapability
-                    0.00%     949ns         1     949ns     949ns     949ns  cuDevicePrimaryCtxRetain
-                    0.00%     943ns         2     471ns     352ns     591ns  cuDriverGetVersion
-                    0.00%     830ns         3     276ns     194ns     348ns  cuDeviceGetUuid
-                    0.00%     416ns         1     416ns     416ns     416ns  cudaRuntimeGetVersion
-2  1.5720us     529ns  5.6610us  cudaEventCreateWithFlags
-                    0.00%  25.831us         4  6.4570us  1.5480us  18.450us  cudaDeviceSynchronize
-                    0.00%  17.726us        22     805ns     641ns  1.3740us  cuModuleGetFunction
-                    0.00%  17.573us         4  4.3930us  3.8340us  4.6450us  cudaEventRecord
-                    0.00%  8.3920us         3  2.7970us  2.0250us  4.1440us  cuInit
-                    0.00%  8.2900us        20     414ns     243ns     821ns  cuFuncGetAttribute
-                    0.00%  7.1210us        13     547ns     375ns  1.2540us  cudaDeviceGetAttribute
-                    0.00%  6.1160us         1  6.1160us  6.1160us  6.1160us  cuDeviceGetPCIBusId
-                    0.00%  3.0800us         6     513ns     187ns  1.2640us  cuDeviceGetCount
-                    0.00%  3.0010us         1  3.0010us  3.0010us  3.0010us  cudaDeviceCanAccessPeer
-                    0.00%  2.6650us         4     666ns     609ns     783ns  cuLinkDestroy
-                    0.00%  2.5000us         5     500ns     214ns  1.0370us  cuDeviceGet
-                    0.00%     987ns         2     493ns     343ns     644ns  cuDriverGetVersion
-                    0.00%     888ns         3     296ns     225ns     343ns  cuDeviceGetUuid
-                    0.00%     833ns         1     833ns     833ns     833ns  cuDevicePrimaryCtxRetain
-                    0.00%     664ns         1     664ns     664ns     664ns  cuDeviceComputeCapability
-                    0.00%     292ns         1     292ns     292ns     292ns  cudaRuntimeGetVersion
-                    0.01%  477.62us         4  119.41us  117.24us  124.77us  cuLinkComplete
-                    0.00%  236.05us         4  59.012us  57.015us  60.317us  cuLinkCreate
-                    0.00%  149.36us       114  1.3100us     738ns  4.1730us  cudaSetDevice
-                    0.00%  141.93us         1  141.93us  141.93us  141.93us  cuMemGetInfo
-                    0.00%  93.067us       364     255ns     192ns     527ns  cudaGetLastError
-                    0.00%  76.608us         1  76.608us  76.608us  76.608us  cudaMemGetInfo
-                    0.00%  54.627us        90     606ns     443ns  2.1210us  cudaFuncSetAttribute
-                    0.00%  44.383us         7  6.3400us  3.2040us  10.106us  cudaEventQuery
-                    0.00%  36.795us        21  1.7520us     480ns  8.3780us  cudaEventDestroy
-                    0.00%  32.220us        22  1.4640us     505ns  6.0560us  cudaEventCreateWithFlags
-                    0.00%  26.599us         4  6.6490us  1.5190us  19.175us  cudaDeviceSynchronize
-                    0.00%  17.705us         4  4.4260us  4.0840us  4.7160us  cudaEventRecord
-                    0.00%  17.120us        22     778ns     628ns  1.2960us  cuModuleGetFunction
-                    0.00%  9.0270us        13     694ns     354ns  1.9990us  cudaDeviceGetAttribute
-                    0.00%  7.9680us         3  2.6560us  2.0640us  3.2280us  cuInit
-                    0.00%  6.6940us        20     334ns     226ns     599ns  cuFuncGetAttribute
-                    0.00%  5.4740us         1  5.4740us  5.4740us  5.4740us  cuDeviceGetPCIBusId
-                    0.00%  3.8490us         6     641ns     159ns  1.8710us  cuDeviceGetCount
-                    0.00%  3.6550us         1  3.6550us  3.6550us  3.6550us  cudaGetDeviceCount
-                    0.00%  3.1500us         5     630ns     189ns  1.6030us  cuDeviceGet
-                    0.00%  2.7100us         4     677ns     571ns     794ns  cuLinkDestroy
-                    0.00%  2.0860us         1  2.0860us  2.0860us  2.0860us  cudaDeviceCanAccessPeer
-                    0.00%     854ns         3     284ns     225ns     400ns  cuDeviceGetUuid
-                    0.00%     783ns         2     391ns     376ns     407ns  cuDriverGetVersion
-                    0.00%     769ns         1     769ns     769ns     769ns  cuDevicePrimaryCtxRetain
-                    0.00%     675ns         1     675ns     675ns     675ns  cuDeviceComputeCapability
-                    0.00%     305ns         1     305ns     305ns     305ns  cudaRuntimeGetVersion
-======== Error: Application returned non-zero code 1
-======== Error: Application returned non-zero code 1
-======== Error: Application returned non-zero code 1
-======== Error: Application returned non-zero code 1
-======== Error: Application returned non-zero code 1
-
+ GPU activities:   64.85%  85.7581s      6520  13.153ms  1.4720us  74.790ms  [CUDA memcpy DtoH]
+                   32.33%  42.7509s      1341  31.880ms  1.7920us  38.090ms  [CUDA memcpy HtoD]
+                    2.16%  2.85848s       500  5.7170ms  5.4633ms  6.4137ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, C, mutable, aligned>, Array<double, int=3, C, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, C, mutable, aligned>)
+                    0.30%  392.53ms      1000  392.53us  334.11us  486.75us  cudapy::gpu_extract::hermevander$242(Array<double, int=2, C, mutable, aligned>, __int64, Array<double, int=3, C, mutable, aligned>)
+                    0.18%  244.40ms      3620  67.514us  37.312us  102.11us  cupy_copy__float64_float64
+                    0.09%  116.31ms      1300  89.472us  31.168us  103.74us  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, C, mutable, aligned>, Array<__int64, int=2, C, mutable, aligned>, Array<__int64, int=2, C, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, C, mutable, aligned>)
+                    0.03%  40.689ms      1820  22.356us  19.840us  37.472us  volta_dgemm_64x64_tn
+                    0.01%  12.030ms      1000  12.030us  9.0240us  15.840us  cupy_multiply__float64_float64_float64
+                    0.01%  11.297ms      2500  4.5180us  1.3440us  22.400us  [CUDA memcpy DtoD]
+                    0.01%  10.029ms      6200  1.6170us  1.1840us  13.760us  cupy_copy__int64_int64
+                    0.01%  9.4703ms      2000  4.7350us  1.7600us  9.8560us  cupy_subtract__float64_float64_float64
+                    0.01%  7.9541ms      3000  2.6510us  1.9840us  4.7680us  cupy_true_divide__float64_float64_float64
+                    0.00%  3.3726ms      2000  1.6860us  1.4400us  2.3680us  cupy_multiply__float_float64_float64
+                    0.00%  2.8548ms      1000  2.8540us  2.3030us  13.216us  cupy_power__float64_float_float64
+                    0.00%  2.3995ms      2000  1.1990us  1.1190us  1.7920us  cupy_sqrt__float_float64
+                    0.00%  2.3301ms      1000  2.3300us  1.8880us  3.5840us  cupy_subtract__int64_float64_float64
+                    0.00%  2.2691ms      1000  2.2690us  1.9200us  2.7840us  cupy_remainder__float64_float_float64
+                    0.00%  2.2471ms      1000  2.2470us  1.9840us  3.7440us  cupyx_scipy_erf__float64_float64
+                    0.00%  1.9968ms      1540  1.2960us  1.2160us  2.1760us  [CUDA memset]
+                    0.00%  1.8910ms      1000  1.8900us  1.6320us  3.1360us  cupy_exp__float64_float64
+                    0.00%  1.5477ms        40  38.691us  37.984us  40.096us  cupy_subtract__float64_float_float64
+                    0.00%  1.5365ms      1000  1.5360us  1.2160us  2.0480us  cupy_subtract__int64_int_int64
+                    0.00%  1.4166ms      1000  1.4160us  1.0880us  10.656us  cupy_arange__int_int_int64
+                    0.00%  1.3493ms        40  33.732us  33.375us  34.304us  cupy_floor__float64_float64
+                    0.00%  1.3466ms        40  33.666us  33.344us  34.239us  cupy_copy__float64_int64
+                    0.00%  112.10us        20  5.6040us  4.5750us  7.1680us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, C, mutable, aligned>)
+      API calls:   64.06%  87.4973s      1320  66.286ms  30.501us  76.552ms  cuMemcpyDtoH
+                   31.58%  43.1271s      1320  32.672ms  27.928us  38.410ms  cuMemcpyHtoD
+                    1.46%  1.99867s      1320  1.5141ms  18.037us  56.411ms  cuMemAlloc
+                    1.31%  1.79104s      5201  344.36us  17.680us  106.18ms  cudaMemcpy
+                    0.57%  783.51ms      1320  593.57us  35.530us  48.832ms  cuMemFree
+                    0.32%  441.35ms         7  63.050ms     624ns  284.31ms  cudaFree
+                    0.25%  343.01ms     29760  11.525us  5.0060us  204.52us  cuLaunchKernel
+                    0.21%  291.37ms        23  12.668ms  4.4130us  283.87ms  cudaMalloc
+                    0.09%  118.79ms        18  6.5996ms  230.60us  114.08ms  cuModuleLoadData
+                    0.04%  48.308ms     71922     671ns     261ns  360.86us  cudaGetDevice
+                    0.03%  41.382ms      2520  16.421us  9.4990us  577.93us  cudaMemcpyAsync
+                    0.01%  19.903ms      1540  12.924us  6.7270us  80.388us  cudaMemsetAsync
+                    0.01%  19.460ms     15843  1.2280us     377ns  47.505us  cuPointerGetAttribute
+                    0.01%  17.458ms      1820  9.5920us  6.4930us  198.73us  cudaLaunchKernel
+                    0.01%  10.043ms     25456     394ns     118ns  185.06us  cuCtxGetCurrent
+                    0.01%  9.1782ms     10402     882ns     406ns  17.705us  cudaSetDevice
+                    0.00%  6.2586ms     25448     245ns     126ns  16.107us  cuCtxGetDevice
+                    0.00%  3.3780ms       379  8.9120us     113ns  351.81us  cuDeviceGetAttribute
+                    0.00%  2.0348ms         4  508.69us  278.89us  737.93us  cuModuleLoadDataEx
+                    0.00%  1.7005ms         2  850.24us  820.40us  880.09us  cudaGetDeviceProperties
+                    0.00%  1.6988ms         1  1.6988ms  1.6988ms  1.6988ms  cudaHostAlloc
+                    0.00%  1.6916ms         4  422.90us  407.68us  437.39us  cuLinkAddData
+                    0.00%  1.2850ms         4  321.24us  294.13us  344.34us  cuDeviceTotalMem
+                    0.00%  1.1127ms         4  278.17us  200.55us  475.33us  cuModuleUnload
+                    0.00%  494.86us         5  98.972us  71.708us  136.28us  cuDeviceGetName
+                    0.00%  433.51us         4  108.38us  104.71us  111.04us  cuLinkComplete
+                    0.00%  416.13us      1820     228ns     128ns  10.669us  cudaGetLastError
+                    0.00%  265.95us        39  6.8190us  1.9920us  13.184us  cudaEventQuery
+                    0.00%  221.79us         4  55.448us  52.165us  58.061us  cuLinkCreate
+                    0.00%  168.12us        37  4.5430us     384ns  10.369us  cudaEventDestroy
+                    0.00%  124.61us        38  3.2790us     362ns  7.6570us  cudaEventCreateWithFlags
+                    0.00%  102.89us        20  5.1440us  3.5240us  5.8150us  cudaEventRecord
+                    0.00%  75.281us         1  75.281us  75.281us  75.281us  cudaMemGetInfo
+                    0.00%  38.807us        90     431ns     302ns  2.2390us  cudaFuncSetAttribute
+                    0.00%  30.411us         1  30.411us  30.411us  30.411us  cuMemGetInfo
+                    0.00%  26.739us         4  6.6840us  1.3090us  19.415us  cudaDeviceSynchronize
+                    0.00%  17.313us        22     786ns     517ns  1.3050us  cuModuleGetFunction
+                    0.00%  10.496us         4  2.6240us  1.7750us  3.2970us  cuInit
+                    0.00%  6.9960us         1  6.9960us  6.9960us  6.9960us  cuDeviceGetPCIBusId
+                    0.00%  6.6080us        13     508ns     239ns  1.6790us  cudaDeviceGetAttribute
+                    0.00%  5.9770us        20     298ns     167ns     701ns  cuFuncGetAttribute
+                    0.00%  3.7490us         2  1.8740us  1.5480us  2.2010us  cudaGetDeviceCount
+                    0.00%  3.1990us         1  3.1990us  3.1990us  3.1990us  cudaDeviceCanAccessPeer
+                    0.00%  2.6250us         7     375ns     128ns  1.2120us  cuDeviceGetCount
+                    0.00%  2.3260us         6     387ns     188ns     905ns  cuDeviceGet
+                    0.00%  2.2230us         3     741ns     209ns  1.4450us  cuDriverGetVersion
+                    0.00%  2.2160us         4     554ns     501ns     624ns  cuLinkDestroy
+                    0.00%     938ns         4     234ns     222ns     264ns  cuDeviceGetUuid
+                    0.00%     876ns         1     876ns     876ns     876ns  cuDevicePrimaryCtxRetain
+                    0.00%     641ns         1     641ns     641ns     641ns  cudaRuntimeGetVersion
+                    0.00%     481ns         1     481ns     481ns     481ns  cuDeviceComputeCapability
