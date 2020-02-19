@@ -613,7 +613,11 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     npix = nx*ny
     
     nspec = specrange[1] - specrange[0]
+    nspec = int(nspec)
     nwave = len(wavelengths)
+
+    #print(type(nspec))
+    #print(type(nwave))
     
     #print("waverange", waverange)
     #print("nwave", nwave)
@@ -640,16 +644,17 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
 
     projection_matrix[blocks_per_grid, threads_per_block](A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
     #A returns to the cpu automatically
+    #can we prevent this?!?!
+    A_gpu = cp.asarray(A)
     #reshape
-    Araw = A
-    #print("Araw", Araw)
-    nypix, nxpix = Araw.shape[0:2]
-    A_dense = Araw.reshape(nypix*nxpix, nspec*nwave)
-    A = scipy.sparse.csr_matrix(A_dense)
+    nypix, nxpix = A_gpu.shape[0:2]
+    A_dense = A_gpu.reshape(nypix*nxpix, nspec*nwave)
+    #A_cpu = scipy.sparse.csr_matrix(A_dense)
+    A = cpx.scipy.sparse.csr_matrix(A_dense)
 
     #- Pixel weights matrix
-    w = ivar.ravel()
-    #W = spdiags(ivar.ravel(), 0, npix, npix)
+    #w = ivar.ravel()
+    w = cp.asarray(ivar.ravel())
 
     #- Set up the equation to solve (B&S eq 4)
     #get the cpu values too
@@ -658,8 +663,8 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #A_cpu = A_gpu.get()
 
     #print("ivar.shape", ivar.shape)
-    W = scipy.sparse.spdiags(data=ivar.ravel(), diags=[0,], m=npix, n=npix) #scipy sparse object
-    #W_gpu = cpx.scipy.sparse.spdiags(data=imgweights_gpu.ravel(), diags=[0,], m=npix, n=npix)
+    #W = scipy.sparse.spdiags(data=ivar.ravel(), diags=[0,], m=npix, n=npix) #scipy sparse object
+    W = cpx.scipy.sparse.spdiags(data=w, diags=[0,], m=npix, n=npix)
     #yank gpu back to cpu so we can compare
     #W_yank = W_gpu.get()
     #assert np.allclose(W_cpu.todense(), W_yank.todense()) #todense bc this is a sparse object
@@ -668,7 +673,6 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     ####################################################################################
     #patch specter cleanup in here 
     #this is all on the cpu for right now, needs to be converted to gpu!
-
 
     #-----
     #- Extend A with an optional regularization term to limit ringing.
@@ -680,7 +684,13 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     
     #- Identify fluxes with very low weights of pixels contributing  
     
-    fluxweight = W.dot(A).sum(axis=0).A[0]
+    #fluxweight = W.dot(A).sum(axis=0).A[0]
+    #this syntax does not work in cupy
+    #what is this line of code even doing
+    #print(type(A))
+    #print(type(W))
+
+    fluxweight = W.dot(A).sum(axis=0)[0] #is this right?
 
     # The following minweight is a regularization term needed to avoid ringing due to 
     # a flux bias on the edge flux bins in the
@@ -691,7 +701,8 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     # we set this weight to a value of 1-e4 = ratio of readnoise**2 to Poisson variance for 1e5 electrons 
     # 1e5 electrons/pixel is the CCD full well, and 10 is about the read noise variance.
     # This was verified on the DESI first spectrograph data.
-    minweight = 1.e-4*np.max(fluxweight) 
+    #minweight = 1.e-4*np.max(fluxweight)
+    minweight = 1.e-4*cp.max(fluxweight) 
     ibad = fluxweight < minweight
     
     #- Original version; doesn't work on older versions of scipy
@@ -699,63 +710,66 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     # I.data[0,ibad] = minweight - fluxweight[ibad]
     
     #- Add regularization of low weight fluxes
-    Idiag = regularize*np.ones(nspec*nwave)
-    Idiag[ibad] = minweight - fluxweight[ibad]
-    I = scipy.sparse.identity(nspec*nwave)
-    I.setdiag(Idiag)
+    #Idiag = regularize*np.ones(nspec*nwave)
+    Idiag = 0.0*cp.ones(nspec*nwave)
+    Idiag[ibad] = minweight - fluxweight[ibad] #probably have the dimensions of fluxweight wrong...
+    #I = scipy.sparse.identity(nspec*nwave)
+    #I = cpx.scipy.sparse.identity(nspec*nwave)
+    #I.setdiag(Idiag) doesn't exist in cupy
+    I = cpx.scipy.sparse.diags(Idiag) #is this equivalent?
+
+###    #- Only need to extend A if regularization is non-zero
+###    if np.any(I.diagonal()):
+###        pix = np.concatenate( (image.ravel(), np.zeros(nspec*nwave)) )
+###        Ax = scipy.sparse.vstack( (A, I) )
+###        wx = np.concatenate( (w, np.ones(nspec*nwave)) )
+###    else:
+###        pix = image.ravel()
+###        Ax = A
+###        wx = w
 
     #- Only need to extend A if regularization is non-zero
-    if np.any(I.diagonal()):
-        pix = np.concatenate( (image.ravel(), np.zeros(nspec*nwave)) )
-        Ax = scipy.sparse.vstack( (A, I) )
-        wx = np.concatenate( (w, np.ones(nspec*nwave)) )
+    if cp.any(I.diagonal()):
+        pix = cp.concatenate( (image.ravel(), cp.zeros(nspec*nwave)) )
+        Ax = cpx.scipy.sparse.vstack( (A, I) )
+        wx = cp.concatenate( (w, cp.ones(nspec*nwave)) )
     else:
         pix = image.ravel()
         Ax = A
         wx = w
-
 
     ####################################################################################
     #we now return to our regularly scheduled gpu extraction
 
     #for now move Ax to the gpu while projection_matrix is still on the cpu
     #and also wx and pix
-    #Ax_gpu = cpx.scipy.sparse.csr_matrix(Ax)
-    #wx_gpu = cp.asarray(wx) #better, asarray does not copy
-    #pix_gpu = cp.asarray(pix)
+    Ax_gpu = cpx.scipy.sparse.csr_matrix(Ax)
+    wx_gpu = cp.asarray(wx) #better, asarray does not copy
+    pix_gpu = cp.asarray(pix)
 
     #make our new and improved wx using specter cleanup
-    #Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
-    Wx_cpu = scipy.sparse.spdiags(wx, 0, len(wx), len(wx))
-    Wx = Wx_cpu
+    Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
+    #Wx_cpu = scipy.sparse.spdiags(wx, 0, len(wx), len(wx))
+    #Wx = Wx_cpu
 
-    #iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
-    iCov_cpu = Ax.T.dot(Wx.dot(Ax))
+    iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
+    #iCov_cpu = Ax.T.dot(Wx.dot(Ax))
     #yank gpu back to cpu so we can compare
     #iCov_yank = iCov_gpu.get()
     #assert np.allclose(iCov_cpu.todense(), iCov_yank.todense()) #todense bc this is sparse
     #passes
 
-    #y_gpu = Ax_gpu.T.dot(Wx_gpu.dot(pix_gpu))
-    y_cpu = Ax.T.dot(Wx.dot(pix))
+    y_gpu = Ax_gpu.T.dot(Wx_gpu.dot(pix_gpu))
+    #y_cpu = Ax.T.dot(Wx.dot(pix))
     #yank gpu back and compare
     #y_yank = y_gpu.get()
     #assert np.allclose(y_cpu, y_yank)
     #passes
 
-    #for the last wavelength patch these are zero because i have the projection matrix indexing wrong
-    #print("iCov_gpu.todense()", iCov_cpu.todense())
-    #print("y_cpu", y_cpu)
-    #add sys.exit() to see if we can get some profiling data up to here anyway
-    #sys.exit()
-    #quit()
-    #seems like nope
-
     #using instead of spsolve (not currently on the gpu)
     #try again with np.solve and cp.solve
-    #cp.linalg.solve
-    #f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu).reshape((nspec, nwave)) #requires array, not sparse object
-    f_cpu = np.linalg.solve(iCov_cpu.todense(), y_cpu).reshape((nspec, nwave)) #requires array, not sparse object
+    f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu).reshape((nspec, nwave)) #requires array, not sparse object
+    #f_cpu = np.linalg.solve(iCov_cpu.todense(), y_cpu).reshape((nspec, nwave)) #requires array, not sparse object
     #yank back and compare
     #f_yank = f_gpu.get()
     #assert np.allclose(f_cpu, f_yank)
@@ -765,10 +779,10 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #assert np.allclose(f_cpu, f_cpu_sp)
 
     #- Eigen-decompose iCov to assist in upcoming steps
-    #u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
-    u, v = np.linalg.eigh(iCov_cpu.todense())
-    u_cpu = np.asarray(u)
-    v_cpu = np.asarray(v)
+    u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
+    #u, v = np.linalg.eigh(iCov_cpu.todense())
+    #u_cpu = np.asarray(u)
+    #v_cpu = np.asarray(v)
     #yank back and compare
     #u_yank = u_gpu.get()
     #v_yank = v_gpu.get()
@@ -777,62 +791,62 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #passes
 
     #- Calculate C^-1 = QQ (B&S eq 10)
-    #d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
-    d_cpu = scipy.sparse.spdiags(np.sqrt(u_cpu), 0, len(u_cpu), len(u_cpu))
+    d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
+    #d_cpu = scipy.sparse.spdiags(np.sqrt(u_cpu), 0, len(u_cpu), len(u_cpu))
     #yank back and compare
     #d_yank = d_gpu.get()
     #assert np.allclose(d_cpu.todense(), d_yank.todense())
     #passes
 
-    #Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
-    Q_cpu = v_cpu.dot( d_cpu.dot( v_cpu.T ))
+    Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
+    #Q_cpu = v_cpu.dot( d_cpu.dot( v_cpu.T ))
     #yank back and compare
     #Q_yank = Q_gpu.get()
     #assert np.allclose(Q_cpu, Q_yank)
     #passes
 
     #- normalization vector (B&S eq 11)
-    #norm_vector_gpu = cp.sum(Q_gpu, axis=1)
-    norm_vector_cpu = np.sum(Q_cpu, axis=1)
+    norm_vector_gpu = cp.sum(Q_gpu, axis=1)
+    #norm_vector_cpu = np.sum(Q_cpu, axis=1)
     #yank back and compare
     #norm_vector_yank = norm_vector_gpu.get()
     #assert np.allclose(norm_vector_cpu, norm_vector_yank)
     #passes
 
     #- Resolution matrix (B&S eq 12)
-    #R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
-    R_cpu = np.outer(norm_vector_cpu**(-1), np.ones(norm_vector_cpu.size)) * Q_cpu
+    R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
+    #R_cpu = np.outer(norm_vector_cpu**(-1), np.ones(norm_vector_cpu.size)) * Q_cpu
     #yank back and compare
     #R_yank = R_gpu.get()
     #assert np.allclose(R_cpu, R_yank)
     #passes
 
     #- Decorrelated covariance matrix (B&S eq 13-15)
-    #udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
-    udiags_cpu = scipy.sparse.spdiags(1/u_cpu, 0, len(u_cpu), len(u_cpu))
+    udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
+    #udiags_cpu = scipy.sparse.spdiags(1/u_cpu, 0, len(u_cpu), len(u_cpu))
     #yank back and compare
     #udiags_yank = udiags_gpu.get()
     #assert np.allclose(udiags_cpu.todense(),udiags_yank.todense()) #sparse objects
     #passes
 
-    #Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
-    Cov_cpu = v_cpu.dot( udiags_cpu.dot( v_cpu.T ))
+    Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
+    #Cov_cpu = v_cpu.dot( udiags_cpu.dot( v_cpu.T ))
     #yank back and compare
     #Cov_yank = Cov_gpu.get()
     #assert np.allclose(Cov_cpu, Cov_yank)
     #passes
 
     #OOM here when cusparse tries to allocate memory
-    #Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
-    Cx_cpu = R_cpu.dot(Cov_cpu.dot(R_cpu.T))
+    Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
+    #Cx_cpu = R_cpu.dot(Cov_cpu.dot(R_cpu.T))
     #yank back and compare
     #Cx_yank = Cx_gpu.get()
     #assert np.allclose(Cx_cpu, Cx_yank)
     #passes
 
     #- Decorrelated flux (B&S eq 16)
-    #fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
-    fx_cpu = R_cpu.dot(f_cpu.ravel()).reshape(f_cpu.shape)
+    fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
+    #fx_cpu = R_cpu.dot(f_cpu.ravel()).reshape(f_cpu.shape)
     #yank back and compare
     #fx_yank = fx_gpu.get()
     #assert np.allclose(fx_cpu, fx_yank)
@@ -840,21 +854,30 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
 
     #- Variance on f (B&S eq 13)
     #in specter fluxivar = norm_vector**2 ??
-    #varfx_gpu = (norm_vector_gpu * 2).reshape((nspec, nwave))
-    varfx_cpu = (norm_vector_cpu * 2).reshape((nspec, nwave)) #let's try it 
+    varfx_gpu = (norm_vector_gpu * 2).reshape((nspec, nwave))
+    #varfx_cpu = (norm_vector_cpu * 2).reshape((nspec, nwave)) #let's try it 
     #yank back and compare
     #varfx_yank = varfx_gpu.get()
     #assert np.allclose(varfx_cpu, varfx_yank)
     #passes
 
+    #####pull back to cpu to return to ex2d
+    ###flux = fx_cpu
+    ###ivar = varfx_cpu
+    ###sqR = np.sqrt(R_cpu.size).astype(int)
+    ###R = R_cpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
+    ###xflux = f_cpu
+    ####A is on the cpu for now
+    ###iCov = iCov_cpu
+
     ##pull back to cpu to return to ex2d
-    flux = fx_cpu
-    ivar = varfx_cpu
-    sqR = np.sqrt(R_cpu.size).astype(int)
-    R = R_cpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
-    xflux = f_cpu
-    #A is on the cpu for now
-    iCov = iCov_cpu
+    flux = fx_gpu.get()
+    ivar = varfx_gpu.get()
+    sqR = np.sqrt(R_gpu.size).astype(int)
+    R = R_gpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
+    xflux = f_gpu.get()
+    A = A_dense.get() #want the reshaped version
+    iCov = iCov_gpu.get()
 
     if full_output:
         results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
