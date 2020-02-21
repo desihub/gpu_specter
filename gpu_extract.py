@@ -455,11 +455,13 @@ Optional Inputs:
         #print("len(ww)", len(ww))
         #print("iwave", iwave)
 
+        cp.cuda.nvtx.RangePush('ex2d_patch')
         results = \
             ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
                 xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
-                full_output=True, use_cache=True)       
+                full_output=True, use_cache=True) 
+        cp.cuda.nvtx.RangePop()  
 
         #question: is one big transfer better than lots of little transfers?
 
@@ -573,7 +575,6 @@ Optional Inputs:
     else:
         return flux, ivar, Rd
 
-
 def ex2d_patch(image, ivar, p, psfdata, spots, corners, 
          iwave, tws, specmin, nspec, wavelengths, xyrange,
          full_output=False, regularize=0.0, ndecorr=False, use_cache=None):
@@ -601,6 +602,7 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
         ivar[nspec, nwave] = inverse variance of flux
         R : 2D resolution matrix to convert
     """
+    #scalars will move automatically (i think)
 
     #- Range of image to consider
     waverange = (wavelengths[0], wavelengths[-1])
@@ -630,7 +632,8 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #print("nwave", nwave)
     #may want to call this differently for the end of the wavelength range
     #Araw, ymin, xmin = projection_matrix(ispec, nspec, iwave, nwave, spots, corners)
-    A = np.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
+    #try cupy instead
+    A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
 
     xc, yc = corners
 
@@ -643,12 +646,11 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
 
     projection_matrix[blocks_per_grid, threads_per_block](A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
-    #A returns to the cpu automatically
-    #can we prevent this?!?!
-    A_gpu = cp.asarray(A)
+    #hopefully A remains a cupy array, let's check
+    #print(type(A)) yes it does remain a cupy ndarray
     #reshape
-    nypix, nxpix = A_gpu.shape[0:2]
-    A_dense = A_gpu.reshape(nypix*nxpix, nspec*nwave)
+    nypix, nxpix = A.shape[0:2]
+    A_dense = A.reshape(nypix*nxpix, nspec*nwave)
     #A_cpu = scipy.sparse.csr_matrix(A_dense)
     A = cpx.scipy.sparse.csr_matrix(A_dense)
 
