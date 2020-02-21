@@ -1,0 +1,406 @@
+==15227== NVPROF is profiling process 15227, command: python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
+==15227== Profiling application: python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
+==15227== Profiling result:
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+ GPU activities:   40.43%  7.71258s     60394  127.70us  1.3750us  63.808ms  [CUDA memcpy DtoH]
+                   12.39%  2.36258s      8066  292.91us  66.207us  3.0655ms  void dlaed4_seq_kernel<int=7>(int, double*, double*, int, double, double const *, double const *, int*, double, int)
+                    3.49%  664.84ms    127232  5.2250us  2.4960us  16.640us  void cuds_symv_alg7_stage1_lower<double, int=4>(int, double const *, unsigned long, double const *, int, double*)
+                    3.07%  585.83ms    159744  3.6670us     960ns  13.824us  void latrd_update_Akk_kernel<double, int=32, int=2, int=32, bool=0>(int, int, double const *, int, double const *, int, double*)
+                    2.28%  434.26ms      3766  115.31us  20.000us  690.87us  volta_dgemm_64x64_tn
+                    2.07%  395.68ms    154752  2.5560us  1.7590us  13.920us  void gemvc_template_kernel_2A2Y_scalaronhost<double, int=256, int=1, int=1, cublasOperation_t=1>(int, int, int, double, double const *, int, double const *, int, double const *, int, double, double*, int, double*, int)
+                    1.64%  311.96ms     65536  4.7600us  4.6400us  13.760us  void larfg_kernel_fast<double, double, int=10>(int, double*, double*, int, double*)
+                    1.63%  311.75ms      1024  304.45us  283.26us  353.18us  void geqr2_smem_domino_fast<double, double, int=8, int=1024>(int, int, double*, int, double*, int*, int*)
+                    1.54%  293.37ms        50  5.8673ms  5.3816ms  6.3518ms  cudapy::gpu_extract::multispot$243(Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>, Array<double, int=3, A, mutable, aligned>)
+                    1.31%  249.87ms      8066  30.978us  8.5440us  370.24us  void laed3_update_w_phase1<double, int=8>(int, double const *, int, double const *, double*)
+                    1.29%  246.26ms       640  384.78us  241.98us  901.82us  void geqr2_smem_domino_fast<double, double, int=8, int=512>(int, int, double*, int, double*, int*, int*)
+                    1.20%  228.73ms    127232  1.7970us  1.5360us  14.016us  void cuds_symv_alg7_stage2_kernel<double, int=5, int=4>(int, int, double const *, int, double const *, double const *, double, double, int, double*, int)
+                    1.11%  211.98ms    161070  1.3160us  1.1830us  2.6240us  [CUDA memset]
+                    1.11%  211.26ms     74880  2.8210us  2.3680us  13.664us  void gemvn_template_kernel_2A2X_scalaronhost<double, int=32, int=16, int=32>(int, int, int, double, double const *, int, double const *, int, double const *, int, double const *, int, double, double*, int)
+                    1.10%  209.18ms       256  817.10us  781.37us  887.39us  void geqr2_smem_domino_fast<double, double, int=8, int=2048>(int, int, double*, int, double*, int*, int*)
+                    1.05%  200.93ms     79872  2.5150us  1.6000us  13.663us  void gemvn_template_kernel_2A2X_scalaronhost<double, int=32, int=2, int=32>(int, int, int, double, double const *, int, double const *, int, double const *, int, double const *, int, double, double*, int)
+                    0.98%  186.54ms    159744  1.1670us  1.1190us  13.568us  void latrd_copy_E_from_A_kernel<double, double>(double*, double*)
+                    0.94%  178.42ms      5850  30.499us  2.0480us  486.36us  cupy_max
+                    0.91%  173.39ms      1664  104.20us  15.871us  675.20us  volta_dgemm_64x64_nn
+                    0.90%  171.00ms      5720  29.894us  2.0480us  54.463us  cupy_min
+                    0.89%  170.11ms     12404  13.714us  1.9840us  42.783us  void stable_sort_by_key_domino_phase1<int=256, int=4>(int, int, int, int*, int*, int*, int*, int*, int*)
+                    0.87%  165.70ms       256  647.27us  642.43us  683.64us  volta_dgemm_64x64_tt
+                    0.85%  162.04ms     17664  9.1730us  1.7280us  12.192us  void recursive_gemv_truncated_uptate<double, int=16>(int, int, double*, unsigned long)
+                    0.78%  148.56ms     65536  2.2660us  2.0470us  13.696us  void latrd_compute_w_kernel<double, int=9, int=2>(double const *, int, double const *, double const *, double*)
+                    0.77%  147.50ms      9984  14.773us  9.7910us  29.376us  volta_dgemm_64x64_lower_nt
+                    0.73%  139.33ms     64232  2.1690us  1.8230us  13.696us  void sortI32_by_key_merge_core<int=256, int=4>(int, unsigned int*, int*, int*, int*, unsigned int*, int*)
+                    0.73%  139.16ms     64232  2.1660us  1.7590us  13.888us  void sortI32_by_key_local_core<int=256, int=4, bool=1>(int, int, unsigned int*, int*, int*, int*)
+                    0.72%  137.10ms     28800  4.7600us  3.9040us  8.8320us  void larfg_kernel<double, double, int=8>(int, double*, double*, int, double*)
+                    0.62%  118.80ms     66832  1.7770us  1.6950us  13.471us  void cusparseIinclusive_scan_domino_v1_core<int=256, int=4>(int, int*, int*, int*, int*, int*)
+                    0.60%  113.64ms     32512  3.4950us  1.4720us  12.544us  void cuds_symv_lo_direct_kernel<double, int=4, int=1>(int, double const *, unsigned long, double const *, int, double const *, double const *, double, double, int, double*, int)
+                    0.58%  110.17ms     32768  3.3620us  3.2320us  13.344us  void larfg_kernel_fast<double, double, int=9>(int, double*, double*, int, double*)
+                    0.51%  97.982ms     66832  1.4660us  1.3750us  13.696us  void cusparseIinclusive_localscan_core<int=256, int=4>(int, int*, int*, int*)
+                    0.44%  83.741ms     13848  6.0470us  2.4960us  12.512us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::PartitionAgent<thrust::device_ptr<unsigned long>, long, elem_less<int>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long, long*, elem_less<int>, long, int>(thrust::device_ptr<unsigned long>, long, int, elem_less<int>, thrust::cuda_cub::__merge_sort::PartitionAgent<thrust::device_ptr<unsigned long>, long, elem_less<int>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long)
+                    0.43%  82.965ms      2860  29.008us  13.120us  38.560us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::BlockSortAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>, thrust::detail::integral_constant<bool, bool=1>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long*, unsigned long*, elem_less<int>>(thrust::device_ptr<unsigned long>, unsigned long*, long, int, elem_less<int>, bool, bool=0)
+                    0.43%  82.277ms     16394  5.0180us  1.6000us  42.016us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=0, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.42%  79.731ms     28800  2.7680us  2.5600us  13.567us  void abcdot_kernel_merged<double, int=9>(double, double const *, int, double*, int, double const *, int, double*)
+                    0.42%  79.705ms       520  153.28us  1.9840us  592.73us  void transpose_readWrite_alignment_kernel<double, double, int=1, bool=0, int=6, int=4, int=4>(cublasTransposeParams<double>, double const *, double*, double const *)
+                    0.41%  78.295ms     66832  1.1710us  1.0240us  13.759us  void cusparseIinclusive_scan_merge_core<int=256, int=4>(int, int, int*, int*, int*)
+                    0.38%  72.624ms     13848  5.2440us  2.9760us  12.736us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::MergeAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long*, unsigned long*, elem_less<int>, long*, long>(thrust::device_ptr<unsigned long>, unsigned long*, long, int, elem_less<int>, bool, bool=0, thrust::detail::integral_constant<bool, bool=0>, thrust::cuda_cub::__merge_sort::MergeAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>>)
+                    0.38%  71.749ms     41379  1.7330us  1.2480us  239.81us  [CUDA memcpy HtoD]
+                    0.37%  70.370ms      2560  27.488us  18.976us  35.616us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=1, bool=0>(cublasTrmmParams<double>, double, int)
+                    0.35%  67.319ms      4358  15.447us  1.3440us  70.495us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=1, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.35%  67.295ms     32768  2.0530us  1.9510us  13.728us  void latrd_compute_w_kernel<double, int=9, int=1>(double const *, int, double const *, double const *, double*)
+                    0.35%  66.274ms      2560  25.888us  18.783us  32.320us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=0, bool=0>(cublasTrmmParams<double>, double, int)
+                    0.31%  59.993ms      1024  58.587us  35.168us  94.015us  volta_dgemm_64x64_nt
+                    0.31%  58.278ms     11906  4.8940us  1.0240us  99.807us  cupy_copy
+                    0.29%  56.103ms     32640  1.7180us  1.5990us  13.312us  void latrd_compute_w_kernel<double, int=8, int=1>(double const *, int, double const *, double const *, double*)
+                    0.28%  54.212ms     15104  3.5890us  2.1750us  13.184us  void gemm_second_update<double, int=4, int=4, int=3>(int, int, double const *, double*, double const *, double*, unsigned long)
+                    0.28%  52.861ms       128  412.98us  383.26us  469.15us  void csrgemm_kernel2<double, int=128, int=32, int=1, int=4>(csrgemm_params<double>)
+                    0.24%  45.552ms       100  455.52us  372.29us  546.68us  cudapy::gpu_extract::hermevander$242(Array<double, int=2, A, mutable, aligned>, __int64, Array<double, int=3, A, mutable, aligned>)
+                    0.24%  45.045ms     16384  2.7490us  2.6550us  5.5360us  void larfg_kernel_fast<double, double, int=8>(int, double*, double*, int, double*)
+                    0.22%  42.441ms       260  163.23us  100.06us  199.84us  void csrMvT_kernel<double, double, double, int=128, int=0>(cusparseCsrMvParams<double, double, double>)
+                    0.22%  42.099ms      1430  29.439us  1.8880us  96.287us  cupy_all
+                    0.20%  37.620ms      1280  29.390us  20.736us  32.608us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=1, bool=1>(cublasTrmmParams<double>, double, int)
+                    0.19%  36.185ms       130  278.35us  5.7600us  313.50us  void cusparseDenseToCsr_kernel2<double, int=4, int=32, int=0>(int, int, double const *, int, int const *, int*, double*)
+                    0.17%  32.343ms     18115  1.7850us  1.0880us  36.288us  void lapack_lacpy_kernel<double, int=8>(int, int, double const *, int, double*, int, int, int)
+                    0.16%  30.197ms      8066  3.7430us  2.6550us  33.664us  void laed3_update_Q<double, int=8>(int, double*, int const *, double const *, double*, int, int, int)
+                    0.16%  29.821ms      1280  23.297us  18.528us  25.696us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=0, bool=1>(cublasTrmmParams<double>, double, int)
+                    0.14%  27.451ms       130  211.16us  4.3520us  235.74us  void cusparseParseDenseByRows_kernel<double, int=0>(int, int, double const *, int, int*)
+                    0.14%  26.552ms      2560  10.372us  10.176us  11.392us  void recursive_gemv_first_update<double, int=16>(int, double*, unsigned long)
+                    0.13%  24.605ms      1536  16.019us  15.808us  17.408us  void larft_T_64<double>(int, double*, int, double const *)
+                    0.11%  20.613ms      2304  8.9460us  8.6400us  13.472us  void gemm_kernel2x2_tile_multiple_core<double, bool=1, bool=0, bool=0, bool=1, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.11%  20.522ms      8192  2.5050us  2.3990us  13.216us  void larfg_kernel_fast<double, double, int=7>(int, double*, double*, int, double*)
+                    0.10%  19.641ms     16132  1.2170us  1.0230us  13.152us  void lapack_copy_kernel<double, int=8>(int, double const *, int, double*, int)
+                    0.10%  19.435ms      8160  2.3810us  2.2720us  4.9920us  void larfg_kernel_fast<double, double, int=6>(int, double*, double*, int, double*)
+                    0.10%  18.904ms     12908  1.4640us     960ns  13.504us  [CUDA memcpy DtoD]
+                    0.09%  16.343ms      1950  8.3810us  4.7360us  13.760us  void convert_CsrToCoo_kernel<int=0>(int const *, int, int, int*)
+                    0.08%  15.104ms       260  58.092us  3.6800us  61.919us  void csrMm_core<double, int=128, int=6>(cusparseCsrMmParams<double>)
+                    0.07%  14.274ms      4420  3.2290us  1.4080us  6.4000us  cupy_take
+                    0.07%  14.158ms      1536  9.2170us  5.3440us  14.207us  void gemmcn_skinny_kernel<double, int=2, int=4>(int, int, int, double const *, unsigned long, double const *, unsigned long, double*, unsigned long)
+                    0.07%  13.007ms       130  100.05us  13.088us  107.74us  void trsv_ln_exec_up<double, unsigned int=32, unsigned int=32, unsigned int=4, bool=0>(int, double const *, int, double*, int, int*)
+                    0.07%  12.976ms      8066  1.6080us  1.4710us  12.800us  void dlaed4_reduce_info<int=8>(int, int*)
+                    0.07%  12.805ms      8066  1.5870us  1.3120us  7.4560us  void laed2_dist_Q_D_phase1_kernel<double, int=8>(int, int, double const *, int, double*, int const *)
+                    0.07%  12.537ms      8066  1.5540us  1.2150us  9.5680us  void laed2_dist_Q_D_phase3_kernel<double, int=8>(int, int, int, int, int, double const *, int, double*, int const *)
+                    0.06%  11.199ms       130  86.142us  32.544us  92.543us  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, A, mutable, aligned>)
+                    0.06%  11.007ms      8654  1.2710us  1.0560us  13.280us  cumsum_kernel
+                    0.05%  10.364ms      8066  1.2840us  1.2150us  13.088us  void laed3_update_w_phase2<double, int=8>(int, double const *, double*)
+                    0.05%  10.068ms       650  15.489us  11.680us  17.504us  void thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>(int const *, thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>*, thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700 const *, thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>**, bool=0, int, int)
+                    0.05%  9.2762ms      8066  1.1500us  1.0230us  1.8240us  void laed3_set_s_w<double, int=8>(int, double const *, int, double*, double*)
+                    0.05%  9.1657ms      6665  1.3750us  1.2160us  1.9520us  void lapack_rot_kernel<double, int=8>(int, double*, double*, double, double)
+                    0.05%  8.7923ms      1282  6.8580us  2.1760us  26.912us  void gemv2T_kernel_val<int, int, double, double, double, int=128, int=16, int=2, int=2, bool=0, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const , double, double)
+                    0.04%  8.2345ms       820  10.042us  1.2800us  48.064us  cupy_multiply
+                    0.04%  8.1186ms       256  31.713us  29.184us  35.296us  void csrgemm_kernel2<double, int=128, int=32, int=1, int=16>(csrgemm_params<double>)
+                    0.04%  7.8540ms      2560  3.0670us  1.4080us  7.7760us  void geam_kernel<double, bool=0, bool=1, bool=0, bool=1, int=6, int=4, int=4, bool=1>(cublasGeamParams<double>, double const *, double const *, double*, double const *, double const *)
+                    0.04%  7.7852ms      4992  1.5590us  1.4390us  12.832us  void copy_trdiag_block<double, double>(double*, unsigned long, double*, double*, int, int)
+                    0.04%  7.6513ms      3238  2.3620us  2.1120us  7.5520us  inclusive_scan_kernel
+                    0.04%  7.6038ms      2560  2.9700us  1.4710us  8.1920us  void transpose_readWrite_alignment_kernel<double, double, int=1, bool=1, int=6, int=4, int=4>(cublasTransposeParams<double>, double const *, double*, double const *)
+                    0.04%  7.4789ms      5850  1.2780us  1.2150us  12.832us  cupy_less
+                    0.04%  7.4092ms       260  28.496us  8.6080us  31.648us  void csrgemmNnz_kernel2<int=128, int=32, int=0, int=16>(csrgemmNnz_params)
+                    0.04%  7.3143ms      5720  1.2780us  1.1840us  7.5840us  cupy_greater_equal
+                    0.03%  5.8876ms      2080  2.8300us  1.6640us  8.9600us  void sortsign_by_key_local_core<int, int=256, int=4>(int, int, int*, int*, int*, int*)
+                    0.03%  5.7704ms      1040  5.5480us  1.9510us  10.752us  void convert_CooToCsr_kernel<int=0>(int const *, int, int, int*)
+                    0.03%  5.6859ms       780  7.2890us  1.4720us  35.328us  cupy_sum
+                    0.03%  5.4145ms      3120  1.7350us  1.1520us  2.8160us  void gather_core<int, int=256>(int, int const *, int const *, int*)
+                    0.03%  5.1020ms       130  39.246us  13.216us  44.992us  void csrgemmNnz_kernel2<int=128, int=32, int=0, int=4>(csrgemmNnz_params)
+                    0.03%  4.9032ms      1853  2.6460us  1.3120us  12.960us  void laed2_dist_Q_D_phase4_kernel<double, int=8>(int, int, int, int, double const *, int, double*, int const *)
+                    0.02%  4.7024ms      2080  2.2600us  1.3120us  2.9120us  void sortsign_by_key_merge_core<int, int=256, int=4>(int, int*, int*, int*, int*, int*, int*)
+                    0.02%  4.6319ms      2560  1.8090us  1.5680us  2.5280us  void setup_Vhat<double, cublasFillMode_t=0>(int, int, double*, unsigned long, double const *, unsigned long)
+                    0.02%  4.5396ms       130  34.920us  1.6000us  36.256us  void laed0_phase1_kernel<double, int=8>(int, double const *, int, int const *, double*, int, int, int)
+                    0.02%  4.4567ms       260  17.141us  1.0240us  19.552us  void cusparseZeroOutForCSC_kernel<double>(int, int, double*, int)
+                    0.02%  4.2362ms       130  32.586us  1.4400us  33.856us  void lacpy_kernel<double, double, int=5, int=3>(int, int, double const *, unsigned long, double*, unsigned long, int, int)
+                    0.02%  4.1493ms       256  16.208us  15.872us  17.311us  void larft_T_64_batch<double>(int, double*, int, double const *)
+                    0.02%  3.9272ms      2560  1.5340us  1.4710us  13.248us  void gemm_first_update<double, int=16>(int, int, double*, unsigned long)
+                    0.02%  3.6838ms      2560  1.4380us  1.1840us  13.664us  void zero_triangular_T<double, cublasFillMode_t=1>(int, double*, unsigned long, double const *)
+                    0.02%  3.5063ms      2080  1.6850us     864ns  9.2800us  void set_identy<int=128>(int, int*)
+                    0.02%  3.3164ms      1430  2.3190us  1.3440us  13.536us  sum_duplicates_diff
+                    0.02%  2.9603ms       128  23.127us  22.400us  23.968us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=0, bool=1>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.01%  2.6933ms      1040  2.5890us  1.3120us  4.7680us  void gthr_gld_main<double, int=128>(cusparseGthrParams<double>)
+                    0.01%  2.5761ms      1430  1.8010us     992ns  2.4640us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__parallel_for::ParallelForAgent<thrust::cuda_cub::__tabulate::functor<thrust::device_ptr<unsigned long>, thrust::system::detail::generic::sequence_detail::sequence_functor<unsigned long>, long>, long>, thrust::cuda_cub::__tabulate::functor<thrust::device_ptr<unsigned long>, thrust::system::detail::generic::sequence_detail::sequence_functor<unsigned long>, long>, long>(thrust::device_ptr<unsigned long>, unsigned long)
+                    0.01%  2.5726ms      1796  1.4320us  1.0880us  11.008us  void larfb_restore_v1_R_kernel<double, int=16>(int, double*, unsigned long, double*, unsigned long)
+                    0.01%  2.4929ms       130  19.176us  1.4400us  22.944us  void lapack_identity_kernel<double, int=8>(int, int, double*, int)
+                    0.01%  2.3756ms       780  3.0450us  2.1760us  4.9920us  void CsrToCsc_kernel_build_cscColPtr<double, int=0>(cusparseCsrToCscParams<double>)
+                    0.01%  2.2960ms      1300  1.7660us  1.4080us  2.1440us  cupy_getitem_mask
+                    0.01%  2.2338ms       130  17.183us  2.5920us  18.208us  void gemmk1_kernel<double, int=256, int=5, bool=1, bool=0, bool=0, bool=0, cublasGemvTensorStridedBatched<double const >, cublasGemvTensorStridedBatched<double>, double>(cublasGemmk1Params<double, double const , cublasGemvTensorStridedBatched<double const >, double>)
+                    0.01%  2.1776ms       780  2.7910us  1.5040us  6.8160us  void CsrToCsc_kernel_build_cscRowInd_cscVal<double, int=1>(cusparseCsrToCscParams<double>)
+                    0.01%  2.1692ms      1796  1.2070us  1.0870us  7.4240us  void larfb_set_v1_R_kernel<double, int=16>(int, double*, unsigned long, double*, unsigned long)
+                    0.01%  2.0992ms       512  4.1000us  3.3280us  11.264us  void gemm_kernel2x2_tile_multiple_core<double, bool=1, bool=0, bool=0, bool=0, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.01%  1.9746ms      1548  1.2750us  1.0550us  12.640us  add_scan_blocked_sum_kernel
+                    0.01%  1.7145ms       780  2.1980us  1.2480us  4.3200us  void CsrToCsc_kernel_copy_and_pset<double>(cusparseCsrToCscParams<double>)
+                    0.01%  1.6753ms       512  3.2720us  2.6560us  4.8000us  void gemv2N_kernel<int, int, double, double, double, int=128, int=8, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.01%  1.6156ms       512  3.1550us  2.2710us  4.9600us  void gemv2N_kernel<int, int, double, double, double, int=128, int=32, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.01%  1.5266ms       910  1.6770us  1.2160us  2.0480us  void stable_sort_by_key_stop_core<int=256, int=4>(int, int*, int*)
+                    0.01%  1.5189ms       404  3.7590us  1.2160us  40.511us  cupy_subtract
+                    0.01%  1.5134ms       130  11.641us  2.4960us  12.864us  void lansy_M_stage1<double, double, int=8>(int, double const *, unsigned long, double*, int)
+                    0.01%  1.4959ms       260  5.7530us  1.2480us  8.1280us  void cusparseCscToDense_kernel<double, int=0>(int, int, double const *, int const *, int const *, double*, int)
+                    0.01%  1.4625ms       780  1.8750us  1.0560us  7.3920us  cupy_any
+                    0.01%  1.2883ms       650  1.9810us  1.4720us  3.0400us  dia_tocsc
+                    0.01%  1.1077ms       414  2.6750us  1.6320us  3.7760us  void laed2_dist_Q_D_phase2_kernel<double, int=8>(int, int, int, int, int, int, double const *, int, double*, int const *)
+                    0.01%  1.0773ms       430  2.5050us  1.3760us  4.5760us  cupy_true_divide
+                    0.00%  877.82us       650  1.3500us     991ns  5.1840us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__parallel_for::ParallelForAgent<thrust::cuda_cub::__transform::unary_transform_f<int*, int*, thrust::cuda_cub::__transform::no_stencil_tag, thrust::identity<int>, thrust::cuda_cub::__transform::always_true_predicate>, long>, thrust::cuda_cub::__transform::unary_transform_f<int*, int*, thrust::cuda_cub::__transform::no_stencil_tag, thrust::identity<int>, thrust::cuda_cub::__transform::always_true_predicate>, long>(int*, thrust::cuda_cub::__transform::no_stencil_tag)
+                    0.00%  830.59us       650  1.2770us     992ns  13.216us  copy_info_kernel(int, int*)
+                    0.00%  783.16us       130  6.0240us  3.0720us  6.6560us  void cusparseIreduce_domino_core<int=256, int=4>(int, int*, int*, int*, int*)
+                    0.00%  779.42us       230  3.3880us  2.3040us  4.4800us  cupy_power
+                    0.00%  611.61us       130  4.7040us  2.4950us  4.9920us  void CsrToCsc_kernel_build_cscColPtr<float, int=0>(cusparseCsrToCscParams<float>)
+                    0.00%  587.55us       130  4.5190us  1.6960us  4.9280us  void CsrToCsc_kernel_build_cscRowInd_cscVal<float, int=0>(cusparseCsrToCscParams<float>)
+                    0.00%  565.56us       128  4.4180us  4.1920us  4.7040us  void gemv2N_kernel<int, int, double, double, double, int=128, int=4, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.00%  535.71us       390  1.3730us  1.0240us  11.392us  fill
+                    0.00%  500.86us       130  3.8520us  1.5360us  4.1600us  void CsrToCsc_kernel_copy_and_pset<float>(cusparseCsrToCscParams<float>)
+                    0.00%  492.70us       330  1.4930us  1.1200us  2.1120us  cupy_sqrt
+                    0.00%  479.10us       130  3.6850us  2.4320us  4.0320us  void lansy_M_stage2<double, int=8>(int, double*)
+                    0.00%  453.79us       198  2.2910us  1.7280us  3.0720us  void ormtr_gerc<double, int=5, int=3, int=1>(int, double const *, int, int, double*, unsigned long, double const *, int, double const *)
+                    0.00%  409.82us       130  3.1520us  2.3360us  3.3920us  void csrMv_kernel<double, double, double, int=128, int=2>(cusparseCsrMvParams<double, double, double>)
+                    0.00%  402.69us       128  3.1450us  3.0710us  3.3600us  void sytd2_lower_cta<double, double, int=4>(int, double*, unsigned long, double*, double*, double*)
+                    0.00%  363.68us         2  181.84us  181.63us  182.05us  void csrgemm_kernel2<double, int=128, int=32, int=0, int=4>(csrgemm_params<double>)
+                    0.00%  338.17us       198  1.7070us  1.6000us  2.7840us  void ormtr_gemv_c<double, int=4>(int, int, double const *, unsigned long, double const *, int, double*)
+                    0.00%  327.39us       260  1.2590us  1.0240us  1.4400us  void scal_kernel<double, double>(double*, int, double const *, double, bool)
+                    0.00%  283.01us       130  2.1760us  1.5360us  2.4000us  cusparseDense2CsrCopySetBase_kernel(int const *, int*, int, int)
+                    0.00%  244.35us        98  2.4930us  1.6960us  4.1280us  void sytd2_symv_lower<double, int=4>(int, double const *, double const *, unsigned long, double const *, double*)
+                    0.00%  234.91us       100  2.3490us  1.9840us  3.7120us  cupyx_scipy_erf
+                    0.00%  231.71us       100  2.3170us  1.9200us  2.6560us  cupy_remainder
+                    0.00%  199.58us       130  1.5350us  1.5030us  1.6960us  nonzero_kernel_1d
+                    0.00%  198.01us       100  1.9800us  1.6320us  3.3920us  cupy_exp
+                    0.00%  185.28us         4  46.319us  43.200us  49.632us  void geqr2_smem<double, double, int=8, int=6, int=4>(int, int, double*, unsigned long, double*, int)
+                    0.00%  179.87us        98  1.8350us  1.2160us  2.3040us  void sytd2_her2k_kernel<double, int=8, int=4>(int, double*, unsigned long, double const *, int, double const *)
+                    0.00%  174.14us       130  1.3390us  1.2800us  1.5040us  cupy_not_equal
+                    0.00%  171.62us       130  1.3200us  1.2800us  1.4720us  cupy_equal
+                    0.00%  158.24us        98  1.6140us  1.5360us  2.0160us  void sytd2_compute_w_kernel<double, int=8, int=1>(double const *, int, double const *, double const *, int, double*)
+                    0.00%  144.99us       100  1.4490us  1.1200us  1.8880us  cupy_arange
+                    0.00%  141.25us       130  1.0860us  1.0550us  1.2480us  dtrsv_init_up(int*, int)
+                    0.00%  134.53us         4  33.631us  33.343us  33.792us  cupy_floor
+                    0.00%  98.367us         2  49.183us  49.088us  49.279us  void geqr2_smem<double, double, int=8, int=5, int=5>(int, int, double*, unsigned long, double*, int)
+                    0.00%  92.672us         8  11.584us  10.944us  13.408us  void sortI32_by_oneCTA<int=256, bool=1>(int, int, unsigned int*, int*)
+                    0.00%  38.623us         4  9.6550us  9.2160us  10.111us  void csrgemm_kernel2<double, int=128, int=32, int=0, int=16>(csrgemm_params<double>)
+                    0.00%  26.688us         4  6.6720us  6.0480us  7.2960us  void larft_T_32<double, int=256>(int, double*, int, double const *)
+                    0.00%  23.263us         4  5.8150us  5.1520us  6.4960us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=1, bool=1>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.00%  10.016us         4  2.5040us  1.9520us  3.0720us  void larfb_vtc<double, int=128>(int, int, int, double const *, unsigned long, double const *, unsigned long, double*, unsigned long)
+                    0.00%  9.1520us         2  4.5760us  4.4800us  4.6720us  cudapy::gpu_extract::legvander$241(Array<double, int=1, C, mutable, aligned>, __int64, Array<double, int=2, A, mutable, aligned>)
+                    0.00%  8.0960us         4  2.0240us  1.6960us  2.3680us  void larft_vtv_32<double, int=128>(int, int, double const *, unsigned long, double*, unsigned long)
+                    0.00%  3.0080us         2  1.5040us  1.5040us  1.5040us  void sytd2_lower_D_E<double, double, int=8>(int, double*, unsigned long, double*, double*)
+                    0.00%  2.1120us         2  1.0560us  1.0560us  1.0560us  void larfg_set_tau_zero<double>(double*)
+                    0.00%  1.7600us         2     880ns     864ns     896ns  void sytd2_diagonal_real<double, int=8>(int, double*, unsigned long)
+      API calls:   39.11%  12.7023s   1853197  6.8540us  4.4170us  9.8458ms  cudaLaunchKernel
+                   30.41%  9.87441s     19895  496.33us  12.345us  66.374ms  cudaMemcpy
+                   10.96%  3.55771s     86586  41.088us  2.8410us  6.0001ms  cudaMemcpyAsync
+                    6.30%  2.04680s      3548  576.89us     415ns  687.32ms  cudaFree
+                    2.42%  786.70ms      2131  369.17us  194.43us  116.00ms  cuModuleLoadData
+                    2.23%  724.60ms    161070  4.4980us  2.2000us  72.899ms  cudaMemsetAsync
+                    2.16%  700.94ms      3589  195.30us  4.8400us  276.45ms  cudaMalloc
+                    1.76%  571.79ms     62956  9.0820us  4.7730us  6.8646ms  cuLaunchKernel
+                    1.47%  478.78ms     45312  10.566us  1.8070us  2.3846ms  cudaStreamSynchronize
+                    1.32%  429.58ms   1814631     236ns     118ns  10.184ms  cudaGetLastError
+                    0.84%  272.36ms      2114  128.84us  87.806us  1.6383ms  cuModuleUnload
+                    0.38%  123.03ms    181952     676ns     318ns  583.01us  cudaGetDevice
+                    0.22%  71.720ms     14690  4.8820us  2.6810us  2.7772ms  cudaFuncGetAttributes
+                    0.21%  68.722ms      8196  8.3840us  5.3700us  1.7858ms  cudaMemcpy2DAsync
+                    0.05%  14.788ms     65922     224ns     118ns  219.44us  cudaPeekAtLastError
+                    0.03%  10.062ms      5339  1.8840us     695ns  23.626us  cudaEventQuery
+                    0.03%  9.2164ms     16466     559ns     309ns  22.237us  cudaDeviceGetAttribute
+                    0.02%  6.4990ms      4748  1.3680us     657ns  12.577us  cudaEventRecord
+                    0.01%  4.3376ms       473  9.1700us     124ns  395.17us  cuDeviceGetAttribute
+                    0.01%  3.3070ms      2135  1.5480us     523ns  1.7101ms  cuModuleGetFunction
+                    0.01%  3.2544ms      1844  1.7640us     440ns  29.540us  cuPointerGetAttribute
+                    0.01%  2.9505ms         5  590.11us  13.434us  1.8790ms  cudaHostAlloc
+                    0.01%  1.7091ms         5  341.82us  285.22us  473.60us  cuDeviceTotalMem
+                    0.00%  1.5663ms         4  391.58us  369.44us  406.25us  cuLinkAddData
+                    0.00%  1.5102ms       612  2.4670us     494ns  19.670us  cudaEventCreateWithFlags
+                    0.00%  1.4560ms       614  2.3710us     700ns  9.2560us  cudaEventDestroy
+                    0.00%  1.1047ms      2422     456ns     203ns  16.276us  cuCtxGetCurrent
+                    0.00%  1.0364ms         4  259.11us  223.60us  308.63us  cuModuleLoadDataEx
+                    0.00%  719.17us       524  1.3720us     696ns  13.675us  cudaSetDevice
+                    0.00%  709.00us      2422     292ns     179ns     562ns  cuCtxGetDevice
+                    0.00%  511.66us         6  85.276us  73.360us  98.407us  cuDeviceGetName
+                    0.00%  420.08us         4  105.02us  101.36us  108.70us  cuLinkComplete
+                    0.00%  240.89us       450     535ns     417ns  4.7350us  cudaFuncSetAttribute
+                    0.00%  195.78us         4  48.945us  46.500us  51.328us  cuLinkCreate
+                    0.00%  103.26us         2  51.629us  26.095us  77.163us  cuMemcpyHtoD
+                    0.00%  62.286us        20  3.1140us  1.8740us  16.365us  cudaDeviceSynchronize
+                    0.00%  61.489us         2  30.744us  28.663us  32.826us  cuMemcpyDtoH
+                    0.00%  52.864us         2  26.432us  16.333us  36.531us  cuMemAlloc
+                    0.00%  47.494us         1  47.494us  47.494us  47.494us  cudaMemGetInfo
+                    0.00%  28.740us         1  28.740us  28.740us  28.740us  cuMemGetInfo
+                    0.00%  27.272us         3  9.0900us  4.7000us  17.455us  cudaStreamDestroy
+                    0.00%  26.531us         3  8.8430us  4.8440us  15.803us  cudaStreamCreateWithFlags
+                    0.00%  11.227us         5  2.2450us  1.6640us  3.1350us  cuInit
+                    0.00%  6.3660us        20     318ns     220ns     569ns  cuFuncGetAttribute
+                    0.00%  5.2400us         1  5.2400us  5.2400us  5.2400us  cuDeviceGetPCIBusId
+                    0.00%  3.8620us         3  1.2870us  1.1100us  1.6420us  cudaEventCreate
+                    0.00%  3.7250us         8     465ns     159ns  1.6110us  cuDeviceGetCount
+                    0.00%  2.8890us         1  2.8890us  2.8890us  2.8890us  cudaDeviceCanAccessPeer
+                    0.00%  2.6540us         7     379ns     154ns  1.0030us  cuDeviceGet
+                    0.00%  2.2220us         4     555ns     524ns     601ns  cuLinkDestroy
+                    0.00%  1.3110us         4     327ns     253ns     446ns  cuDriverGetVersion
+                    0.00%  1.2050us         5     241ns     196ns     304ns  cuDeviceGetUuid
+                    0.00%     676ns         1     676ns     676ns     676ns  cuDevicePrimaryCtxRetain
+                    0.00%     482ns         1     482ns     482ns     482ns  cuDeviceComputeCapability
+                    0.00%     397ns         1     397ns     397ns     397ns  cudaRuntimeGetVersion
+
+==15227== NVTX result:
+==15227==   Thread "<unnamed>" (id = 2863832448)
+==15227==     Domain "<unnamed>"
+==15227==       Range "ex2d_patch"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  37.9090s       130  291.61ms  76.893ms  1.64864s  ex2d_patch
+ GPU activities:   41.24%  7.71166s     59872  128.80us  1.3750us  63.808ms  [CUDA memcpy DtoH]
+                   12.64%  2.36258s      8066  292.91us  66.207us  3.0655ms  void dlaed4_seq_kernel<int=7>(int, double*, double*, int, double, double const *, double const *, int*, double, int)
+                    3.56%  664.84ms    127232  5.2250us  2.4960us  16.640us  void cuds_symv_alg7_stage1_lower<double, int=4>(int, double const *, unsigned long, double const *, int, double*)
+                    3.13%  585.83ms    159744  3.6670us     960ns  13.824us  void latrd_update_Akk_kernel<double, int=32, int=2, int=32, bool=0>(int, int, double const *, int, double const *, int, double*)
+                    2.30%  430.20ms      3584  120.03us  94.559us  690.87us  volta_dgemm_64x64_tn
+                    2.12%  395.68ms    154752  2.5560us  1.7590us  13.920us  void gemvc_template_kernel_2A2Y_scalaronhost<double, int=256, int=1, int=1, cublasOperation_t=1>(int, int, int, double, double const *, int, double const *, int, double const *, int, double, double*, int, double*, int)
+                    1.67%  311.96ms     65536  4.7600us  4.6400us  13.760us  void larfg_kernel_fast<double, double, int=10>(int, double*, double*, int, double*)
+                    1.67%  311.75ms      1024  304.45us  283.26us  353.18us  void geqr2_smem_domino_fast<double, double, int=8, int=1024>(int, int, double*, int, double*, int*, int*)
+                    1.34%  249.87ms      8066  30.978us  8.5440us  370.24us  void laed3_update_w_phase1<double, int=8>(int, double const *, int, double const *, double*)
+                    1.32%  246.26ms       640  384.78us  241.98us  901.82us  void geqr2_smem_domino_fast<double, double, int=8, int=512>(int, int, double*, int, double*, int*, int*)
+                    1.22%  228.73ms    127232  1.7970us  1.5360us  14.016us  void cuds_symv_alg7_stage2_kernel<double, int=5, int=4>(int, int, double const *, int, double const *, double const *, double, double, int, double*, int)
+                    1.13%  211.79ms    160916  1.3160us  1.1830us  2.6240us  [CUDA memset]
+                    1.13%  211.26ms     74880  2.8210us  2.3680us  13.664us  void gemvn_template_kernel_2A2X_scalaronhost<double, int=32, int=16, int=32>(int, int, int, double, double const *, int, double const *, int, double const *, int, double const *, int, double, double*, int)
+                    1.12%  209.18ms       256  817.10us  781.37us  887.39us  void geqr2_smem_domino_fast<double, double, int=8, int=2048>(int, int, double*, int, double*, int*, int*)
+                    1.07%  200.93ms     79872  2.5150us  1.6000us  13.663us  void gemvn_template_kernel_2A2X_scalaronhost<double, int=32, int=2, int=32>(int, int, int, double, double const *, int, double const *, int, double const *, int, double const *, int, double, double*, int)
+                    1.00%  186.54ms    159744  1.1670us  1.1190us  13.568us  void latrd_copy_E_from_A_kernel<double, double>(double*, double*)
+                    0.95%  178.42ms      5850  30.499us  2.0480us  486.36us  cupy_max
+                    0.93%  173.39ms      1664  104.20us  15.871us  675.20us  volta_dgemm_64x64_nn
+                    0.91%  171.00ms      5720  29.894us  2.0480us  54.463us  cupy_min
+                    0.91%  170.11ms     12404  13.714us  1.9840us  42.783us  void stable_sort_by_key_domino_phase1<int=256, int=4>(int, int, int, int*, int*, int*, int*, int*, int*)
+                    0.89%  165.70ms       256  647.27us  642.43us  683.64us  volta_dgemm_64x64_tt
+                    0.87%  162.04ms     17664  9.1730us  1.7280us  12.192us  void recursive_gemv_truncated_uptate<double, int=16>(int, int, double*, unsigned long)
+                    0.79%  148.56ms     65536  2.2660us  2.0470us  13.696us  void latrd_compute_w_kernel<double, int=9, int=2>(double const *, int, double const *, double const *, double*)
+                    0.79%  147.50ms      9984  14.773us  9.7910us  29.376us  volta_dgemm_64x64_lower_nt
+                    0.75%  139.33ms     64232  2.1690us  1.8230us  13.696us  void sortI32_by_key_merge_core<int=256, int=4>(int, unsigned int*, int*, int*, int*, unsigned int*, int*)
+                    0.74%  139.16ms     64232  2.1660us  1.7590us  13.888us  void sortI32_by_key_local_core<int=256, int=4, bool=1>(int, int, unsigned int*, int*, int*, int*)
+                    0.73%  137.10ms     28800  4.7600us  3.9040us  8.8320us  void larfg_kernel<double, double, int=8>(int, double*, double*, int, double*)
+                    0.64%  118.80ms     66832  1.7770us  1.6950us  13.471us  void cusparseIinclusive_scan_domino_v1_core<int=256, int=4>(int, int*, int*, int*, int*, int*)
+                    0.61%  113.64ms     32512  3.4950us  1.4720us  12.544us  void cuds_symv_lo_direct_kernel<double, int=4, int=1>(int, double const *, unsigned long, double const *, int, double const *, double const *, double, double, int, double*, int)
+                    0.59%  110.17ms     32768  3.3620us  3.2320us  13.344us  void larfg_kernel_fast<double, double, int=9>(int, double*, double*, int, double*)
+                    0.52%  97.982ms     66832  1.4660us  1.3750us  13.696us  void cusparseIinclusive_localscan_core<int=256, int=4>(int, int*, int*, int*)
+                    0.45%  83.741ms     13848  6.0470us  2.4960us  12.512us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::PartitionAgent<thrust::device_ptr<unsigned long>, long, elem_less<int>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long, long*, elem_less<int>, long, int>(thrust::device_ptr<unsigned long>, long, int, elem_less<int>, thrust::cuda_cub::__merge_sort::PartitionAgent<thrust::device_ptr<unsigned long>, long, elem_less<int>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long)
+                    0.44%  82.965ms      2860  29.008us  13.120us  38.560us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::BlockSortAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>, thrust::detail::integral_constant<bool, bool=1>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long*, unsigned long*, elem_less<int>>(thrust::device_ptr<unsigned long>, unsigned long*, long, int, elem_less<int>, bool, bool=0)
+                    0.44%  82.277ms     16394  5.0180us  1.6000us  42.016us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=0, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.43%  79.731ms     28800  2.7680us  2.5600us  13.567us  void abcdot_kernel_merged<double, int=9>(double, double const *, int, double*, int, double const *, int, double*)
+                    0.43%  79.705ms       520  153.28us  1.9840us  592.73us  void transpose_readWrite_alignment_kernel<double, double, int=1, bool=0, int=6, int=4, int=4>(cublasTransposeParams<double>, double const *, double*, double const *)
+                    0.42%  78.295ms     66832  1.1710us  1.0240us  13.759us  void cusparseIinclusive_scan_merge_core<int=256, int=4>(int, int, int*, int*, int*)
+                    0.39%  72.624ms     13848  5.2440us  2.9760us  12.736us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__merge_sort::MergeAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>>, bool, thrust::device_ptr<unsigned long>, unsigned long*, long, unsigned long*, unsigned long*, elem_less<int>, long*, long>(thrust::device_ptr<unsigned long>, unsigned long*, long, int, elem_less<int>, bool, bool=0, thrust::detail::integral_constant<bool, bool=0>, thrust::cuda_cub::__merge_sort::MergeAgent<thrust::device_ptr<unsigned long>, unsigned long*, long, elem_less<int>, thrust::detail::integral_constant<bool, bool=0>>)
+                    0.38%  71.261ms     41374  1.7220us  1.2480us  25.088us  [CUDA memcpy HtoD]
+                    0.38%  70.370ms      2560  27.488us  18.976us  35.616us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=1, bool=0>(cublasTrmmParams<double>, double, int)
+                    0.36%  67.319ms      4358  15.447us  1.3440us  70.495us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=1, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.36%  67.295ms     32768  2.0530us  1.9510us  13.728us  void latrd_compute_w_kernel<double, int=9, int=1>(double const *, int, double const *, double const *, double*)
+                    0.35%  66.274ms      2560  25.888us  18.783us  32.320us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=0, bool=0>(cublasTrmmParams<double>, double, int)
+                    0.32%  59.993ms      1024  58.587us  35.168us  94.015us  volta_dgemm_64x64_nt
+                    0.30%  56.103ms     32640  1.7180us  1.5990us  13.312us  void latrd_compute_w_kernel<double, int=8, int=1>(double const *, int, double const *, double const *, double*)
+                    0.29%  54.212ms     15104  3.5890us  2.1750us  13.184us  void gemm_second_update<double, int=4, int=4, int=3>(int, int, double const *, double*, double const *, double*, unsigned long)
+                    0.28%  52.861ms       128  412.98us  383.26us  469.15us  void csrgemm_kernel2<double, int=128, int=32, int=1, int=4>(csrgemm_params<double>)
+                    0.24%  45.045ms     16384  2.7490us  2.6550us  5.5360us  void larfg_kernel_fast<double, double, int=8>(int, double*, double*, int, double*)
+                    0.23%  42.441ms       260  163.23us  100.06us  199.84us  void csrMvT_kernel<double, double, double, int=128, int=0>(cusparseCsrMvParams<double, double, double>)
+                    0.23%  42.099ms      1430  29.439us  1.8880us  96.287us  cupy_all
+                    0.20%  37.620ms      1280  29.390us  20.736us  32.608us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=1, bool=1>(cublasTrmmParams<double>, double, int)
+                    0.19%  36.185ms       130  278.35us  5.7600us  313.50us  void cusparseDenseToCsr_kernel2<double, int=4, int=32, int=0>(int, int, double const *, int, int const *, int*, double*)
+                    0.17%  32.343ms     18115  1.7850us  1.0880us  36.288us  void lapack_lacpy_kernel<double, int=8>(int, int, double const *, int, double*, int, int, int)
+                    0.17%  32.173ms     10920  2.9460us  1.0240us  71.231us  cupy_copy
+                    0.16%  30.197ms      8066  3.7430us  2.6550us  33.664us  void laed3_update_Q<double, int=8>(int, double*, int const *, double const *, double*, int, int, int)
+                    0.16%  29.821ms      1280  23.297us  18.528us  25.696us  void trmm_right_kernel_core<double, int=256, int=4, int=128, bool=0, bool=0, bool=0, bool=0, bool=1>(cublasTrmmParams<double>, double, int)
+                    0.15%  27.451ms       130  211.16us  4.3520us  235.74us  void cusparseParseDenseByRows_kernel<double, int=0>(int, int, double const *, int, int*)
+                    0.14%  26.552ms      2560  10.372us  10.176us  11.392us  void recursive_gemv_first_update<double, int=16>(int, double*, unsigned long)
+                    0.13%  24.605ms      1536  16.019us  15.808us  17.408us  void larft_T_64<double>(int, double*, int, double const *)
+                    0.11%  20.613ms      2304  8.9460us  8.6400us  13.472us  void gemm_kernel2x2_tile_multiple_core<double, bool=1, bool=0, bool=0, bool=1, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.11%  20.522ms      8192  2.5050us  2.3990us  13.216us  void larfg_kernel_fast<double, double, int=7>(int, double*, double*, int, double*)
+                    0.11%  19.641ms     16132  1.2170us  1.0230us  13.152us  void lapack_copy_kernel<double, int=8>(int, double const *, int, double*, int)
+                    0.10%  19.435ms      8160  2.3810us  2.2720us  4.9920us  void larfg_kernel_fast<double, double, int=6>(int, double*, double*, int, double*)
+                    0.09%  17.747ms     12658  1.4020us     960ns  13.504us  [CUDA memcpy DtoD]
+                    0.09%  16.343ms      1950  8.3810us  4.7360us  13.760us  void convert_CsrToCoo_kernel<int=0>(int const *, int, int, int*)
+                    0.08%  15.104ms       260  58.092us  3.6800us  61.919us  void csrMm_core<double, int=128, int=6>(cusparseCsrMmParams<double>)
+                    0.08%  14.274ms      4420  3.2290us  1.4080us  6.4000us  cupy_take
+                    0.08%  14.158ms      1536  9.2170us  5.3440us  14.207us  void gemmcn_skinny_kernel<double, int=2, int=4>(int, int, int, double const *, unsigned long, double const *, unsigned long, double*, unsigned long)
+                    0.07%  13.007ms       130  100.05us  13.088us  107.74us  void trsv_ln_exec_up<double, unsigned int=32, unsigned int=32, unsigned int=4, bool=0>(int, double const *, int, double*, int, int*)
+                    0.07%  12.976ms      8066  1.6080us  1.4710us  12.800us  void dlaed4_reduce_info<int=8>(int, int*)
+                    0.07%  12.805ms      8066  1.5870us  1.3120us  7.4560us  void laed2_dist_Q_D_phase1_kernel<double, int=8>(int, int, double const *, int, double*, int const *)
+                    0.07%  12.537ms      8066  1.5540us  1.2150us  9.5680us  void laed2_dist_Q_D_phase3_kernel<double, int=8>(int, int, int, int, int, double const *, int, double*, int const *)
+                    0.06%  11.199ms       130  86.142us  32.544us  92.543us  cudapy::gpu_extract::projection_matrix$244(Array<double, int=4, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, Array<__int64, int=2, A, mutable, aligned>, __int64, __int64, __int64, __int64, __int64, __int64, Array<double, int=4, A, mutable, aligned>)
+                    0.06%  11.007ms      8654  1.2710us  1.0560us  13.280us  cumsum_kernel
+                    0.06%  10.364ms      8066  1.2840us  1.2150us  13.088us  void laed3_update_w_phase2<double, int=8>(int, double const *, double*)
+                    0.05%  10.068ms       650  15.489us  11.680us  17.504us  void thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>(int const *, thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>*, thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700 const *, thrust::cuda_cub::cub::DeviceRadixSortSingleTileKernel<thrust::cuda_cub::cub::DeviceRadixSortPolicy<int, thrust::cuda_cub::cub::NullType, int>::Policy700, bool=0, int, thrust::cuda_cub::cub::NullType, int>**, bool=0, int, int)
+                    0.05%  9.2762ms      8066  1.1500us  1.0230us  1.8240us  void laed3_set_s_w<double, int=8>(int, double const *, int, double*, double*)
+                    0.05%  9.1657ms      6665  1.3750us  1.2160us  1.9520us  void lapack_rot_kernel<double, int=8>(int, double*, double*, double, double)
+                    0.05%  8.7923ms      1282  6.8580us  2.1760us  26.912us  void gemv2T_kernel_val<int, int, double, double, double, int=128, int=16, int=2, int=2, bool=0, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const , double, double)
+                    0.04%  8.1186ms       256  31.713us  29.184us  35.296us  void csrgemm_kernel2<double, int=128, int=32, int=1, int=16>(csrgemm_params<double>)
+                    0.04%  7.8540ms      2560  3.0670us  1.4080us  7.7760us  void geam_kernel<double, bool=0, bool=1, bool=0, bool=1, int=6, int=4, int=4, bool=1>(cublasGeamParams<double>, double const *, double const *, double*, double const *, double const *)
+                    0.04%  7.7852ms      4992  1.5590us  1.4390us  12.832us  void copy_trdiag_block<double, double>(double*, unsigned long, double*, double*, int, int)
+                    0.04%  7.6513ms      3238  2.3620us  2.1120us  7.5520us  inclusive_scan_kernel
+                    0.04%  7.6038ms      2560  2.9700us  1.4710us  8.1920us  void transpose_readWrite_alignment_kernel<double, double, int=1, bool=1, int=6, int=4, int=4>(cublasTransposeParams<double>, double const *, double*, double const *)
+                    0.04%  7.4789ms      5850  1.2780us  1.2150us  12.832us  cupy_less
+                    0.04%  7.4092ms       260  28.496us  8.6080us  31.648us  void csrgemmNnz_kernel2<int=128, int=32, int=0, int=16>(csrgemmNnz_params)
+                    0.04%  7.3143ms      5720  1.2780us  1.1840us  7.5840us  cupy_greater_equal
+                    0.04%  6.6633ms       520  12.814us  1.2800us  48.064us  cupy_multiply
+                    0.03%  5.8876ms      2080  2.8300us  1.6640us  8.9600us  void sortsign_by_key_local_core<int, int=256, int=4>(int, int, int*, int*, int*, int*)
+                    0.03%  5.7704ms      1040  5.5480us  1.9510us  10.752us  void convert_CooToCsr_kernel<int=0>(int const *, int, int, int*)
+                    0.03%  5.6859ms       780  7.2890us  1.4720us  35.328us  cupy_sum
+                    0.03%  5.4145ms      3120  1.7350us  1.1520us  2.8160us  void gather_core<int, int=256>(int, int const *, int const *, int*)
+                    0.03%  5.1020ms       130  39.246us  13.216us  44.992us  void csrgemmNnz_kernel2<int=128, int=32, int=0, int=4>(csrgemmNnz_params)
+                    0.03%  4.9032ms      1853  2.6460us  1.3120us  12.960us  void laed2_dist_Q_D_phase4_kernel<double, int=8>(int, int, int, int, double const *, int, double*, int const *)
+                    0.03%  4.7024ms      2080  2.2600us  1.3120us  2.9120us  void sortsign_by_key_merge_core<int, int=256, int=4>(int, int*, int*, int*, int*, int*, int*)
+                    0.02%  4.6319ms      2560  1.8090us  1.5680us  2.5280us  void setup_Vhat<double, cublasFillMode_t=0>(int, int, double*, unsigned long, double const *, unsigned long)
+                    0.02%  4.5396ms       130  34.920us  1.6000us  36.256us  void laed0_phase1_kernel<double, int=8>(int, double const *, int, int const *, double*, int, int, int)
+                    0.02%  4.4567ms       260  17.141us  1.0240us  19.552us  void cusparseZeroOutForCSC_kernel<double>(int, int, double*, int)
+                    0.02%  4.2362ms       130  32.586us  1.4400us  33.856us  void lacpy_kernel<double, double, int=5, int=3>(int, int, double const *, unsigned long, double*, unsigned long, int, int)
+                    0.02%  4.1493ms       256  16.208us  15.872us  17.311us  void larft_T_64_batch<double>(int, double*, int, double const *)
+                    0.02%  3.9272ms      2560  1.5340us  1.4710us  13.248us  void gemm_first_update<double, int=16>(int, int, double*, unsigned long)
+                    0.02%  3.6838ms      2560  1.4380us  1.1840us  13.664us  void zero_triangular_T<double, cublasFillMode_t=1>(int, double*, unsigned long, double const *)
+                    0.02%  3.5063ms      2080  1.6850us     864ns  9.2800us  void set_identy<int=128>(int, int*)
+                    0.02%  3.3164ms      1430  2.3190us  1.3440us  13.536us  sum_duplicates_diff
+                    0.02%  2.9603ms       128  23.127us  22.400us  23.968us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=0, bool=1>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.01%  2.6933ms      1040  2.5890us  1.3120us  4.7680us  void gthr_gld_main<double, int=128>(cusparseGthrParams<double>)
+                    0.01%  2.5761ms      1430  1.8010us     992ns  2.4640us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__parallel_for::ParallelForAgent<thrust::cuda_cub::__tabulate::functor<thrust::device_ptr<unsigned long>, thrust::system::detail::generic::sequence_detail::sequence_functor<unsigned long>, long>, long>, thrust::cuda_cub::__tabulate::functor<thrust::device_ptr<unsigned long>, thrust::system::detail::generic::sequence_detail::sequence_functor<unsigned long>, long>, long>(thrust::device_ptr<unsigned long>, unsigned long)
+                    0.01%  2.5726ms      1796  1.4320us  1.0880us  11.008us  void larfb_restore_v1_R_kernel<double, int=16>(int, double*, unsigned long, double*, unsigned long)
+                    0.01%  2.4929ms       130  19.176us  1.4400us  22.944us  void lapack_identity_kernel<double, int=8>(int, int, double*, int)
+                    0.01%  2.3756ms       780  3.0450us  2.1760us  4.9920us  void CsrToCsc_kernel_build_cscColPtr<double, int=0>(cusparseCsrToCscParams<double>)
+                    0.01%  2.2960ms      1300  1.7660us  1.4080us  2.1440us  cupy_getitem_mask
+                    0.01%  2.2338ms       130  17.183us  2.5920us  18.208us  void gemmk1_kernel<double, int=256, int=5, bool=1, bool=0, bool=0, bool=0, cublasGemvTensorStridedBatched<double const >, cublasGemvTensorStridedBatched<double>, double>(cublasGemmk1Params<double, double const , cublasGemvTensorStridedBatched<double const >, double>)
+                    0.01%  2.1776ms       780  2.7910us  1.5040us  6.8160us  void CsrToCsc_kernel_build_cscRowInd_cscVal<double, int=1>(cusparseCsrToCscParams<double>)
+                    0.01%  2.1692ms      1796  1.2070us  1.0870us  7.4240us  void larfb_set_v1_R_kernel<double, int=16>(int, double*, unsigned long, double*, unsigned long)
+                    0.01%  2.0992ms       512  4.1000us  3.3280us  11.264us  void gemm_kernel2x2_tile_multiple_core<double, bool=1, bool=0, bool=0, bool=0, bool=0>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.01%  1.9746ms      1548  1.2750us  1.0550us  12.640us  add_scan_blocked_sum_kernel
+                    0.01%  1.7145ms       780  2.1980us  1.2480us  4.3200us  void CsrToCsc_kernel_copy_and_pset<double>(cusparseCsrToCscParams<double>)
+                    0.01%  1.6753ms       512  3.2720us  2.6560us  4.8000us  void gemv2N_kernel<int, int, double, double, double, int=128, int=8, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.01%  1.6156ms       512  3.1550us  2.2710us  4.9600us  void gemv2N_kernel<int, int, double, double, double, int=128, int=32, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.01%  1.5266ms       910  1.6770us  1.2160us  2.0480us  void stable_sort_by_key_stop_core<int=256, int=4>(int, int*, int*)
+                    0.01%  1.5134ms       130  11.641us  2.4960us  12.864us  void lansy_M_stage1<double, double, int=8>(int, double const *, unsigned long, double*, int)
+                    0.01%  1.4959ms       260  5.7530us  1.2480us  8.1280us  void cusparseCscToDense_kernel<double, int=0>(int, int, double const *, int const *, int const *, double*, int)
+                    0.01%  1.4625ms       780  1.8750us  1.0560us  7.3920us  cupy_any
+                    0.01%  1.2883ms       650  1.9810us  1.4720us  3.0400us  dia_tocsc
+                    0.01%  1.1077ms       414  2.6750us  1.6320us  3.7760us  void laed2_dist_Q_D_phase2_kernel<double, int=8>(int, int, int, int, int, int, double const *, int, double*, int const *)
+                    0.00%  877.82us       650  1.3500us     991ns  5.1840us  void thrust::cuda_cub::core::_kernel_agent<thrust::cuda_cub::__parallel_for::ParallelForAgent<thrust::cuda_cub::__transform::unary_transform_f<int*, int*, thrust::cuda_cub::__transform::no_stencil_tag, thrust::identity<int>, thrust::cuda_cub::__transform::always_true_predicate>, long>, thrust::cuda_cub::__transform::unary_transform_f<int*, int*, thrust::cuda_cub::__transform::no_stencil_tag, thrust::identity<int>, thrust::cuda_cub::__transform::always_true_predicate>, long>(int*, thrust::cuda_cub::__transform::no_stencil_tag)
+                    0.00%  830.59us       650  1.2770us     992ns  13.216us  copy_info_kernel(int, int*)
+                    0.00%  783.16us       130  6.0240us  3.0720us  6.6560us  void cusparseIreduce_domino_core<int=256, int=4>(int, int*, int*, int*, int*)
+                    0.00%  611.61us       130  4.7040us  2.4950us  4.9920us  void CsrToCsc_kernel_build_cscColPtr<float, int=0>(cusparseCsrToCscParams<float>)
+                    0.00%  587.55us       130  4.5190us  1.6960us  4.9280us  void CsrToCsc_kernel_build_cscRowInd_cscVal<float, int=0>(cusparseCsrToCscParams<float>)
+                    0.00%  565.56us       128  4.4180us  4.1920us  4.7040us  void gemv2N_kernel<int, int, double, double, double, int=128, int=4, int=4, int=4, int=1, cublasGemvParams<cublasGemvTensor<double const >, cublasGemvTensor<double>, double>>(double const )
+                    0.00%  535.71us       390  1.3730us  1.0240us  11.392us  fill
+                    0.00%  500.86us       130  3.8520us  1.5360us  4.1600us  void CsrToCsc_kernel_copy_and_pset<float>(cusparseCsrToCscParams<float>)
+                    0.00%  483.32us       130  3.7170us  3.5200us  3.9040us  cupy_power
+                    0.00%  479.10us       130  3.6850us  2.4320us  4.0320us  void lansy_M_stage2<double, int=8>(int, double*)
+                    0.00%  453.79us       198  2.2910us  1.7280us  3.0720us  void ormtr_gerc<double, int=5, int=3, int=1>(int, double const *, int, int, double*, unsigned long, double const *, int, double const *)
+                    0.00%  409.82us       130  3.1520us  2.3360us  3.3920us  void csrMv_kernel<double, double, double, int=128, int=2>(cusparseCsrMvParams<double, double, double>)
+                    0.00%  402.69us       128  3.1450us  3.0710us  3.3600us  void sytd2_lower_cta<double, double, int=4>(int, double*, unsigned long, double*, double*, double*)
+                    0.00%  363.68us         2  181.84us  181.63us  182.05us  void csrgemm_kernel2<double, int=128, int=32, int=0, int=4>(csrgemm_params<double>)
+                    0.00%  338.17us       198  1.7070us  1.6000us  2.7840us  void ormtr_gemv_c<double, int=4>(int, int, double const *, unsigned long, double const *, int, double*)
+                    0.00%  327.39us       260  1.2590us  1.0240us  1.4400us  void scal_kernel<double, double>(double*, int, double const *, double, bool)
+                    0.00%  283.01us       130  2.1760us  1.5360us  2.4000us  cusparseDense2CsrCopySetBase_kernel(int const *, int*, int, int)
+                    0.00%  264.09us       130  2.0310us  1.3760us  2.3040us  cupy_true_divide
+                    0.00%  244.35us        98  2.4930us  1.6960us  4.1280us  void sytd2_symv_lower<double, int=4>(int, double const *, double const *, unsigned long, double const *, double*)
+                    0.00%  242.53us       130  1.8650us  1.4080us  2.1120us  cupy_sqrt
+                    0.00%  199.58us       130  1.5350us  1.5030us  1.6960us  nonzero_kernel_1d
+                    0.00%  185.28us         4  46.319us  43.200us  49.632us  void geqr2_smem<double, double, int=8, int=6, int=4>(int, int, double*, unsigned long, double*, int)
+                    0.00%  179.87us        98  1.8350us  1.2160us  2.3040us  void sytd2_her2k_kernel<double, int=8, int=4>(int, double*, unsigned long, double const *, int, double const *)
+                    0.00%  174.14us       130  1.3390us  1.2800us  1.5040us  cupy_not_equal
+                    0.00%  171.62us       130  1.3200us  1.2800us  1.4720us  cupy_equal
+                    0.00%  158.24us        98  1.6140us  1.5360us  2.0160us  void sytd2_compute_w_kernel<double, int=8, int=1>(double const *, int, double const *, double const *, int, double*)
+                    0.00%  141.25us       130  1.0860us  1.0550us  1.2480us  dtrsv_init_up(int*, int)
+                    0.00%  98.367us         2  49.183us  49.088us  49.279us  void geqr2_smem<double, double, int=8, int=5, int=5>(int, int, double*, unsigned long, double*, int)
+                    0.00%  92.672us         8  11.584us  10.944us  13.408us  void sortI32_by_oneCTA<int=256, bool=1>(int, int, unsigned int*, int*)
+                    0.00%  38.623us         4  9.6550us  9.2160us  10.111us  void csrgemm_kernel2<double, int=128, int=32, int=0, int=16>(csrgemm_params<double>)
+                    0.00%  26.688us         4  6.6720us  6.0480us  7.2960us  void larft_T_32<double, int=256>(int, double*, int, double const *)
+                    0.00%  23.263us         4  5.8150us  5.1520us  6.4960us  void gemm_kernel2x2_core<double, bool=0, bool=0, bool=0, bool=1, bool=1>(double*, double const *, double const *, int, int, int, int, int, int, double*, double*, double, double, int)
+                    0.00%  10.016us         4  2.5040us  1.9520us  3.0720us  void larfb_vtc<double, int=128>(int, int, int, double const *, unsigned long, double const *, unsigned long, double*, unsigned long)
+                    0.00%  8.0960us         4  2.0240us  1.6960us  2.3680us  void larft_vtv_32<double, int=128>(int, int, double const *, unsigned long, double*, unsigned long)
+                    0.00%  3.0080us         2  1.5040us  1.5040us  1.5040us  void sytd2_lower_D_E<double, double, int=8>(int, double*, unsigned long, double*, double*)
+                    0.00%  2.1120us         2  1.0560us  1.0560us  1.0560us  void larfg_set_tau_zero<double>(double*)
+                    0.00%  1.7600us         2     880ns     864ns     896ns  void sytd2_diagonal_real<double, int=8>(int, double*, unsigned long)
+      API calls:   46.39%  12.7006s   1853015  6.8540us  4.4170us  9.8458ms  cudaLaunchKernel
+                   35.77%  9.79250s     19374  505.45us  12.345us  64.183ms  cudaMemcpy
+                   12.98%  3.55364s     86334  41.161us  2.8410us  6.0001ms  cudaMemcpyAsync
+                    2.64%  722.66ms    160916  4.4900us  2.2000us  72.899ms  cudaMemsetAsync
+                    1.98%  541.75ms     60110  9.0120us  4.7730us  6.8646ms  cuLaunchKernel
+                    0.25%  68.722ms      8196  8.3840us  5.3700us  1.7858ms  cudaMemcpy2DAsync
+
