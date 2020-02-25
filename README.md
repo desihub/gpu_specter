@@ -1,4 +1,4 @@
-This is a README file for the DESI gpu hackathon code.
+This is a README file for the DESI gpu hackathon code updated 02/25/2020.
 
 The answers are wrong and some bookkeeping issues need to be fixed (so it can't be swapped directly into the desi pipeline), but this is good enough to get started for our purposes of moving this to the gpu. 
 
@@ -8,17 +8,13 @@ To run the both versions on our cori gpu skylakes/v100s (everyone should be able
 
 `ssh cori.nersc.gov`
 
-`module load esslurm`
+`module load esslurm python cuda/10.1.243`
+
+Cuda must be version 10.1 to be compatible with the latest release of CuPy (also 10.1)
 
 Get a cori gpu node:
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
-
-`module load python`
-
-`module load cuda/10.1.243`
-
-Cuda must be version 10.1 to be compatible with the latest release of CuPy (also 10.1)
 
 Source our special desi gpu conda environment:
 
@@ -30,7 +26,7 @@ Then source the custom desi modules
 
 `cd /global/cfs/cdirs/m1759/desi/gpu_specter`
 
-# To run the cpu version:
+# To run the cpu version (which still inclues mpi):
 
 `time srun -u -n 5 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
 
@@ -48,18 +44,44 @@ INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectr
 INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 75:100 at Wed Feb 12 12:41:58 2020
 ```
 
-# To run the gpu version:
+# To run the gpu version (mpi has been removed):
 
-`time srun -u -n 5 -c 2 python -u gpu_wrapper_specter.py -o test.fits`
+`time srun -u python -u gpu_wrapper_specter.py -o test.fits`
 
-Right now it successfully runs on 1 cori gpu (and 1/8 skylake) in about 4 mins (slower than the cpu version).
-`cache_spots` and `projection_matrix` are now on the gpu.
+Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is very long because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
 
-# Next steps
+Right now we have added nvtx range collection around `ex2d_patch`, `cache_spots`, and `projection_matrix`:
 
-* cpu profiling
-* gpu profiling
-* Flipping cpu functions to gpu functions in `ex2d_patch` extraction kernel (be careful, probably will OOM)
-* Removing mpi, running whole frame on a single gpu
+For example:
+```
+        cp.cuda.nvtx.RangePush('ex2d_patch')
+        results = \
+            ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
+                specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
+                xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
+                full_output=True, use_cache=True)
+        cp.cuda.nvtx.RangePop()
+```
 
+# To profile using nvprof
+
+On cori gpu run nvprof and have it write an output file:
+
+```
+srun nvprof --log-file desi_nvprof_02252020.log python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
+```
+
+# To profile using nsys
+
+On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
+
+```
+srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
+```
+
+# Next steps (2/25/2020)
+
+* Cutting down on DtH and HtD memory transfer overhead (right now about 60 percent kernels, 40 percent memory)
+* Removing all lingering CPU code
+* Making more efficient use of gpu (right now doing bundles serially), can we adjust patch size to run `wider`?
 
