@@ -358,8 +358,9 @@ Optional Inputs:
     psferr = 0.01 #double check!
 
     #do entire bundle
-    #ok cache_spots seems to work here
+    cp.cuda.nvtx.RangePush('cache_spots')
     spots = cache_spots(nx, ny, nspec, nwave, p, wavelengths)
+    cp.cuda.nvtx.RangePop()
 
     #also need the bottom corners
     xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
@@ -645,7 +646,10 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
 
+    cp.cuda.nvtx.RangePush('projection_matrix')
     projection_matrix[blocks_per_grid, threads_per_block](A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
+    cp.cuda.nvtx.RangePop()
+
     #hopefully A remains a cupy array, let's check
     #print(type(A)) yes it does remain a cupy ndarray
     #reshape
