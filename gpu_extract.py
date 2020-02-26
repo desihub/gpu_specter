@@ -10,12 +10,34 @@ from scipy.sparse import spdiags, issparse
 from scipy.sparse.linalg import spsolve
 import time
 import math
+import functools
 
 import numba
 import cupy as cp
 import cupyx as cpx
 import cupyx.scipy.special
 from numba import cuda
+
+#swtich to turn on/off our nvtx collection decorators
+nvtx_collect = True
+
+def nvtx_profile(_func=None, *, profile=False, name=None):
+    """decorator to make collecting nvtx data easier"""
+    def decorator_nvtx_profile(func):
+        @functools.wraps(func)
+        def wrapper_nvtx_profile(*args, **kwargs):
+            if profile==True:
+                cp.cuda.nvtx.RangePush(name)
+                value = func(*args, **kwargs)
+                cp.cuda.nvtx.RangePop()
+                return value
+            else:
+                return func(*args, **kwargs)
+        return wrapper_nvtx_profile
+    if _func is None:
+        return decorator_nvtx_profile
+    else:
+        return decorator_nvtx_profile(_func)
 
 def native_endian(data):
     """Temporary function, sourced from desispec.io
@@ -211,6 +233,7 @@ def multispot(pGHx, pGHy, ghc, mspots):
                         mspots[iwave, iy, ix] += c * py[iy] * px[ix]
 
 
+@nvtx_profile(profile=nvtx_collect, name='cache_spots')
 def cache_spots(nx, ny, nspec, nwave, p, wavelengths):
     spots = cp.zeros((nspec, nwave, ny, nx))
     #use mark's numblocks and blocksize method
@@ -224,7 +247,8 @@ def cache_spots(nx, ny, nspec, nwave, p, wavelengths):
         spots[ispec] = mspots
     return spots
 
-
+#can you double decorate a cuda.jit ?
+#@nvtx_profile(profile=nvtx_collect, name='projection_matrix')
 @cuda.jit()
 def projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
     #this is the heart of the projection matrix calculation
@@ -358,9 +382,8 @@ Optional Inputs:
     psferr = 0.01 #double check!
 
     #do entire bundle
-    cp.cuda.nvtx.RangePush('cache_spots')
+    #nvtx profiling via decorator
     spots = cache_spots(nx, ny, nspec, nwave, p, wavelengths)
-    cp.cuda.nvtx.RangePop()
 
     #also need the bottom corners
     xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
@@ -456,13 +479,11 @@ Optional Inputs:
         #print("len(ww)", len(ww))
         #print("iwave", iwave)
 
-        cp.cuda.nvtx.RangePush('ex2d_patch')
         results = \
             ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
                 xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
                 full_output=True, use_cache=True) 
-        cp.cuda.nvtx.RangePop()  
 
         #question: is one big transfer better than lots of little transfers?
 
@@ -576,6 +597,7 @@ Optional Inputs:
     else:
         return flux, ivar, Rd
 
+@nvtx_profile(profile=nvtx_collect, name='ex2d_patch')
 def ex2d_patch(image, ivar, p, psfdata, spots, corners, 
          iwave, tws, specmin, nspec, wavelengths, xyrange,
          full_output=False, regularize=0.0, ndecorr=False, use_cache=None):
@@ -655,226 +677,21 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #reshape
     nypix, nxpix = A.shape[0:2]
     A_dense = A.reshape(nypix*nxpix, nspec*nwave)
-    #A_cpu = scipy.sparse.csr_matrix(A_dense)
     A = cpx.scipy.sparse.csr_matrix(A_dense)
-
-    #- Pixel weights matrix
-    #w = ivar.ravel()
     w = cp.asarray(ivar.ravel())
-
-    #- Set up the equation to solve (B&S eq 4)
-    #get the cpu values too
-    #noisyimg_cpu = noisyimg_gpu.get()
-    #imgweights_cpu = imgweights_gpu.get()
-    #A_cpu = A_gpu.get()
-
-    #print("ivar.shape", ivar.shape)
-    #W = scipy.sparse.spdiags(data=ivar.ravel(), diags=[0,], m=npix, n=npix) #scipy sparse object
     W = cpx.scipy.sparse.spdiags(data=w, diags=[0,], m=npix, n=npix)
-    #yank gpu back to cpu so we can compare
-    #W_yank = W_gpu.get()
-    #assert np.allclose(W_cpu.todense(), W_yank.todense()) #todense bc this is a sparse object
-    #passes
+    image_gpu = cp.asarray(image.ravel())
 
-    ####################################################################################
-    #patch specter cleanup in here 
-    #this is all on the cpu for right now, needs to be converted to gpu!
+    #call our new prevent_ringing function
+    pix_gpu, Ax_gpu, wx_gpu = prevent_ringing(nspec, nwave, image_gpu, A, w, W)
 
-    #-----
-    #- Extend A with an optional regularization term to limit ringing.
-    #- If any flux bins don't contribute to these pixels,
-    #- also use this term to constrain those flux bins to 0.
-    
-    #- Original: exclude flux bins with 0 pixels contributing
-    # ibad = (A.sum(axis=0).A == 0)[0]
-    
-    #- Identify fluxes with very low weights of pixels contributing  
-    
-    #fluxweight = W.dot(A).sum(axis=0).A[0]
-    #this syntax does not work in cupy
-    #what is this line of code even doing
-    #print(type(A))
-    #print(type(W))
+    ##need to adjust prevent_ringing to return the right output so we don't have to do this
+    #Ax_gpu = cpx.scipy.sparse.csr_matrix(Ax)
+    #wx_gpu = cp.asarray(wx) #better, asarray does not copy
+    #pix_gpu = cp.asarray(pix)
 
-    fluxweight = W.dot(A).sum(axis=0)[0] #is this right?
-
-    # The following minweight is a regularization term needed to avoid ringing due to 
-    # a flux bias on the edge flux bins in the
-    # divide and conquer approach when the PSF is not perfect
-    # (the edge flux bins are constrained only by a few CCD pixels and the wings of the PSF).
-    # The drawback is that this is biasing at the high flux limit because bright pixels
-    # have a relatively low weight due to the Poisson noise.
-    # we set this weight to a value of 1-e4 = ratio of readnoise**2 to Poisson variance for 1e5 electrons 
-    # 1e5 electrons/pixel is the CCD full well, and 10 is about the read noise variance.
-    # This was verified on the DESI first spectrograph data.
-    #minweight = 1.e-4*np.max(fluxweight)
-    minweight = 1.e-4*cp.max(fluxweight) 
-    ibad = fluxweight < minweight
-    
-    #- Original version; doesn't work on older versions of scipy
-    # I = regularize*scipy.sparse.identity(nspec*nwave)
-    # I.data[0,ibad] = minweight - fluxweight[ibad]
-    
-    #- Add regularization of low weight fluxes
-    #Idiag = regularize*np.ones(nspec*nwave)
-    Idiag = 0.0*cp.ones(nspec*nwave)
-    Idiag[ibad] = minweight - fluxweight[ibad] #probably have the dimensions of fluxweight wrong...
-    #I = scipy.sparse.identity(nspec*nwave)
-    #I = cpx.scipy.sparse.identity(nspec*nwave)
-    #I.setdiag(Idiag) doesn't exist in cupy
-    I = cpx.scipy.sparse.diags(Idiag) #is this equivalent?
-
-###    #- Only need to extend A if regularization is non-zero
-###    if np.any(I.diagonal()):
-###        pix = np.concatenate( (image.ravel(), np.zeros(nspec*nwave)) )
-###        Ax = scipy.sparse.vstack( (A, I) )
-###        wx = np.concatenate( (w, np.ones(nspec*nwave)) )
-###    else:
-###        pix = image.ravel()
-###        Ax = A
-###        wx = w
-
-    #- Only need to extend A if regularization is non-zero
-    if cp.any(I.diagonal()):
-        pix = cp.concatenate( (image.ravel(), cp.zeros(nspec*nwave)) )
-        Ax = cpx.scipy.sparse.vstack( (A, I) )
-        wx = cp.concatenate( (w, cp.ones(nspec*nwave)) )
-    else:
-        pix = image.ravel()
-        Ax = A
-        wx = w
-
-    ####################################################################################
-    #we now return to our regularly scheduled gpu extraction
-
-    #for now move Ax to the gpu while projection_matrix is still on the cpu
-    #and also wx and pix
-    Ax_gpu = cpx.scipy.sparse.csr_matrix(Ax)
-    wx_gpu = cp.asarray(wx) #better, asarray does not copy
-    pix_gpu = cp.asarray(pix)
-
-    #make our new and improved wx using specter cleanup
-    Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
-    #Wx_cpu = scipy.sparse.spdiags(wx, 0, len(wx), len(wx))
-    #Wx = Wx_cpu
-
-    iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
-    #iCov_cpu = Ax.T.dot(Wx.dot(Ax))
-    #yank gpu back to cpu so we can compare
-    #iCov_yank = iCov_gpu.get()
-    #assert np.allclose(iCov_cpu.todense(), iCov_yank.todense()) #todense bc this is sparse
-    #passes
-
-    y_gpu = Ax_gpu.T.dot(Wx_gpu.dot(pix_gpu))
-    #y_cpu = Ax.T.dot(Wx.dot(pix))
-    #yank gpu back and compare
-    #y_yank = y_gpu.get()
-    #assert np.allclose(y_cpu, y_yank)
-    #passes
-
-    #using instead of spsolve (not currently on the gpu)
-    #try again with np.solve and cp.solve
-    f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu).reshape((nspec, nwave)) #requires array, not sparse object
-    #f_cpu = np.linalg.solve(iCov_cpu.todense(), y_cpu).reshape((nspec, nwave)) #requires array, not sparse object
-    #yank back and compare
-    #f_yank = f_gpu.get()
-    #assert np.allclose(f_cpu, f_yank)
-    #passes
-
-    #numpy and scipy don't agree!
-    #assert np.allclose(f_cpu, f_cpu_sp)
-
-    #- Eigen-decompose iCov to assist in upcoming steps
-    u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
-    #u, v = np.linalg.eigh(iCov_cpu.todense())
-    #u_cpu = np.asarray(u)
-    #v_cpu = np.asarray(v)
-    #yank back and compare
-    #u_yank = u_gpu.get()
-    #v_yank = v_gpu.get()
-    #assert np.allclose(u_cpu, u_yank)
-    #assert np.allclose(v_cpu, v_yank)
-    #passes
-
-    #- Calculate C^-1 = QQ (B&S eq 10)
-    d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
-    #d_cpu = scipy.sparse.spdiags(np.sqrt(u_cpu), 0, len(u_cpu), len(u_cpu))
-    #yank back and compare
-    #d_yank = d_gpu.get()
-    #assert np.allclose(d_cpu.todense(), d_yank.todense())
-    #passes
-
-    Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
-    #Q_cpu = v_cpu.dot( d_cpu.dot( v_cpu.T ))
-    #yank back and compare
-    #Q_yank = Q_gpu.get()
-    #assert np.allclose(Q_cpu, Q_yank)
-    #passes
-
-    #- normalization vector (B&S eq 11)
-    norm_vector_gpu = cp.sum(Q_gpu, axis=1)
-    #norm_vector_cpu = np.sum(Q_cpu, axis=1)
-    #yank back and compare
-    #norm_vector_yank = norm_vector_gpu.get()
-    #assert np.allclose(norm_vector_cpu, norm_vector_yank)
-    #passes
-
-    #- Resolution matrix (B&S eq 12)
-    R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
-    #R_cpu = np.outer(norm_vector_cpu**(-1), np.ones(norm_vector_cpu.size)) * Q_cpu
-    #yank back and compare
-    #R_yank = R_gpu.get()
-    #assert np.allclose(R_cpu, R_yank)
-    #passes
-
-    #- Decorrelated covariance matrix (B&S eq 13-15)
-    udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
-    #udiags_cpu = scipy.sparse.spdiags(1/u_cpu, 0, len(u_cpu), len(u_cpu))
-    #yank back and compare
-    #udiags_yank = udiags_gpu.get()
-    #assert np.allclose(udiags_cpu.todense(),udiags_yank.todense()) #sparse objects
-    #passes
-
-    Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
-    #Cov_cpu = v_cpu.dot( udiags_cpu.dot( v_cpu.T ))
-    #yank back and compare
-    #Cov_yank = Cov_gpu.get()
-    #assert np.allclose(Cov_cpu, Cov_yank)
-    #passes
-
-    #OOM here when cusparse tries to allocate memory
-    Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
-    #Cx_cpu = R_cpu.dot(Cov_cpu.dot(R_cpu.T))
-    #yank back and compare
-    #Cx_yank = Cx_gpu.get()
-    #assert np.allclose(Cx_cpu, Cx_yank)
-    #passes
-
-    #- Decorrelated flux (B&S eq 16)
-    fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
-    #fx_cpu = R_cpu.dot(f_cpu.ravel()).reshape(f_cpu.shape)
-    #yank back and compare
-    #fx_yank = fx_gpu.get()
-    #assert np.allclose(fx_cpu, fx_yank)
-    #passes
-
-    #- Variance on f (B&S eq 13)
-    #in specter fluxivar = norm_vector**2 ??
-    varfx_gpu = (norm_vector_gpu * 2).reshape((nspec, nwave))
-    #varfx_cpu = (norm_vector_cpu * 2).reshape((nspec, nwave)) #let's try it 
-    #yank back and compare
-    #varfx_yank = varfx_gpu.get()
-    #assert np.allclose(varfx_cpu, varfx_yank)
-    #passes
-
-    #####pull back to cpu to return to ex2d
-    ###flux = fx_cpu
-    ###ivar = varfx_cpu
-    ###sqR = np.sqrt(R_cpu.size).astype(int)
-    ###R = R_cpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
-    ###xflux = f_cpu
-    ####A is on the cpu for now
-    ###iCov = iCov_cpu
+    #call our new extract cupy function
+    fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu = ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu)
 
     ##pull back to cpu to return to ex2d
     flux = fx_gpu.get()
@@ -894,3 +711,45 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
         return results
     else:
         return flux, ivar, R
+
+@nvtx_profile(profile=nvtx_collect, name='prevent_ringing')
+def prevent_ringing(nspec, nwave, image_gpu, A, w, W):
+    fluxweight = W.dot(A).sum(axis=0)[0] #is this right?
+    minweight = 1.e-4*cp.max(fluxweight)
+    ibad = fluxweight < minweight
+
+    #- Add regularization of low weight fluxes
+    Idiag = 0.0*cp.ones(nspec*nwave)
+    Idiag[ibad] = minweight - fluxweight[ibad] #probably have the dimensions of fluxweight wrong...
+    I = cpx.scipy.sparse.diags(Idiag) #is this equivalent?
+
+    #- Only need to extend A if regularization is non-zero
+    if cp.any(I.diagonal()):
+        pix = cp.concatenate( (image_gpu, cp.zeros(nspec*nwave)) )
+        Ax = cpx.scipy.sparse.vstack( (A, I) )
+        wx = cp.concatenate( (w, cp.ones(nspec*nwave)) )
+    else:
+        pix = image_gpu
+        Ax = A
+        wx = w 
+
+    return pix, Ax, wx
+
+#parts of this might be a good candidate for kernel fusion
+@nvtx_profile(profile=nvtx_collect, name='ex_cupy')
+def ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu):
+    Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
+    iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
+    y_gpu = Ax_gpu.T.dot(Wx_gpu.dot(pix_gpu))
+    f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu).reshape((nspec, nwave)) #requires array, not sparse object
+    u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
+    d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
+    Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
+    norm_vector_gpu = cp.sum(Q_gpu, axis=1)
+    R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
+    udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
+    Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
+    Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
+    fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
+    varfx_gpu = (norm_vector_gpu * 2).reshape((nspec, nwave))
+    return fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu    
