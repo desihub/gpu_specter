@@ -48,7 +48,7 @@ INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectr
 
 `time srun -u python -u gpu_wrapper_specter.py -o test.fits`
 
-Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is very long because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
+Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is very long (~5 minutes) because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
 
 Right now we have added nvtx range collection around `ex2d_patch`, `cache_spots`, and `projection_matrix`:
 
@@ -81,7 +81,16 @@ srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true pyth
 
 # Next steps (2/25/2020)
 
-* Cutting down on DtH and HtD memory transfer overhead (right now about 60 percent kernels, 40 percent memory)
-* Removing all lingering CPU code
-* Making more efficient use of gpu (right now doing bundles serially), can we adjust patch size to run `wider`?
+* Add unit tests
+* Add NVTX markers to every CuPy call in `ex2d_patch`
+* Learn about CuPy streams
+* Learn about CuPy kernel fusion
+
+# Plans for Hackathon (3/3/2020 - 3/6/2020)
+
+* Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
+* Understand what causes function overhead in nsys. Understand mystery cuda free calls. (May be related to next item.)
+* Get rid of unnecessary HtD and DtH transfer. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually. 
+* Overlap data transfer (like at the end of `ex2d_patch`) and compute. Use pinned memory.
+* GPU-ize code in ex2d (still largely on CPU). 
 
