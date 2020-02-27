@@ -75,7 +75,9 @@ def parse(options=None):
     # parser.add_argument("--fibermap-index", type=int, default=None, required=False,
     #                     help="start at this index in the fibermap table instead of using the spectro id from the camera")
     #parser.add_argument("--heliocentric-correction", action="store_true", help="apply heliocentric correction to wavelength")
-    
+    parser.add_argument("-t", "--test", action="store_true", help="flag to compare results to reference results")
+
+
     args = None
     if options is None:
         args = parser.parse_args()
@@ -101,7 +103,6 @@ def main(args, timing=None):
     #lets try it
     psf_file = 'psf.fits'
     psfdata = Table.read(psf_file)
-    #print("psfdata.keys", list(psfdata.keys()))
 
     #hack!
     wavelengths = np.arange(psfdata['WAVEMIN'][0]+100, psfdata['WAVEMAX'][0]-100, 0.8)
@@ -113,12 +114,6 @@ def main(args, timing=None):
     # to be divided among processes.
     specmin = 0 #hardcode for hackathon
     #use the nspec we get out evalcoeffs, not sure if it's the right one
-
-    #- Load input files and broadcast
-
-    # FIXME: after we have fixed the serialization
-    # of the PSF, read and broadcast here, to reduce
-    # disk contention.
 
     #just read an existing image file? try it out
     input_file = '/global/cscratch1/sd/stephey/desitest/data/pix-r0-00003578.fits'
@@ -150,8 +145,6 @@ def main(args, timing=None):
     fibers = np.arange(specmin, specmin+nspec)
 
     specmax = specmin + nspec
-
-    #- Get wavelength grid from options
 
     #if args.wavelength is not None:
     #    wstart, wstop, dw = [float(tmp) for tmp in args.wavelength.split(',')]
@@ -256,6 +249,13 @@ def main(args, timing=None):
 
     failcount = 0
 
+    ####fill some reference arrays for answer checking
+    ####still the "wrong" answer compared to real specter but hopefully a consistently wrong answer
+    flux_all = np.zeros((nspec,nwave))
+    ivar_all = np.zeros((nspec,nwave))
+    Rdata_all = np.zeros((nspec,17,nwave)) #not sure why 17 but ok
+    chi2pix_all = np.zeros((nspec,nwave))
+
     #for now we'll do one bundle at a time
     #remember patch size is a hyperparameter
     for b in range(myfirstbundle, myfirstbundle+mynbundle):
@@ -276,6 +276,8 @@ def main(args, timing=None):
                 bundlesize=bundlesize, wavesize=args.nwavestep, verbose=args.verbose,
                 full_output=True, nsubbundles=args.nsubbundles)
 
+            #print(results.keys())
+            
             flux = results['flux']
             ivar = results['ivar']
             Rdata = results['resolution_data']
@@ -312,10 +314,6 @@ def main(args, timing=None):
 
             bfibers = fibers[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
 
-
-            ###print("wave.shape", wave.shape)
-            ###print("flux.shape", flux.shape)
-            ###this fails because wave is shape (3202,) and flux.shape is (25,2802)
             ###frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
             ###            fibers=bfibers, meta=img.meta, fibermap=bfibermap,
             ###            chi2pix=chi2pix)
@@ -355,6 +353,38 @@ def main(args, timing=None):
             log.error(''.join(lines))
             failcount += 1
             sys.stdout.flush()
+
+
+        ####append results from every bundle
+        bstart = bspecmin[b]
+        bstop = bspecmin[b] + bnspec[b]
+        flux_all[bstart:bstop,:] = flux
+        ivar_all[bstart:bstop,:] = ivar
+        Rdata_all[bstart:bstop,:,:] = Rdata
+        chi2pix_all[bstart:bstop,:] = chi2pix
+
+    ####save once to create a reference file!  
+    ###flux_gpu_ref = flux_all
+    ###ivar_gpu_ref = ivar_all
+    ###Rdata_gpu_ref = Rdata_all
+    ###chi2pix_gpu_ref = chi2pix_all
+    ###np.save('flux_gpu_ref.npy', flux_gpu_ref)
+    ###np.save('ivar_gpu_ref.npy', ivar_gpu_ref)
+    ###np.save('Rdata_gpu_ref.npy', Rdata_gpu_ref)
+    ###np.save('chi2pix_gpu_ref.npy', chi2pix_gpu_ref)
+
+    #lets compare the merged outputs for all bundles
+    if args.test == True:
+        flux_cpu_ref = np.load('flux_cpu_ref.npy')
+        ivar_cpu_ref = np.load('ivar_cpu_ref.npy')
+        Rdata_cpu_ref = np.load('Rdata_cpu_ref.npy')
+        chi2pix_cpu_ref = np.load('chi2pix_cpu_ref.npy')
+        #and now test
+        assert np.allclose(flux_all, flux_cpu_ref)
+        assert np.allclose(ivar_all, ivar_cpu_ref)
+        assert np.allclose(Rdata_all, Rdata_cpu_ref)
+        assert np.allclose(chi2pix_all, chi2pix_cpu_ref)
+        print("reference bundle tests passed")
 
     #failcount = comm.allreduce(failcount)
 
