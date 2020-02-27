@@ -1,4 +1,12 @@
-This is a README file for the DESI gpu hackathon code updated 02/25/2020.
+This is a README file for the DESI gpu hackathon code
+
+Here is the `original`, cpu version of the desi code we are working to adapt:
+
+https://github.com/desihub/desispec/blob/master/py/desispec/scripts/extract.py
+
+and
+
+https://github.com/desihub/specter/blob/master/py/specter/extract/ex2d.py
 
 The answers are wrong and some bookkeeping issues need to be fixed (so it can't be swapped directly into the desi pipeline), but this is good enough to get started for our purposes of moving this to the gpu. 
 
@@ -8,11 +16,29 @@ To run the both versions on our cori gpu skylakes/v100s (everyone should be able
 
 `ssh cori.nersc.gov`
 
+For the hackathon, everyone should have their own checkout/working directory for profiling and development. 
+
+Here is how to set yours up:
+
+```
+cd /global/cfs/cdirs/m1759/desi/
+mkdir <yourname>
+cd <yourname>
+git clone https://github.com/sbailey/gpu_specter
+cd gpu_specter
+git fetch
+git checkout hackathon
+```
+This is the hackathon branch. You may want to create your own branch based on the hackathon branch if you plan to submit changes:
+```
+git checkout <yourbranch>
+```
+
+Now that you are ready with your development directory/branch, let's get a GPU node and get started:
+
 `module load esslurm python cuda/10.1.243`
 
 Cuda must be version 10.1 to be compatible with the latest release of CuPy (also 10.1)
-
-Get a cori gpu node:
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
 
@@ -24,36 +50,44 @@ Then source the custom desi modules
 
 `source /global/cfs/cdirs/m1759/desi/desi_libs.sh`
 
-`cd /global/cfs/cdirs/m1759/desi/gpu_specter`
+And now make sure you are in your directory:
 
-# To run the cpu version (which still inclues mpi):
+`cd /global/cfs/cdirs/m1759/desi/<yourname>`
 
-`time srun -u -n 5 -c 2 python -u cpu_wrapper_specter.py -o test.fits`
+# To run the cpu version (mpi has been removed):
 
-This runs in about 3 mins on the skylake using 1/8 of a cpu.
+`time srun python -u cpu_wrapper_specter.py -o out.fits`
 
-You'll see some mpi warning messages at the end but don't panic, apparently these are `normal` on corigpu for mpi4py
-
-Everything ran correctly if you see all 20 ranks report:
-
-```
-INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 375:400 at Wed Feb 12 12:41:56 2020
-INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 275:300 at Wed Feb 12 12:41:56 2020
-INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 175:200 at Wed Feb 12 12:41:57 2020
-INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 475:500 at Wed Feb 12 12:41:57 2020
-INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectra 75:100 at Wed Feb 12 12:41:58 2020
-```
+This runs in about 9 mins on the skylake using 1/8 of a cpu.
 
 # To run the gpu version (mpi has been removed):
 
-`time srun -u python -u gpu_wrapper_specter.py -o test.fits`
+`time srun -u python -u gpu_wrapper_specter.py -o out.fits`
 
-Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is very long (~5 minutes) because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
+Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is relatively long (~6 minutes) because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
+
+# Correctness checking
+
+Since the answers are currently wrong with respect the real version of specter, unit/correctness testing is tricky. 
+
+Our current solultion:
+
+1) Check that the gpu and cpu versions get the same results (they do)
+2) Continue to compare the gpu output to the reference output files captured 02/25/2020. This will at least let us know that we have made some change that affected the output.
+
+To use enable this feature, you can append `--test` to the end of the cpu or gpu version of the code:
+
+`time srun -u python -u gpu_wrapper_specter.py -o out.fits --test`
+
+Note that you must run with the entire frame for these comparisons to work. (Running with `--nspec 50` will cause the check to fail.)
+
+You will find the cpu and gpu reference files in 
+
+`/global/cfs/cdirs/m1759/desi/ref_files`
 
 We have added a decorator for nvtx profiling: 
-```
-@nvtx_profile(profile=nvtx_collect,name='function_name')
-```
+
+`@nvtx_profile(profile=nvtx_collect,name='function_name')`
 
 # To profile using nvprof
 
@@ -73,7 +107,7 @@ srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true pyth
 
 # Plans for Hackathon (3/3/2020 - 3/6/2020)
 
-##Goals for the hackathon:
+## Goals for the hackathon:
 
 * Pre-hackathon-- get correctness testing in place
 * Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
@@ -83,7 +117,7 @@ srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true pyth
 * Open to other goals too, so please suggest something!
 
 
-##In the meantime, what can you do?
+## In the meantime, what can you do?
 
 * Please make sure you can log in to cori/corigpu and are able to run our code!
 * Take a look at our hackathon code
@@ -91,3 +125,5 @@ srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true pyth
 * Please make sure you are familiar with CuPy and Numba CUDA basics
 * Try to use nvprof, nsight systems, and nsight compute GPU profiling tools
 * Keep an eye on our hackathon README (this page!)-- we'll continue to update it with our progress throughout the week
+
+
