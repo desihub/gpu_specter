@@ -662,35 +662,14 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     #call our new prevent_ringing function
     pix_gpu, Ax_gpu, wx_gpu = prevent_ringing(nspec, nwave, image_gpu, A, w, W)
 
-    ##need to adjust prevent_ringing to return the right output so we don't have to do this
-    #Ax_gpu = cpx.scipy.sparse.csr_matrix(Ax)
-    #wx_gpu = cp.asarray(wx) #better, asarray does not copy
-    #pix_gpu = cp.asarray(pix)
-
     #call our new extract cupy function
     fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu = ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu)
 
     ##pull back to cpu to return to ex2d
-    flux = fx_gpu.get()
-    ivar = varfx_gpu.get()
-    sqR = np.sqrt(R_gpu.size).astype(int)
-    R = R_gpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
-    xflux = f_gpu.get()
-    A = A_dense.get() #want the reshaped version
-    iCov = iCov_gpu.get()
+    results = move_data_host(fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, wavelengths, xyrange, regularize, ndecorr)
 
-    #print("minR", np.min(R))
-    #print("maxR", np.max(R))
-
-    if full_output:
-        results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
-        results['options'] = dict(
-            specmin=specmin, nspec=nspec, wavelengths=wavelengths,
-            xyrange=xyrange, regularize=regularize, ndecorr=ndecorr
-            )
-        return results
-    else:
-        return flux, ivar, R
+    #assume full_output=True
+    return results
 
 @nvtx_profile(profile=nvtx_collect, name='prevent_ringing')
 def prevent_ringing(nspec, nwave, image_gpu, A, w, W):
@@ -735,6 +714,10 @@ def ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu):
 
     cp.cuda.nvtx.RangePush('eigh')
     u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
+    #print("type(u_gpu)",type(u_gpu))
+    #print("type(v_gpu)",type(v_gpu))
+    #type(u_gpu) <class 'cupy.core.core.ndarray'>
+    #type(v_gpu) <class 'cupy.core.core.ndarray'>
     cp.cuda.nvtx.RangePop()
 
     cp.cuda.nvtx.RangePush('spdiags_d')
@@ -769,4 +752,21 @@ def ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu):
 
     return fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu    
 
+@nvtx_profile(profile=nvtx_collect, name='move_data_host')
+def move_data_host(fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, wavelengths, xyrange, regularize, ndecorr):
+    #trying to make things easier for when we get fancy with async transfers
+    flux = fx_gpu.get()
+    ivar = varfx_gpu.get()
+    sqR = np.sqrt(R_gpu.size).astype(int)
+    R = R_gpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
+    xflux = f_gpu.get()
+    A = A_dense.get() #want the reshaped version
+    iCov = iCov_gpu.get()
 
+    #and now send the data back to the host, assume full_output=True
+    results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
+    results['options'] = dict(
+        specmin=specmin, nspec=nspec, wavelengths=wavelengths,
+        xyrange=xyrange, regularize=regularize, ndecorr=ndecorr
+        )
+    return results

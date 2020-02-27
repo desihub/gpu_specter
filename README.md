@@ -103,7 +103,7 @@ srun nvprof --log-file desi_nvprof_02252020.log python -u gpu_wrapper_specter.py
 On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 
 ```
-srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
+srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
 # Plans for Hackathon (3/3/2020 - 3/6/2020)
