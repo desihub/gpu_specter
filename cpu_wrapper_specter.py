@@ -370,10 +370,10 @@ def main(args, timing=None):
 
     #lets compare the merged outputs for all bundles
     if args.test == True:
-        flux_cpu_ref = np.load('flux_cpu_ref.npy')
-        ivar_cpu_ref = np.load('ivar_cpu_ref.npy')
-        Rdata_cpu_ref = np.load('Rdata_cpu_ref.npy')
-        chi2pix_cpu_ref = np.load('chi2pix_cpu_ref.npy')
+        flux_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/flux_cpu_ref.npy')
+        ivar_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/ivar_cpu_ref.npy')
+        Rdata_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/Rdata_cpu_ref.npy')
+        chi2pix_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/chi2pix_cpu_ref.npy')
         #and now test
         assert np.allclose(flux_all, flux_cpu_ref)
         assert np.allclose(ivar_all, ivar_cpu_ref)
