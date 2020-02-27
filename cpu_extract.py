@@ -251,8 +251,10 @@ Optional Inputs:
     # ny = psf_pix[0]
     # nx = psf_pix[1]
 
-    wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
-    wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8) #also a hack
+    wavemin, wavemax = wavelengths[0], wavelengths[-1]
+
+    #wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
+    #wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8) #also a hack
 
     #lets do evalcoeffs to create p (dict with keys)
     p = evalcoeffs(wavelengths, psfdata)
@@ -312,12 +314,6 @@ Optional Inputs:
     #also need the bottom corners
     xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
     yc = np.floor(p['Y'] - p['HSIZEY']//2).astype(int)
-    ##corners needs to be one element larger i think
-    #xc_c = np.ceil(p['X'] - p['HSIZEX']//2).astype(int)
-    #yc_c = np.ceil(p['Y'] - p['HSIZEY']//2).astype(int)
-    ##append last element of ceil
-    #xc = np.concatenate((xc_f, xc_c[:,-1]), axis=0)
-    #yc = np.concatenate((yc_f, yc_c[:,-1]), axis=0)
     corners = (xc, yc)
 
     #print("xc.shape", xc.shape)
@@ -344,12 +340,6 @@ Optional Inputs:
             wleftover = tws - iwave
             wavesize = wleftover
             iwavemax = iwavemin + wleftover
-
-        #print("wlo", wlo)
-        #print("whi", whi)
-
-        ##for easier bookkeeping put cache_spots here, but eventually move higher    
-        #spots = cache_spots(nspec, nwave, p, wavelengths)
 
         #- Identify subimage that covers the core wavelengths
         #subxyrange = xlo,xhi,ylo,yhi = psf.xyrange(specrange, (wlo, whi))
@@ -408,9 +398,6 @@ Optional Inputs:
         #pass in both p and psfdata for now, not sure if we really need both
         #pass spots so we can do projection_matrix inside
 
-        #print("len(ww)", len(ww))
-        #print("iwave", iwave)
-
         results = \
             ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
@@ -431,19 +418,7 @@ Optional Inputs:
 
         #we have to assemble the data from the patches back together!!!
         iispec = np.arange(speclo-specmin, spechi-specmin)
-
-        #print("wavesize", wavesize)
-        #print("specflux.shape", specflux.shape)
-        #print("nw", nw)
-
-        #flux[iispec[keep], iwave:iwave+wavesize+1] = specflux[keep, nlo:-nhi]
-        #ivar[iispec[keep], iwave:iwave+wavesize+1] = specivar[keep, nlo:-nhi]
-        #wavediff = nw - wavesize
-        #nl = wavediff//2
-        #nh = wavediff//2 + wavesize + 1
-        #print("wavediff", wavediff)
-        #print("nl", nl)
-        #print("nh", nh)
+        
         #not sure if this is right but at least the dimensions are ok
         flux[iispec[keep], iwave:iwave+wavesize] = specflux[keep, :]
         ivar[iispec[keep], iwave:iwave+wavesize] = specivar[keep, :]
