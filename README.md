@@ -56,7 +56,7 @@ And now make sure you are in your directory:
 
 # To run the cpu version (mpi has been removed):
 
-`time srun python -u cpu_wrapper_specter.py -o out.fits`
+`time srun -u python -u cpu_wrapper_specter.py -o out.fits`
 
 This runs in about 9 mins on the skylake using 1/8 of a cpu.
 
@@ -85,7 +85,7 @@ You will find the cpu and gpu reference files in
 
 `/global/cfs/cdirs/m1759/desi/ref_files`
 
-We have added a decorator for nvtx profiling: 
+# We have added a decorator for nvtx profiling: 
 
 `@nvtx_profile(profile=nvtx_collect,name='function_name')`
 
