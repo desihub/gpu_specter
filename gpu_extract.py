@@ -234,7 +234,9 @@ def multispot(pGHx, pGHy, ghc, mspots):
 
 
 @nvtx_profile(profile=nvtx_collect, name='cache_spots')
-def cache_spots(nx, ny, nspec, nwave, p, wavelengths):
+def cache_spots(nspec, nwave, p, wavelengths):
+    nx = p['HSIZEX']
+    ny = p['HSIZEY']
     spots = cp.zeros((nspec, nwave, ny, nx))
     #use mark's numblocks and blocksize method
     blocksize = 256
@@ -328,10 +330,6 @@ Optional Inputs:
     #lets do evalcoeffs to create p (dict with keys)
     p = evalcoeffs(wavelengths, psfdata)
 
-    #need nx and ny for cache_spots
-    nx = p['HSIZEX']
-    ny = p['HSIZEY']
-
     #do specrange ourselves (no subbundles)! 
     speclo = specmin
     spechi = specmin + nspec
@@ -383,7 +381,7 @@ Optional Inputs:
 
     #do entire bundle
     #nvtx profiling via decorator
-    spots = cache_spots(nx, ny, nspec, nwave, p, wavelengths)
+    spots = cache_spots(nspec, nwave, p, wavelengths)
 
     #also need the bottom corners
     xc = np.floor(p['X'] - p['HSIZEX']//2).astype(int)
@@ -414,12 +412,6 @@ Optional Inputs:
             wleftover = tws - iwave
             wavesize = wleftover
             iwavemax = iwavemin + wleftover
-
-        #print("wlo", wlo)
-        #print("whi", whi)
-
-        ##for easier bookkeeping put cache_spots here, but eventually move higher    
-        #spots = cache_spots(nspec, nwave, p, wavelengths)
 
         #- Identify subimage that covers the core wavelengths
         #subxyrange = xlo,xhi,ylo,yhi = psf.xyrange(specrange, (wlo, whi))
@@ -476,9 +468,6 @@ Optional Inputs:
         #pass in both p and psfdata for now, not sure if we really need both
         #pass spots so we can do projection_matrix inside
 
-        #print("len(ww)", len(ww))
-        #print("iwave", iwave)
-
         results = \
             ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
@@ -500,18 +489,6 @@ Optional Inputs:
         #we have to assemble the data from the patches back together!!!
         iispec = np.arange(speclo-specmin, spechi-specmin)
 
-        #print("wavesize", wavesize)
-        #print("specflux.shape", specflux.shape)
-        #print("nw", nw)
-
-        #flux[iispec[keep], iwave:iwave+wavesize+1] = specflux[keep, nlo:-nhi]
-        #ivar[iispec[keep], iwave:iwave+wavesize+1] = specivar[keep, nlo:-nhi]
-        #wavediff = nw - wavesize
-        #nl = wavediff//2
-        #nh = wavediff//2 + wavesize + 1
-        #print("wavediff", wavediff)
-        #print("nl", nl)
-        #print("nh", nh)
         #not sure if this is right but at least the dimensions are ok
         flux[iispec[keep], iwave:iwave+wavesize] = specflux[keep, :]
         ivar[iispec[keep], iwave:iwave+wavesize] = specivar[keep, :]
@@ -702,6 +679,9 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     A = A_dense.get() #want the reshaped version
     iCov = iCov_gpu.get()
 
+    #print("minR", np.min(R))
+    #print("maxR", np.max(R))
+
     if full_output:
         results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
         results['options'] = dict(
@@ -735,21 +715,58 @@ def prevent_ringing(nspec, nwave, image_gpu, A, w, W):
 
     return pix, Ax, wx
 
-#parts of this might be a good candidate for kernel fusion
+#parts of this might be good candidate(s) for kernel fusion
 @nvtx_profile(profile=nvtx_collect, name='ex_cupy')
 def ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu):
+
+    #will fill this with nvtx markers, it will be ugly but hopefully insightful
+    cp.cuda.nvtx.RangePush('spdiags_Wx')
     Wx_gpu = cpx.scipy.sparse.spdiags(wx_gpu, 0, len(wx_gpu), len(wx_gpu))
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('A_dot_Wx')
     iCov_gpu = Ax_gpu.T.dot(Wx_gpu.dot(Ax_gpu))
     y_gpu = Ax_gpu.T.dot(Wx_gpu.dot(pix_gpu))
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('cupy_linalg_solve')
     f_gpu = cp.linalg.solve(iCov_gpu.todense(), y_gpu).reshape((nspec, nwave)) #requires array, not sparse object
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('eigh')
     u_gpu, v_gpu = cp.linalg.eigh(iCov_gpu.todense())
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('spdiags_d')
     d_gpu = cpx.scipy.sparse.spdiags(cp.sqrt(u_gpu), 0, len(u_gpu) , len(u_gpu))
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('v_dot_d')
     Q_gpu = v_gpu.dot( d_gpu.dot( v_gpu.T ))
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('sum')
     norm_vector_gpu = cp.sum(Q_gpu, axis=1)
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('outer')
     R_gpu = cp.outer(norm_vector_gpu**(-1), cp.ones(norm_vector_gpu.size)) * Q_gpu
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('spdiags_u')
     udiags_gpu = cpx.scipy.sparse.spdiags(1/u_gpu, 0, len(u_gpu), len(u_gpu))
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('final_dot_prods')
     Cov_gpu = v_gpu.dot( udiags_gpu.dot (v_gpu.T ))
     Cx_gpu = R_gpu.dot(Cov_gpu.dot(R_gpu.T))
     fx_gpu = R_gpu.dot(f_gpu.ravel()).reshape(f_gpu.shape)
+    cp.cuda.nvtx.RangePop()
+
+    cp.cuda.nvtx.RangePush('reshape')
     varfx_gpu = (norm_vector_gpu * 2).reshape((nspec, nwave))
+    cp.cuda.nvtx.RangePop()
+
     return fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu    
+
+
