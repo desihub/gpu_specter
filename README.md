@@ -1,4 +1,4 @@
-This is a README file for the DESI gpu hackathon code
+# This is a README file for the DESI gpu hackathon code
 
 Here is the `original`, cpu version of the desi code we are working to adapt:
 
@@ -31,6 +31,7 @@ git checkout hackathon
 ```
 This is the hackathon branch. You may want to create your own branch based on the hackathon branch if you plan to submit changes:
 ```
+git branch <yourbranch>
 git checkout <yourbranch>
 ```
 
