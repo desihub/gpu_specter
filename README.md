@@ -50,17 +50,9 @@ INFO:cpu_wrapper_specter.py:351:main: extract:  Done pix-r0-00003578.fits spectr
 
 Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is very long (~5 minutes) because the bundles are currently computed serially. For debugging/profiling we can add `--nspec 50` to process only two bundles, for example. 
 
-Right now we have added nvtx range collection around `ex2d_patch`, `cache_spots`, and `projection_matrix`:
-
-For example:
+We have added a decorator for nvtx profiling: 
 ```
-        cp.cuda.nvtx.RangePush('ex2d_patch')
-        results = \
-            ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
-                specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
-                xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
-                full_output=True, use_cache=True)
-        cp.cuda.nvtx.RangePop()
+@nvtx_profile(profile=nvtx_collect,name='function_name')
 ```
 
 # To profile using nvprof
@@ -79,18 +71,23 @@ On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 srun nsys profile -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
-# Next steps (2/25/2020)
-
-* Add unit tests
-* Add NVTX markers to every CuPy call in `ex2d_patch`
-* Learn about CuPy streams
-* Learn about CuPy kernel fusion
-
 # Plans for Hackathon (3/3/2020 - 3/6/2020)
 
-* Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
-* Understand what causes function overhead in nsys. Understand mystery cuda free calls. (May be related to next item.)
-* Get rid of unnecessary HtD and DtH transfer. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually. 
-* Overlap data transfer (like at the end of `ex2d_patch`) and compute. Use pinned memory.
-* GPU-ize code in ex2d (still largely on CPU). 
+##Goals for the hackathon:
 
+* Pre-hackathon-- get correctness testing in place
+* Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
+* Get rid of unnecessary HtD and DtH transfer. Understand mystery overhead shown in nsys. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually.
+* Overlap data transfer (like at the end of `ex2d_patch`) and compute. Try pinned memory.
+* GPU-ize code in ex2d (still largely on CPU).
+* Open to other goals too, so please suggest something!
+
+
+##In the meantime, what can you do?
+
+* Please make sure you can log in to cori/corigpu and are able to run our code!
+* Take a look at our hackathon code
+* Take a look at Mark's CPU profiling in our dropbox folder
+* Please make sure you are familiar with CuPy and Numba CUDA basics
+* Try to use nvprof, nsight systems, and nsight compute GPU profiling tools
+* Keep an eye on our hackathon README (this page!)-- we'll continue to update it with our progress throughout the week
