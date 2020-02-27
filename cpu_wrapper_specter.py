@@ -55,7 +55,7 @@ def parse(options=None):
                         help="wavemin,wavemax,dw")
     parser.add_argument("-s", "--specmin", type=int, required=False, default=0,
                         help="first spectrum to extract")
-    parser.add_argument("-n", "--nspec", type=int, required=False,
+    parser.add_argument("-n", "--nspec", type=int, required=False, default=500,
                         help="number of spectra to extract")
     parser.add_argument("-r", "--regularize", type=float, required=False, default=0.0,
                         help="regularization amount (default %(default)s)")
@@ -74,7 +74,8 @@ def parse(options=None):
     # parser.add_argument("--fibermap-index", type=int, default=None, required=False,
     #                     help="start at this index in the fibermap table instead of using the spectro id from the camera")
     #parser.add_argument("--heliocentric-correction", action="store_true", help="apply heliocentric correction to wavelength")
-    
+    parser.add_argument("-t", "--test", action="store_true", help="flag to compare results to reference results")
+
     args = None
     if options is None:
         args = parser.parse_args()
@@ -88,15 +89,11 @@ def _trim(filepath, maxchar=40):
         return '...{}'.format(filepath[-maxchar:])
 
 
-def main(args, comm=None, timing=None):
+def main(args, timing=None):
 
     mark_start = time.time()
 
     log = get_logger()
-
-    #no non-mpi version for the hackathon
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
 
     #also we need an input file? or can we cheat the same way stephen does in his notebook?
 
@@ -104,8 +101,10 @@ def main(args, comm=None, timing=None):
     #lets try it
     psf_file = 'psf.fits'
     psfdata = Table.read(psf_file)
-    wavelengths = np.arange(psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0], 0.8)
- 
+
+    #hack!
+    wavelengths = np.arange(psfdata['WAVEMIN'][0]+100, psfdata['WAVEMAX'][0]-100, 0.8)
+
     #right now cache_spots happens once per bundle to make bookkeeping less of a nighmare
     #and also not to blow memory
 
@@ -114,22 +113,10 @@ def main(args, comm=None, timing=None):
     specmin = 0 #hardcode for hackathon
     #use the nspec we get out evalcoeffs, not sure if it's the right one
 
-    #- Load input files and broadcast
-
-    # FIXME: after we have fixed the serialization
-    # of the PSF, read and broadcast here, to reduce
-    # disk contention.
-
     #just read an existing image file? try it out
     input_file = '/global/cscratch1/sd/stephey/desitest/data/pix-r0-00003578.fits'
-    img = None
-    if comm is None:
-        img = io.read_image(input_file)
-    else:
-        if comm.rank == 0:
-            img = io.read_image(input_file)
-        img = comm.bcast(img, root=0)
-    
+    img = io.read_image(input_file)
+
     mark_read_input = time.time()
 
     # get spectral range
@@ -152,7 +139,7 @@ def main(args, comm=None, timing=None):
     #    fibers = fibermap['FIBER']
     #else:
 
-    nspec = 500 #hardcode for hackathon
+    nspec = args.nspec
     fibers = np.arange(specmin, specmin+nspec)
 
     specmax = specmin + nspec
@@ -221,9 +208,9 @@ def main(args, comm=None, timing=None):
 
     nproc = 1
     rank = 0
-    if comm is not None:
-        nproc = comm.size
-        rank = comm.rank
+    ###if comm is not None:
+    ###    nproc = comm.size
+    ###    rank = comm.rank
 
     mynbundle = int(nbundle // nproc)
     myfirstbundle = 0
@@ -234,15 +221,14 @@ def main(args, comm=None, timing=None):
     else:
         myfirstbundle = ((mynbundle + 1) * leftover) + (mynbundle * (rank - leftover))
 
-    if rank == 0:
-        #- Print parameters
-        log.info("extract:  input = {}".format(input_file))
-        log.info("extract:  psf = {}".format(psf_file))
-        log.info("extract:  specmin = {}".format(specmin))
-        log.info("extract:  nspec = {}".format(nspec))
-        log.info("extract:  wavelength = {},{},{}".format(wstart, wstop, dw))
-        log.info("extract:  nwavestep = {}".format(args.nwavestep))
-        log.info("extract:  regularize = {}".format(args.regularize))
+    #- Print parameters
+    log.info("extract:  input = {}".format(input_file))
+    log.info("extract:  psf = {}".format(psf_file))
+    log.info("extract:  specmin = {}".format(specmin))
+    log.info("extract:  nspec = {}".format(nspec))
+    log.info("extract:  wavelength = {},{},{}".format(wstart, wstop, dw))
+    log.info("extract:  nwavestep = {}".format(args.nwavestep))
+    log.info("extract:  regularize = {}".format(args.regularize))
 
     # get the root output file
 
@@ -253,12 +239,8 @@ def main(args, comm=None, timing=None):
     outroot = outmat.group(1)
 
     outdir = os.path.normpath(os.path.dirname(outroot))
-    if rank == 0:
-        if not os.path.isdir(outdir):
-            os.makedirs(outdir)
-
-    if comm is not None:
-        comm.barrier()
+    if not os.path.isdir(outdir):
+        os.makedirs(outdir)
 
     mark_preparation = time.time()
 
@@ -266,6 +248,13 @@ def main(args, comm=None, timing=None):
     time_total_write_output = 0.0
 
     failcount = 0
+
+    ####fill some reference arrays for answer checking
+    ####still the "wrong" answer compared to real specter but hopefully a consistently wrong answer
+    flux_all = np.zeros((nspec,nwave))
+    ivar_all = np.zeros((nspec,nwave))
+    Rdata_all = np.zeros((nspec,17,nwave)) #not sure why 17 but ok
+    chi2pix_all = np.zeros((nspec,nwave))
 
     for b in range(myfirstbundle, myfirstbundle+mynbundle):
         mark_iteration_start = time.time()
@@ -320,11 +309,7 @@ def main(args, comm=None, timing=None):
             bfibermap = None
 
             bfibers = fibers[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
-
-
-            ###print("wave.shape", wave.shape)
-            ###print("flux.shape", flux.shape)
-            ###this fails because wave is shape (3202,) and flux.shape is (25,2802)
+ 
             ###frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
             ###            fibers=bfibers, meta=img.meta, fibermap=bfibermap,
             ###            chi2pix=chi2pix)
@@ -365,8 +350,38 @@ def main(args, comm=None, timing=None):
             failcount += 1
             sys.stdout.flush()
 
-    if comm is not None:
-        failcount = comm.allreduce(failcount)
+        ####append results from every bundle
+        bstart = bspecmin[b]
+        bstop = bspecmin[b] + bnspec[b]
+        flux_all[bstart:bstop,:] = flux
+        ivar_all[bstart:bstop,:] = ivar
+        Rdata_all[bstart:bstop,:,:] = Rdata
+        chi2pix_all[bstart:bstop,:] = chi2pix
+
+    #######save once to create a reference file!  
+    ###flux_cpu_ref = flux_all
+    ###ivar_cpu_ref = ivar_all
+    ###Rdata_cpu_ref = Rdata_all
+    ###chi2pix_cpu_ref = chi2pix_all
+    ###np.save('flux_cpu_ref.npy', flux_cpu_ref)
+    ###np.save('ivar_cpu_ref.npy', ivar_cpu_ref)
+    ###np.save('Rdata_cpu_ref.npy', Rdata_cpu_ref)
+    ###np.save('chi2pix_cpu_ref.npy', chi2pix_cpu_ref)
+
+    #lets compare the merged outputs for all bundles
+    if args.test == True:
+        flux_cpu_ref = np.load('flux_cpu_ref.npy')
+        ivar_cpu_ref = np.load('ivar_cpu_ref.npy')
+        Rdata_cpu_ref = np.load('Rdata_cpu_ref.npy')
+        chi2pix_cpu_ref = np.load('chi2pix_cpu_ref.npy')
+        #and now test
+        assert np.allclose(flux_all, flux_cpu_ref)
+        assert np.allclose(ivar_all, ivar_cpu_ref)
+        assert np.allclose(Rdata_all, Rdata_cpu_ref)
+        assert np.allclose(chi2pix_all, chi2pix_cpu_ref)
+        print("reference bundle tests passed")
+
+    #failcount = comm.allreduce(failcount)
 
     if failcount > 0:
         # all processes throw
