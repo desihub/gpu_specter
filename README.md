@@ -110,7 +110,7 @@ srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite t
 
 ## Goals for the hackathon:
 
-* Pre-hackathon-- get correctness testing in place
+* Pre-hackathon-- get correctness testing in place. Done!
 * Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
 * Get rid of unnecessary HtD and DtH transfer. Understand mystery overhead shown in nsys. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually.
 * Overlap data transfer (like at the end of `ex2d_patch`) and compute. Try pinned memory.
@@ -125,6 +125,7 @@ srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite t
 * Take a look at Mark's CPU profiling in our dropbox folder
 * Please make sure you are familiar with CuPy and Numba CUDA basics
 * Try to use nvprof, nsight systems, and nsight compute GPU profiling tools
+* Check out M. Nicely's CuPy examples that include streams and pinned memory in `nicely_cupy_examples.py` in this repo. 
 * Keep an eye on our hackathon README (this page!)-- we'll continue to update it with our progress throughout the week
 
 
