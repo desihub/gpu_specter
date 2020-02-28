@@ -39,6 +39,7 @@ from desispec.heliocentric import heliocentric_velocity_multiplicative_corr
 from gpu_extract import ex2d #for gpu
 #from both_extract import ex2d #for debugging
 
+import cupy as cp
 
 def parse(options=None):
     parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
@@ -258,102 +259,28 @@ def main(args, timing=None):
 
     #for now we'll do one bundle at a time
     #remember patch size is a hyperparameter
+
     for b in range(myfirstbundle, myfirstbundle+mynbundle):
         mark_iteration_start = time.time()
-        outbundle = "{}_{:02d}.fits".format(outroot, b)
-        outmodel = "{}_model_{:02d}.fits".format(outroot, b)
 
-        log.info('extract:  Rank {} extracting {} spectra {}:{} at {}'.format(
-            rank, os.path.basename(input_file),
-            bspecmin[b], bspecmin[b]+bnspec[b], time.asctime(),
-            ) )
-        sys.stdout.flush()
+        #try streams
+        stream_num = 'stream_' + str(b)
+        print("stream started", stream_num)
 
-        #- The actual extraction
-        try:
-            results = ex2d(img.pix, img.ivar*(img.mask==0), psfdata, bspecmin[b],
-                bnspec[b], wave, regularize=args.regularize, ndecorr=args.decorrelate_fibers,
-                bundlesize=bundlesize, wavesize=args.nwavestep, verbose=args.verbose,
-                full_output=True, nsubbundles=args.nsubbundles)
+        #stream_num = cp.cuda.stream.Stream() #starts a new stream that is no longer default
 
-            #print(results.keys())
-            
-            flux = results['flux']
-            ivar = results['ivar']
-            Rdata = results['resolution_data']
-            chi2pix = results['chi2pix']
+        #entering bundle stream
+        #i think we need a function here to make this easier for parallel streaming
+        flux, ivar, Rdata, chi2pix, log = extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers, 
+                img, psfdata, wave, wstart, wstop, dw, args, bundlesize, log, failcount)
 
-            mask = np.zeros(flux.shape, dtype=np.uint32)
-            mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
-            mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
-            mask[chi2pix>100.0] |= specmask.BAD2DFIT
+        mark_extraction = time.time()
+        mark_write_output = time.time()
 
-            #if heliocentric_correction_factor != 1 :
-            #    #- Apply heliocentric correction factor to the wavelength
-            #    #- without touching the spectra, that is the whole point
-            #    wave   *= heliocentric_correction_factor
-            #    wstart *= heliocentric_correction_factor
-            #    wstop  *= heliocentric_correction_factor
-            #    dw     *= heliocentric_correction_factor
-            #    img.meta['HELIOCOR']   = heliocentric_correction_factor
-
-            #- Augment input image header for output
-            img.meta['NSPEC']   = (nspec, 'Number of spectra')
-            img.meta['WAVEMIN'] = (wstart, 'First wavelength [Angstroms]')
-            img.meta['WAVEMAX'] = (wstop, 'Last wavelength [Angstroms]')
-            img.meta['WAVESTEP']= (dw, 'Wavelength step size [Angstroms]')
-            img.meta['SPECTER'] = (specter.__version__, 'https://github.com/desihub/specter')
-            img.meta['IN_PSF']  = (_trim(psf_file), 'Input spectral PSF')
-            img.meta['IN_IMG']  = (_trim(input_file), 'Input image')
-
-            #if fibermap is not None:
-            #    bfibermap = fibermap[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
-            #else:
-            #lets stick with fibermap default
-            bfibermap = None
-
-            bfibers = fibers[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
-
-            ###frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
-            ###            fibers=bfibers, meta=img.meta, fibermap=bfibermap,
-            ###            chi2pix=chi2pix)
-
-            ####- Add unit
-            ####   In specter.extract.ex2d one has flux /= dwave
-            ####   to convert the measured total number of electrons per
-            ####   wavelength node to an electron 'density'
-            ###frame.meta['BUNIT'] = 'count/Angstrom'
-
-            ####- Add scores to frame
-            ####compute_and_append_frame_scores(frame,suffix="RAW")
-
-            mark_extraction = time.time()
-
-            ####- Write output
-            ###io.write_frame(outbundle, frame)
-
-            ###if args.model is not None:
-            ###    from astropy.io import fits
-            ###    fits.writeto(outmodel, results['modelimage'], header=frame.meta)
-
-            log.info('extract:  Done {} spectra {}:{} at {}'.format(os.path.basename(input_file),
-                bspecmin[b], bspecmin[b]+bnspec[b], time.asctime()))
-            sys.stdout.flush()
-
-            mark_write_output = time.time()
-
-            time_total_extraction += mark_extraction - mark_iteration_start
-            time_total_write_output += mark_write_output - mark_extraction
-
-        except:
-            # Log the error and increment the number of failures
-            log.error("extract:  FAILED bundle {}, spectrum range {}:{}".format(b, bspecmin[b], bspecmin[b]+bnspec[b]))
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-            log.error(''.join(lines))
-            failcount += 1
-            sys.stdout.flush()
-
+        time_total_extraction += mark_extraction - mark_iteration_start
+        time_total_write_output += mark_write_output - mark_extraction        
+        
+        #cp.cuda.stream.use(stream_num)
 
         ####append results from every bundle
         bstart = bspecmin[b]
@@ -362,16 +289,6 @@ def main(args, timing=None):
         ivar_all[bstart:bstop,:] = ivar
         Rdata_all[bstart:bstop,:,:] = Rdata
         chi2pix_all[bstart:bstop,:] = chi2pix
-
-    ####save once to create a reference file!  
-    ###flux_gpu_ref = flux_all
-    ###ivar_gpu_ref = ivar_all
-    ###Rdata_gpu_ref = Rdata_all
-    ###chi2pix_gpu_ref = chi2pix_all
-    ###np.save('flux_gpu_ref.npy', flux_gpu_ref)
-    ###np.save('ivar_gpu_ref.npy', ivar_gpu_ref)
-    ###np.save('Rdata_gpu_ref.npy', Rdata_gpu_ref)
-    ###np.save('chi2pix_gpu_ref.npy', chi2pix_gpu_ref)
 
     #lets compare the merged outputs for all bundles
     if args.test == True:
@@ -429,7 +346,101 @@ def main(args, timing=None):
         timing["total_extraction"] = time_total_extraction
         timing["total_write_output"] = time_total_write_output
         timing["merge"] = time_merge
-        
+
+def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers,
+                   img, psfdata, wave, wstart, wstop, dw, args, bundlesize, log, failcount):
+
+    outbundle = "{}_{:02d}.fits".format(outroot, b)
+    outmodel = "{}_model_{:02d}.fits".format(outroot, b)
+
+    log.info('extract:  Rank {} extracting {} spectra {}:{} at {}'.format(
+        rank, os.path.basename(input_file),
+        bspecmin[b], bspecmin[b]+bnspec[b], time.asctime(),
+        ) )
+    sys.stdout.flush()
+
+    #- The actual extraction
+    try:
+        results = ex2d(img.pix, img.ivar*(img.mask==0), psfdata, bspecmin[b],
+            bnspec[b], wave, regularize=args.regularize, ndecorr=args.decorrelate_fibers,
+            bundlesize=bundlesize, wavesize=args.nwavestep, verbose=args.verbose,
+            full_output=True, nsubbundles=args.nsubbundles)
+
+        #print(results.keys())
+
+        flux = results['flux']
+        ivar = results['ivar']
+        Rdata = results['resolution_data']
+        chi2pix = results['chi2pix']
+
+        mask = np.zeros(flux.shape, dtype=np.uint32)
+        mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
+        mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
+        mask[chi2pix>100.0] |= specmask.BAD2DFIT
+
+        #if heliocentric_correction_factor != 1 :
+        #    #- Apply heliocentric correction factor to the wavelength
+        #    #- without touching the spectra, that is the whole point
+        #    wave   *= heliocentric_correction_factor
+        #    wstart *= heliocentric_correction_factor
+        #    wstop  *= heliocentric_correction_factor
+        #    dw     *= heliocentric_correction_factor
+        #    img.meta['HELIOCOR']   = heliocentric_correction_factor
+
+        #- Augment input image header for output
+        img.meta['NSPEC']   = (nspec, 'Number of spectra')
+        img.meta['WAVEMIN'] = (wstart, 'First wavelength [Angstroms]')
+        img.meta['WAVEMAX'] = (wstop, 'Last wavelength [Angstroms]')
+        img.meta['WAVESTEP']= (dw, 'Wavelength step size [Angstroms]')
+        img.meta['SPECTER'] = (specter.__version__, 'https://github.com/desihub/specter')
+        img.meta['IN_PSF']  = (_trim(psf_file), 'Input spectral PSF')
+        img.meta['IN_IMG']  = (_trim(input_file), 'Input image')
+
+        #if fibermap is not None:
+        #    bfibermap = fibermap[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
+        #else:
+        #lets stick with fibermap default
+        bfibermap = None
+
+        bfibers = fibers[bspecmin[b]-specmin:bspecmin[b]+bnspec[b]-specmin]
+        ###frame = Frame(wave, flux, ivar, mask=mask, resolution_data=Rdata,
+        ###            fibers=bfibers, meta=img.meta, fibermap=bfibermap,
+        ###            chi2pix=chi2pix)
+
+        ####- Add unit
+        ####   In specter.extract.ex2d one has flux /= dwave
+        ####   to convert the measured total number of electrons per
+        ####   wavelength node to an electron 'density'
+        ###frame.meta['BUNIT'] = 'count/Angstrom'
+
+        ####- Add scores to frame
+        ####compute_and_append_frame_scores(frame,suffix="RAW")
+
+        ####- Write output
+        ###io.write_frame(outbundle, frame)
+
+        ###if args.model is not None:
+        ###    from astropy.io import fits
+        ###    fits.writeto(outmodel, results['modelimage'], header=frame.meta)
+
+        log.info('extract:  Done {} spectra {}:{} at {}'.format(os.path.basename(input_file),
+            bspecmin[b], bspecmin[b]+bnspec[b], time.asctime()))
+        sys.stdout.flush()
+
+    except:
+        # Log the error and increment the number of failures
+        log.error("extract:  FAILED bundle {}, spectrum range {}:{}".format(b, bspecmin[b], bspecmin[b]+bnspec[b]))
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+        log.error(''.join(lines))
+        failcount += 1
+        sys.stdout.flush()
+
+    return flux, ivar, Rdata, chi2pix, log
+
+
 if __name__ == '__main__':
     args = parse()
-    main(args)  
+    main(args) 
+
+    
