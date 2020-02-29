@@ -89,11 +89,14 @@ def _trim(filepath, maxchar=40):
         return '...{}'.format(filepath[-maxchar:])
 
 
-def main(args, timing=None):
+def main(args, comm=None, timing=None):
 
     mark_start = time.time()
 
     log = get_logger()
+
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
 
     #also we need an input file? or can we cheat the same way stephen does in his notebook?
 
@@ -115,7 +118,14 @@ def main(args, timing=None):
 
     #just read an existing image file? try it out
     input_file = '/global/cscratch1/sd/stephey/desitest/data/pix-r0-00003578.fits'
-    img = io.read_image(input_file)
+    img = None
+    if comm is None:
+
+        img = io.read_image(input_file)
+    else:
+        if comm.rank == 0:
+            img = io.read_image(input_file)
+        img = comm.bcast(img, root=0)    
 
     mark_read_input = time.time()
 
@@ -208,9 +218,9 @@ def main(args, timing=None):
 
     nproc = 1
     rank = 0
-    ###if comm is not None:
-    ###    nproc = comm.size
-    ###    rank = comm.rank
+    if comm is not None:
+        nproc = comm.size
+        rank = comm.rank
 
     mynbundle = int(nbundle // nproc)
     myfirstbundle = 0
@@ -221,14 +231,15 @@ def main(args, timing=None):
     else:
         myfirstbundle = ((mynbundle + 1) * leftover) + (mynbundle * (rank - leftover))
 
-    #- Print parameters
-    log.info("extract:  input = {}".format(input_file))
-    log.info("extract:  psf = {}".format(psf_file))
-    log.info("extract:  specmin = {}".format(specmin))
-    log.info("extract:  nspec = {}".format(nspec))
-    log.info("extract:  wavelength = {},{},{}".format(wstart, wstop, dw))
-    log.info("extract:  nwavestep = {}".format(args.nwavestep))
-    log.info("extract:  regularize = {}".format(args.regularize))
+    if rank == 0:
+        #- Print parameters
+        log.info("extract:  input = {}".format(input_file))
+        log.info("extract:  psf = {}".format(psf_file))
+        log.info("extract:  specmin = {}".format(specmin))
+        log.info("extract:  nspec = {}".format(nspec))
+        log.info("extract:  wavelength = {},{},{}".format(wstart, wstop, dw))
+        log.info("extract:  nwavestep = {}".format(args.nwavestep))
+        log.info("extract:  regularize = {}".format(args.regularize))
 
     # get the root output file
 
@@ -239,8 +250,12 @@ def main(args, timing=None):
     outroot = outmat.group(1)
 
     outdir = os.path.normpath(os.path.dirname(outroot))
-    if not os.path.isdir(outdir):
-        os.makedirs(outdir)
+    if rank == 0:
+        if not os.path.isdir(outdir):
+            os.makedirs(outdir)
+
+    if comm is not None:
+        comm.barrier()
 
     mark_preparation = time.time()
 
