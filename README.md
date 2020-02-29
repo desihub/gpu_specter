@@ -12,7 +12,7 @@ The answers are wrong and some bookkeeping issues need to be fixed (so it can't
 be swapped directly into the desi pipeline), but this is good enough to get
 started for our purposes of moving this to the gpu. 
 
-# For both the cpu and gpu:
+# Getting set up
 
 To run the both versions on our cori gpu skylakes/v100s
 
@@ -44,6 +44,8 @@ git checkout <yourbranch>
 Now that you are ready with your development directory/branch, let's get a GPU
 node and get started:
 
+# Getting ready to run
+
 `module load esslurm python cuda`
 
 Cuda and CuPy versions must be compatible (in this case, both are 10.2)
@@ -62,7 +64,7 @@ And now make sure you are in your directory:
 
 `cd /global/cfs/cdirs/m1759/desi/<yourname>`
 
-# To run the cpu version (can run with or without mpi):
+# To run the cpu version:
 
 ## Non-mpi
 
@@ -89,7 +91,7 @@ source /global/cfs/cdirs/desi/software/desi_environment.sh master
 time srun -n 20 -c 2 -u python -u cpu_wrapper_specter.py -o out.fits
 ```
 
-# To run the gpu version (mpi has been removed):
+# To run the gpu version (no mpi):
 
 `time srun -u python -u gpu_wrapper_specter.py -o out.fits`
 
@@ -148,7 +150,7 @@ srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite t
 Here the kernel name `-k` is what the compiler calls the kernel. You see this by looking in `nsys`. 
 
 ```
-time srun nv-nsight-cu-cli -k dlaed4 -o desi_ncom_02282020 -f python -u gpu_wrapper_specter.py -o out.fits 
+time srun nv-nsight-cu-cli -k dlaed4 -o desi_ncom_02282020 -f python -u gpu_wrapper_specter.py -o out.fits --nspec 50 --nwavestep 50
 ```
 
 # Plans for Hackathon (3/3/2020 - 3/6/2020)
