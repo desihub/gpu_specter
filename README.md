@@ -46,9 +46,9 @@ node and get started:
 
 # Getting ready to run
 
-`module load esslurm python cuda/10.1.243`
+`module load esslurm python cuda`
 
-Cuda and CuPy versions must be compatible (in this case, both are 10.1)
+Cuda and CuPy versions must be compatible (in this case, both are 10.2)
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
 
@@ -129,9 +129,7 @@ You will find the cpu and gpu reference files in
 
 `@nvtx_profile(profile=nvtx_collect,name='function_name')`
 
-# GPU profiling
-
-## nvprof
+# To profile using nvprof
 
 On cori gpu run nvprof and have it write an output file:
 
@@ -139,7 +137,7 @@ On cori gpu run nvprof and have it write an output file:
 srun nvprof --log-file desi_nvprof_02252020.log python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
-## nsys
+# To profile using nsys
 
 On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 
@@ -147,7 +145,7 @@ On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true --stats=true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
-## nsight compute (slow!)
+# To profile using nsight compute (really slow!)
 
 Here the kernel name `-k` is what the compiler calls the kernel. You see this by looking in `nsys`. 
 
@@ -162,11 +160,11 @@ time srun nv-nsight-cu-cli -k dlaed4 -o desi_ncom_02282020 -f python -u gpu_wrap
 * Pre-hackathon-- get correctness testing in place. Done!
 * Pre-hackathon-- get cpu baseline time to beat. `1:49`. Done!
 * Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
-* Get rid of unnecessary HtD and DtH transfer. May need to do all memory management manually.
+* Get rid of unnecessary HtD and DtH transfer. Understand mystery overhead shown in nsys. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually.
 * Overlap data transfer (like at the end of `ex2d_patch`) and compute. Use pinned memory.
 * GPU-ize code in ex2d (still largely on CPU).
-* Fix bookkeeping issues. Progress towards this goal in `cpu_extract_bookkeeping.py`. The issue is that A (the projection matrix) is a different size than W (B&S eq 4.) S. Bailey is probably the best person to help with this. 
-* Open to other goals, too!
+* Fix bookkeeping issues. Probably needs to be done by S. Bailey. 
+* Open to other goals too, so please suggest something!
 
 
 ## In the meantime, what can you do?
