@@ -364,7 +364,7 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         results = ex2d(img.pix, img.ivar*(img.mask==0), psfdata, bspecmin[b],
             bnspec[b], wave, regularize=args.regularize, ndecorr=args.decorrelate_fibers,
             bundlesize=bundlesize, wavesize=args.nwavestep, verbose=args.verbose,
-            full_output=True, nsubbundles=args.nsubbundles)
+            full_output=False, nsubbundles=args.nsubbundles)
 
         #print(results.keys())
 
