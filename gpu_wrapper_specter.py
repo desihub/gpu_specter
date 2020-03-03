@@ -255,7 +255,7 @@ def main(args, timing=None):
     flux_all = np.zeros((nspec,nwave))
     ivar_all = np.zeros((nspec,nwave))
     Rdata_all = np.zeros((nspec,17,nwave)) #not sure why 17 but ok
-    chi2pix_all = np.zeros((nspec,nwave))
+    #chi2pix_all = np.zeros((nspec,nwave))
 
     #for now we'll do one bundle at a time
     #remember patch size is a hyperparameter
@@ -271,7 +271,7 @@ def main(args, timing=None):
 
         #entering bundle stream
         #i think we need a function here to make this easier for parallel streaming
-        flux, ivar, Rdata, chi2pix, log = extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers, 
+        flux, ivar, Rdata, log = extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers, 
                 img, psfdata, wave, wstart, wstop, dw, args, bundlesize, log, failcount)
 
         mark_extraction = time.time()
@@ -288,19 +288,19 @@ def main(args, timing=None):
         flux_all[bstart:bstop,:] = flux
         ivar_all[bstart:bstop,:] = ivar
         Rdata_all[bstart:bstop,:,:] = Rdata
-        chi2pix_all[bstart:bstop,:] = chi2pix
+        #chi2pix_all[bstart:bstop,:] = chi2pix
 
     #lets compare the merged outputs for all bundles
     if args.test == True:
         flux_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/flux_cpu_ref.npy')
         ivar_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/ivar_cpu_ref.npy')
         Rdata_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/Rdata_cpu_ref.npy')
-        chi2pix_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/chi2pix_cpu_ref.npy')
+        #chi2pix_cpu_ref = np.load('/global/cfs/cdirs/m1759/desi/ref_files/chi2pix_cpu_ref.npy')
         #and now test
         assert np.allclose(flux_all, flux_cpu_ref)
         assert np.allclose(ivar_all, ivar_cpu_ref)
         assert np.allclose(Rdata_all, Rdata_cpu_ref)
-        assert np.allclose(chi2pix_all, chi2pix_cpu_ref)
+        #assert np.allclose(chi2pix_all, chi2pix_cpu_ref)
         print("reference bundle tests passed")
 
     #failcount = comm.allreduce(failcount)
@@ -371,12 +371,13 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         flux = results['flux']
         ivar = results['ivar']
         Rdata = results['resolution_data']
-        chi2pix = results['chi2pix']
+        #chi2pix = results['chi2pix']
 
-        mask = np.zeros(flux.shape, dtype=np.uint32)
-        mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
-        mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
-        mask[chi2pix>100.0] |= specmask.BAD2DFIT
+        #off now that we've set full_output = False
+        #mask = np.zeros(flux.shape, dtype=np.uint32)
+        #mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
+        #mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
+        #mask[chi2pix>100.0] |= specmask.BAD2DFIT
 
         #if heliocentric_correction_factor != 1 :
         #    #- Apply heliocentric correction factor to the wavelength
@@ -436,7 +437,7 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         failcount += 1
         sys.stdout.flush()
 
-    return flux, ivar, Rdata, chi2pix, log
+    return flux, ivar, Rdata, log #removed chi2pix
 
 
 if __name__ == '__main__':
