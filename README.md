@@ -46,9 +46,9 @@ node and get started:
 
 # Getting ready to run
 
-`module load esslurm python cuda`
+`module load esslurm python cuda/10.1.243`
 
-Cuda and CuPy versions must be compatible (in this case, both are 10.2)
+Cuda and CuPy versions must be compatible (in this case, both are 10.1)
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
 
