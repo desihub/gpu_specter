@@ -497,6 +497,16 @@ Optional Inputs:
         flux[iispec[keep], iwave:iwave+nwavesize] = specflux[keep, :]
         ivar[iispec[keep], iwave:iwave+nwavesize] = specivar[keep, :]
 
+        #simulate full_output by doing some work
+
+        numbers1 = np.random.random((1000,1000))
+        numbers2 = np.random.random((1000,1000))
+        numbers3 = np.dot(numbers1.T,numbers2)
+
+        ###numbers4 = np.random.random((10000,10000))
+        ###numbers5 = np.random.random((10000,10000))
+        ###numbers6 = np.dot(numbers4.T,numbers5)
+
         #needs to be fixed a result of pinned memory array sizes
         ###if full_output:
         ###    A = results['A'].copy()
