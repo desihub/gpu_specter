@@ -17,6 +17,7 @@ import cupy as cp
 import cupyx as cpx
 import cupyx.scipy.special
 from numba import cuda
+from cupy import prof
 
 #swtich to turn on/off our nvtx collection decorators
 nvtx_collect = True
@@ -269,7 +270,7 @@ def projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
                 A[y, x, i, j] += temp_spot
 
 
-def ex2d(image, imageivar, psfdata, specmin, nspec, wavelengths, xyrange=None,
+def ex2d(image, imageivar, psfdata, pinned_list, specmin, nspec, wavelengths, xyrange=None,
          regularize=0.0, ndecorr=False, bundlesize=25, nsubbundles=1,
          wavesize=50, full_output=False, verbose=False, 
          debug=False, psferr=None):
@@ -347,13 +348,15 @@ Optional Inputs:
     #    raise ValueError('ex2d currently only supports linear wavelength grids')
 
     #- Output arrays to fill
+    #these need to be bigger to accomodate our pinned arrays
     nwave = len(wavelengths)
-    flux = np.zeros( (nspec, nwave) )
-    ivar = np.zeros( (nspec, nwave) )
+    pinned_size = int(np.ceil(nwave / wavesize)*wavesize) 
+    flux = np.zeros( (nspec, pinned_size) )
+    ivar = np.zeros( (nspec, pinned_size) )
     if full_output:
         pixmask_fraction = np.zeros( (nspec, nwave) )
         chi2pix = np.zeros( (nspec, nwave) )
-        modelimage = np.zeros_like(image)
+        modelimage = np.zeros_like(ivar) #use ivar instead of image
 
     #- Diagonal elements of resolution matrix
     #- Keep resolution matrix terms equivalent to 9-sigma of largest spot
@@ -395,7 +398,6 @@ Optional Inputs:
 
     #print("len(wavelengths)", len(wavelengths))
 
-
     #- Let's do some extractions
     #but no subbundles! wavelength patches only
     #start, stop, step
@@ -407,12 +409,13 @@ Optional Inputs:
         if iwave+wavesize < len(wavelengths):
             whi = wavelengths[iwave+wavesize]
             iwavemax = iwavemin + wavesize
+            nwavesize = wavesize #normal wavesize
         else: #handle the leftover part carefully
             whi = wavelengths[-1]
             wleftover = tws - iwave
             wavesize = wleftover
             iwavemax = iwavemin + wleftover
-
+        
         #- Identify subimage that covers the core wavelengths
         #subxyrange = xlo,xhi,ylo,yhi = psf.xyrange(specrange, (wlo, whi))
  
@@ -469,7 +472,7 @@ Optional Inputs:
         #pass spots so we can do projection_matrix inside
 
         results = \
-            ex2d_patch(subimg, subivar, p, psfdata, spots, corners, iwave, tws,
+            ex2d_patch(subimg, subivar, nwavesize, pinned_list, spots, corners, iwave, tws,
                 specmin=speclo, nspec=spechi-speclo, wavelengths=ww,
                 xyrange=[xlo,xhi,ylo,yhi], regularize=regularize, ndecorr=ndecorr,
                 full_output=True, use_cache=True) 
@@ -481,7 +484,7 @@ Optional Inputs:
         specivar = results['ivar']
         #ivar = results['ivar']
         R = results['R']
-       
+
         #- Fill in the final output arrays
         ## iispec = slice(speclo-specmin, spechi-specmin)
         #don't need this since we got rid of the subbundles
@@ -490,66 +493,68 @@ Optional Inputs:
         iispec = np.arange(speclo-specmin, spechi-specmin)
 
         #not sure if this is right but at least the dimensions are ok
-        flux[iispec[keep], iwave:iwave+wavesize] = specflux[keep, :]
-        ivar[iispec[keep], iwave:iwave+wavesize] = specivar[keep, :]
+        #this will fail now with pinned memory-- unless nwavesize works?
+        flux[iispec[keep], iwave:iwave+nwavesize] = specflux[keep, :]
+        ivar[iispec[keep], iwave:iwave+nwavesize] = specivar[keep, :]
 
-        if full_output:
-            A = results['A'].copy()
-            xflux = results['xflux']
-            
-            #- number of spectra and wavelengths for this sub-extraction
-            subnspec = spechi-speclo
-            subnwave = len(ww)
-            
-            #order of operations! the A dot xflux.ravel() comes first!
+        #needs to be fixed a result of pinned memory array sizes
+        ###if full_output:
+        ###    A = results['A'].copy()
+        ###    xflux = results['xflux']
+        ###    
+        ###    #- number of spectra and wavelengths for this sub-extraction
+        ###    subnspec = spechi-speclo
+        ###    subnwave = len(ww)
+        ###    
+        ###    #order of operations! the A dot xflux.ravel() comes first!
 
-            #- Model image
-            submodel = A.dot(xflux.ravel()).reshape(subimg.shape)
-            #modeulimage = submodel ?
+        ###    #- Model image
+        ###    submodel = A.dot(xflux.ravel()).reshape(subimg.shape)
+        ###    #modeulimage = submodel ?
 
-            #- Fraction of input pixels that are unmasked for each flux bin
-            subpixmask_fraction = 1.0-(A.T.dot(subivar.ravel()>0)).reshape(subnspec, subnwave)
-            
-            #- original weighted chi2 of pixels that contribute to each flux bin
-            # chi = (subimg - submodel) * np.sqrt(subivar)
-            # chi2x = (A.T.dot(chi.ravel()**2) / A.sum(axis=0)).reshape(subnspec, subnwave)
-            
-            #- pixel variance including input noise and PSF model errors
-            modelivar = (submodel*psferr + 1e-32)**-2
-            ii = (modelivar > 0) & (subivar > 0)
-            totpix_ivar = np.zeros(submodel.shape)
-            totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/subivar[ii])
-            
-            #- Weighted chi2 of pixels that contribute to each flux bin;
-            #- only use unmasked pixels and avoid dividing by 0
-            chi = (subimg - submodel) * np.sqrt(totpix_ivar)
-            psfweight = A.T.dot(totpix_ivar.ravel()>0)
-            bad = (psfweight == 0.0)
-            chi2x = (A.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
-            chi2x = chi2x.reshape(subnspec, subnwave)
-            
-            #- outputs
-            #- TODO: watch out for edge effects on overlapping regions of submodels
-            modelimage[subxy] = submodel
-            #same nlo nhi change here
-            pixmask_fraction[iispec[keep], iwave:iwave+wavesize] = subpixmask_fraction[keep, :]
-            #same here
-            chi2pix[iispec[keep], iwave:iwave+wavesize] = chi2x[keep, :]
+        ###    #- Fraction of input pixels that are unmasked for each flux bin
+        ###    subpixmask_fraction = 1.0-(A.T.dot(subivar.ravel()>0)).reshape(subnspec, subnwave)
+        ###    
+        ###    #- original weighted chi2 of pixels that contribute to each flux bin
+        ###    # chi = (subimg - submodel) * np.sqrt(subivar)
+        ###    # chi2x = (A.T.dot(chi.ravel()**2) / A.sum(axis=0)).reshape(subnspec, subnwave)
+        ###    
+        ###    #- pixel variance including input noise and PSF model errors
+        ###    modelivar = (submodel*psferr + 1e-32)**-2
+        ###    ii = (modelivar > 0) & (subivar > 0)
+        ###    totpix_ivar = np.zeros(submodel.shape)
+        ###    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/subivar[ii])
+        ###    
+        ###    #- Weighted chi2 of pixels that contribute to each flux bin;
+        ###    #- only use unmasked pixels and avoid dividing by 0
+        ###    chi = (subimg - submodel) * np.sqrt(totpix_ivar)
+        ###    psfweight = A.T.dot(totpix_ivar.ravel()>0)
+        ###    bad = (psfweight == 0.0)
+        ###    chi2x = (A.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
+        ###    chi2x = chi2x.reshape(subnspec, subnwave)
+        ###    
+        ###    #- outputs
+        ###    #- TODO: watch out for edge effects on overlapping regions of submodels
+        ###    modelimage[subxy] = submodel
+        ###    #same nlo nhi change here
+        ###    pixmask_fraction[iispec[keep], iwave:iwave+wavesize] = subpixmask_fraction[keep, :]
+        ###    #same here
+        ###    chi2pix[iispec[keep], iwave:iwave+wavesize] = chi2x[keep, :]
 
-            #- Fill diagonals of resolution matrix
-            for ispec in np.arange(speclo, spechi)[keep]:
-                #- subregion of R for this spectrum
-                ii = slice(nw*(ispec-speclo), nw*(ispec-speclo+1))
-                Rx = R[ii, ii]
-                #print("Rx.shape", Rx.shape)
-                #print("Rd.shape", Rd.shape)
-                #need to fix this too
-                #for j in range(nlo,nw-nhi):
-                #for j in range(nwave):
-                    # Rd dimensions [nspec, 2*ndiag+1, nwave]
-                    #this is a mess, just write zeros for now until i can get
-                    #the values of nlo, nhi, ndiag right
-                    #Rd[ispec-specmin, :, iwave+j-nlo] = Rx[j-ndiag:j+ndiag+1, j]
+        ###    #- Fill diagonals of resolution matrix
+        ###    for ispec in np.arange(speclo, spechi)[keep]:
+        ###        #- subregion of R for this spectrum
+        ###        ii = slice(nw*(ispec-speclo), nw*(ispec-speclo+1))
+        ###        Rx = R[ii, ii]
+        ###        #print("Rx.shape", Rx.shape)
+        ###        #print("Rd.shape", Rd.shape)
+        ###        #need to fix this too
+        ###        #for j in range(nlo,nw-nhi):
+        ###        #for j in range(nwave):
+        ###            # Rd dimensions [nspec, 2*ndiag+1, nwave]
+        ###            #this is a mess, just write zeros for now until i can get
+        ###            #the values of nlo, nhi, ndiag right
+        ###            #Rd[ispec-specmin, :, iwave+j-nlo] = Rx[j-ndiag:j+ndiag+1, j]
 
     #- Add extra print because of carriage return \r progress trickery
     if verbose:
@@ -559,8 +564,9 @@ Optional Inputs:
     #+       maybe should do everything in photons/A from the start.            
     #- Convert flux to photons/A instead of photons/bin
     dwave = np.gradient(wavelengths)
-    flux /= dwave #this is divide and, divides left operand with the right operand and assign the result to left operand
-    ivar *= dwave**2 #similar
+    #flux /= dwave #this is divide and, divides left operand with the right operand and assign the result to left operand
+    #ivar *= dwave**2 #similar
+    #^^ these fail because flux and ivar and now different sizes due to pinned memory
 
     if debug:
         #--- DEBUG ---
@@ -575,7 +581,7 @@ Optional Inputs:
         return flux, ivar, Rd
 
 @nvtx_profile(profile=nvtx_collect, name='ex2d_patch')
-def ex2d_patch(image, ivar, p, psfdata, spots, corners, 
+def ex2d_patch(image, ivar, nwavesize, pinned_list, spots, corners, 
          iwave, tws, specmin, nspec, wavelengths, xyrange,
          full_output=False, regularize=0.0, ndecorr=False, use_cache=None):
     """
@@ -666,7 +672,7 @@ def ex2d_patch(image, ivar, p, psfdata, spots, corners,
     fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu = ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu)
 
     ##pull back to cpu to return to ex2d
-    results = move_data_host(fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, wavelengths, xyrange, regularize, ndecorr)
+    results = move_data_host(pinned_list, fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, nwave, nwavesize, wavelengths, xyrange, regularize, ndecorr)
 
     #assume full_output=True
     return results
@@ -753,20 +759,96 @@ def ex_cupy(nspec, nwave, Ax_gpu, wx_gpu, pix_gpu):
     return fx_gpu, varfx_gpu, R_gpu, f_gpu, iCov_gpu    
 
 @nvtx_profile(profile=nvtx_collect, name='move_data_host')
-def move_data_host(fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, wavelengths, xyrange, regularize, ndecorr):
+def move_data_host(pinned_list, fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_gpu, specmin, nspec, nwave, nwavesize, wavelengths, xyrange, regularize, ndecorr):
     #trying to make things easier for when we get fancy with async transfers
-    flux = fx_gpu.get()
-    ivar = varfx_gpu.get()
-    sqR = np.sqrt(R_gpu.size).astype(int)
-    R = R_gpu.reshape((sqR, sqR)) #R : 2D resolution matrix to convert
-    xflux = f_gpu.get()
-    A = A_dense.get() #want the reshaped version
-    iCov = iCov_gpu.get()
+
+    with cp.prof.time_range('copies',7):
+
+        #pinned_list = np.array([flux_pinned, ivar_pinned, Rdata_pinned, xflux_pinned, A_pinned, iCov_pinned])
+        #print("pinned_list", pinned_list)        
+        #define some variables for convienece
+        npix = nspec*nwavesize #nwavesize is the typical patch size
+        sqR = np.sqrt(R_gpu.size).astype(int) #needed to reshape R
+        Ashape = A_dense.shape[0]
+        ##handle the last patch carefully
+        if nwave < nwavesize:
+            #nwavesize is the typical patch size, nwave is the number in the final patch
+
+            fx_gpu_padded = cp.zeros((nspec,nwavesize))
+            fx_gpu_padded[0:nspec,0:nwave] = fx_gpu
+            fx_gpu_padded.get(out=pinned_list[0])
+
+            varfx_gpu_padded = cp.zeros((nspec,nwavesize))
+            varfx_gpu_padded[0:nspec,0:nwave] = varfx_gpu
+            varfx_gpu_padded.get(out=pinned_list[1])
+
+            R_gpu_padded = cp.zeros((npix,npix))
+            R_gpu_padded[0:sqR,0:sqR] = R_gpu
+            R_gpu_padded.get(out=pinned_list[2])
+
+            f_gpu_padded = cp.zeros((nspec,nwavesize))
+            f_gpu_padded[0:nspec,0:nwave] = f_gpu
+            f_gpu_padded.get(out=pinned_list[3])
+
+            #make this more robust
+            A_gpu_padded = cp.zeros((20000,npix))
+            A_gpu_padded[0:Ashape,0:sqR] = A_dense
+            A_gpu_padded.get(out=pinned_list[4])
+
+            iCov_gpu_padded = cp.zeros((npix,npix))
+            iCov_gpu_padded[0:sqR,0:sqR] = iCov_gpu.toarray() #this is a sparse array
+            iCov_gpu_padded.get(out=pinned_list[5])
+
+        #handle the rest of the uniform sized patches
+        else:
+            fx_gpu.get(out=pinned_list[0])
+            varfx_gpu.get(out=pinned_list[1])
+            R_gpu.get(out=pinned_list[2])
+            f_gpu.get(out=pinned_list[3])
+
+            #A_dense.get(out=pinned_list[4])
+            #A changes size every time?!?! is this expected?!?!
+            A_gpu_padded = cp.zeros((20000,npix))
+            A_gpu_padded[0:Ashape,0:sqR] = A_dense
+            A_gpu_padded.get(out=pinned_list[4])
+
+            #iCov_gpu is a sparse matrix, i think this is the issue
+            #try converting to cupy ndarray first
+            iCov_gpu.toarray().get(out=pinned_list[5])
+
+        #flux = fx_gpu.get()
+        #ivar = varfx_gpu.get()
+        #sqR = np.sqrt(R_gpu.size).astype(int) #needed to reshape R
+        #R = R_gpu.reshape((sqR,sqR)).get()
+        #xflux = f_gpu.get()
+        #A = A_dense.get() #want the reshaped version
+        #iCov = iCov_gpu.get()
+
+        #print("flux.shape", flux.shape)
+        #print("ivar.shape", ivar.shape)
+        #print("R.shape", R.shape)
+        #print("xflux.shape", xflux.shape)
+        #print("A.shape", A.shape)
+        #print("iCov.shape", iCov.shape)
+
+        #flux.shape (25, 50)
+        #ivar.shape (25, 50)
+        #R.shape (1250, 1250)
+        #xflux.shape (25, 50)
+        #A.shape (16720, 1250)
+        #iCov.shape (1250, 1250)
+
+
+    #pinned_list = np.array([flux_pinned, ivar_pinned, Rdata_pinned, xflux_pinned, A_pinned, iCov_pinned])
 
     #and now send the data back to the host, assume full_output=True
-    results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
+    #results = dict(flux=flux, ivar=ivar, R=R, xflux=xflux, A=A, iCov=iCov)
+    results = dict(flux=pinned_list[0], ivar=pinned_list[1], R=pinned_list[2], xflux=pinned_list[3], A=pinned_list[4], iCov=pinned_list[5])
     results['options'] = dict(
         specmin=specmin, nspec=nspec, wavelengths=wavelengths,
         xyrange=xyrange, regularize=regularize, ndecorr=ndecorr
         )
     return results
+
+
+

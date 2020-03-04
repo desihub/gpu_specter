@@ -108,6 +108,8 @@ def main(args, timing=None):
     #hack!
     wavelengths = np.arange(psfdata['WAVEMIN'][0]+100, psfdata['WAVEMAX'][0]-100, 0.8)
  
+    print("len(wavelengths)", len(wavelengths))
+
     #right now cache_spots happens once per bundle to make bookkeeping less of a nighmare
     #and also not to blow memory
 
@@ -265,14 +267,14 @@ def main(args, timing=None):
 
         #try streams
         stream_num = 'stream_' + str(b)
-        print("stream started", stream_num)
+        #print("stream started", stream_num)
 
         #stream_num = cp.cuda.stream.Stream() #starts a new stream that is no longer default
 
         #entering bundle stream
         #i think we need a function here to make this easier for parallel streaming
         flux, ivar, Rdata, chi2pix, log = extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers, 
-                img, psfdata, wave, wstart, wstop, dw, args, bundlesize, log, failcount)
+                img, psfdata, wave, nwave, wstart, wstop, dw, args, bundlesize, log, failcount)
 
         mark_extraction = time.time()
         mark_write_output = time.time()
@@ -283,12 +285,12 @@ def main(args, timing=None):
         #cp.cuda.stream.use(stream_num)
 
         ####append results from every bundle
-        bstart = bspecmin[b]
-        bstop = bspecmin[b] + bnspec[b]
-        flux_all[bstart:bstop,:] = flux
-        ivar_all[bstart:bstop,:] = ivar
-        Rdata_all[bstart:bstop,:,:] = Rdata
-        chi2pix_all[bstart:bstop,:] = chi2pix
+        ###bstart = bspecmin[b]
+        ###bstop = bspecmin[b] + bnspec[b]
+        ###flux_all[bstart:bstop,:] = flux
+        ###ivar_all[bstart:bstop,:] = ivar
+        ###Rdata_all[bstart:bstop,:,:] = Rdata
+        ###chi2pix_all[bstart:bstop,:] = chi2pix
 
     #lets compare the merged outputs for all bundles
     if args.test == True:
@@ -348,7 +350,7 @@ def main(args, timing=None):
         timing["merge"] = time_merge
 
 def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bnspec, nspec, fibers,
-                   img, psfdata, wave, wstart, wstop, dw, args, bundlesize, log, failcount):
+                   img, psfdata, wave, nwave, wstart, wstop, dw, args, bundlesize, log, failcount):
 
     outbundle = "{}_{:02d}.fits".format(outroot, b)
     outmodel = "{}_model_{:02d}.fits".format(outroot, b)
@@ -358,10 +360,40 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         bspecmin[b], bspecmin[b]+bnspec[b], time.asctime(),
         ) )
     sys.stdout.flush()
+    
+    #get ready to pin memory based on usual patch size
+    #final patch will be padded with zeros to make this work
+    #this will need to be fixed at some point for production
+
+        #flux.shape (25, 50)
+        #ivar.shape (25, 50)
+        #R.shape (1250, 1250)
+        #xflux.shape (25, 50)
+        #A.shape (16720, 1250)
+        #iCov.shape (1250, 1250)
+
+    #preallocate first (these will only work for 2 bundles, need to make more general)
+    flux_out = np.empty((25,50))
+    ivar_out = np.empty((25,50))
+    Rdata_out = np.empty((1250,1250)) #hardcode for now
+    xflux_out = np.empty((25,50))
+    A_out = np.empty((20000,1250))
+    iCov_out = np.empty((1250,1250))
+
+    #then pin
+    flux_pinned = _pin_memory(flux_out)
+    ivar_pinned = _pin_memory(ivar_out)
+    Rdata_pinned = _pin_memory(Rdata_out)
+    xflux_pinned = _pin_memory(xflux_out)
+    A_pinned = _pin_memory(A_out)
+    iCov_pinned = _pin_memory(iCov_out)
+
+    #append all pointers into a list
+    pinned_list = np.array([flux_pinned, ivar_pinned, Rdata_pinned, xflux_pinned, A_pinned, iCov_pinned])
 
     #- The actual extraction
     try:
-        results = ex2d(img.pix, img.ivar*(img.mask==0), psfdata, bspecmin[b],
+        results = ex2d(img.pix, img.ivar*(img.mask==0), psfdata, pinned_list, bspecmin[b],
             bnspec[b], wave, regularize=args.regularize, ndecorr=args.decorrelate_fibers,
             bundlesize=bundlesize, wavesize=args.nwavestep, verbose=args.verbose,
             full_output=True, nsubbundles=args.nsubbundles)
@@ -373,10 +405,11 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         Rdata = results['resolution_data']
         chi2pix = results['chi2pix']
 
-        mask = np.zeros(flux.shape, dtype=np.uint32)
-        mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
-        mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
-        mask[chi2pix>100.0] |= specmask.BAD2DFIT
+        ##try flux_out (pinned memory) instead
+        #mask = np.zeros(flux_out.shape, dtype=np.uint32)
+        #mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
+        #mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
+        #mask[chi2pix>100.0] |= specmask.BAD2DFIT
 
         #if heliocentric_correction_factor != 1 :
         #    #- Apply heliocentric correction factor to the wavelength
@@ -438,6 +471,11 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
 
     return flux, ivar, Rdata, chi2pix, log
 
+def _pin_memory(array):
+    mem = cp.cuda.alloc_pinned_memory(array.nbytes)
+    ret = np.frombuffer(mem, array.dtype, array.size).reshape(array.shape)
+    ret[...] = array
+    return ret
 
 if __name__ == '__main__':
     args = parse()
