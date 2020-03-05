@@ -282,10 +282,11 @@ def main(args, comm=None, timing=None):
         mark_iteration_start = time.time()
 
         #try streams
-        stream_num = 'stream_' + str(b)
-        #print("stream started", stream_num)
+        gpu_num = str(rank)
 
-        #stream_num = cp.cuda.stream.Stream() #starts a new stream that is no longer default
+        print("moving work to %s" %(rank))
+
+        cp.cuda.Device(rank).use()
 
         #entering bundle stream
         #i think we need a function here to make this easier for parallel streaming
@@ -388,13 +389,14 @@ def extract_bundle(outroot, b, rank, input_file, psf_file, bspecmin, specmin, bn
         #A.shape (16720, 1250)
         #iCov.shape (1250, 1250)
 
-    #preallocate first (these will only work for 2 bundles, need to make more general)
-    flux_out = np.empty((25,50))
-    ivar_out = np.empty((25,50))
-    Rdata_out = np.empty((1250,1250)) #hardcode for now
-    xflux_out = np.empty((25,50))
-    A_out = np.empty((20000,1250))
-    iCov_out = np.empty((1250,1250))
+    #preallocate first (need to make more general)
+    nwavestep = args.nwavestep
+    flux_out = np.empty((25,nwavestep))
+    ivar_out = np.empty((25,nwavestep))
+    Rdata_out = np.empty((25*nwavestep,25*nwavestep)) #hardcode for now
+    xflux_out = np.empty((25,nwavestep))
+    A_out = np.empty((50000,25*nwavestep))
+    iCov_out = np.empty((25*nwavestep,25*nwavestep))
 
     #then pin
     flux_pinned = _pin_memory(flux_out)

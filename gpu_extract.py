@@ -801,7 +801,7 @@ def move_data_host(pinned_list, fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_g
             f_gpu_padded.get(out=pinned_list[3])
 
             #make this more robust
-            A_gpu_padded = cp.zeros((20000,npix))
+            A_gpu_padded = cp.zeros((50000,npix))
             A_gpu_padded[0:Ashape,0:sqR] = A_dense
             A_gpu_padded.get(out=pinned_list[4])
 
@@ -818,7 +818,7 @@ def move_data_host(pinned_list, fx_gpu, varfx_gpu, R_gpu, f_gpu, A_dense, iCov_g
 
             #A_dense.get(out=pinned_list[4])
             #A changes size every time?!?! is this expected?!?!
-            A_gpu_padded = cp.zeros((20000,npix))
+            A_gpu_padded = cp.zeros((50000,npix))
             A_gpu_padded[0:Ashape,0:sqR] = A_dense
             A_gpu_padded.get(out=pinned_list[4])
 
