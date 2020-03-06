@@ -1,5 +1,8 @@
 # This is a README file for the DESI gpu hackathon code, March 2020
 
+It is also useful in general for the ongoing progress of porting the DESI
+spectral extraction code to GPUs.
+
 Here is the original cpu version of the desi code we are working to adapt:
 
 https://github.com/desihub/desispec/blob/master/py/desispec/scripts/extract.py
@@ -66,14 +69,6 @@ And now make sure you are in your directory:
 
 # To run the cpu version:
 
-## Non-mpi
-
-`time srun -u python -u cpu_wrapper_specter.py -o out.fits`
-
-This non-mpi version runs in about 9 mins on the skylake using 1/8 of a cpu.
-
-## Mpi:
-
 `time srun -n 20 -c 2 -u python -u cpu_wrapper_specter.py -o out.fits`
 
 Our time to beat (cpu time on Haswell with 20 mpi ranks) is `~1:49`. 
@@ -91,16 +86,16 @@ source /global/cfs/cdirs/desi/software/desi_environment.sh master
 time srun -n 20 -c 2 -u python -u cpu_wrapper_specter.py -o out.fits
 ```
 
-# To run the gpu version (no mpi):
+# To run the gpu version:
 
-`time srun -u python -u gpu_wrapper_specter.py -o out.fits`
+`time srun -n 4 -c 2 -u python -u gpu_wrapper_specter.py -o out.fits`
 
-Right now it successfully runs on 1 cori gpu (and 1/8 skylake). The runtime is
-relatively long (~6 minutes) because the bundles are currently computed
-serially. For debugging/profiling we can add `--nspec 50` to process only two
-bundles, for example. 
+For more info about running gpu version with mpi see our slides
+(desi_gpu_hackathon_slides.pdf).
 
 # Correctness checking
+
+**This is now broken afer our changes for pinned memory.** 
 
 Since the answers are currently wrong with respect the real version of specter,
 unit/correctness testing is tricky. 
@@ -125,11 +120,13 @@ You will find the cpu and gpu reference files in
 
 `/global/cfs/cdirs/m1759/desi/ref_files`
 
-# We have added a decorator for nvtx profiling: 
+# Profiling
+
+## We have added a decorator for nvtx profiling: 
 
 `@nvtx_profile(profile=nvtx_collect,name='function_name')`
 
-# To profile using nvprof
+## To profile using nvprof
 
 On cori gpu run nvprof and have it write an output file:
 
@@ -137,7 +134,7 @@ On cori gpu run nvprof and have it write an output file:
 srun nvprof --log-file desi_nvprof_02252020.log python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
-# To profile using nsys
+## To profile using nsys
 
 On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 
@@ -145,7 +142,7 @@ On cori gpu run nsys and write .qdrep file, move to laptop for local analysis.
 srun nsys profile -s none -o desi_nsys_02252020 -t cuda,nvtx --force-overwrite true --stats=true python -u gpu_wrapper_specter.py -o test.fits --nspec 50 --nwavestep 50
 ```
 
-# To profile using nsight compute (really slow!)
+## To profile using nsight compute (really slow!)
 
 Here the kernel name `-k` is what the compiler calls the kernel. You see this by looking in `nsys`. 
 
@@ -153,28 +150,14 @@ Here the kernel name `-k` is what the compiler calls the kernel. You see this by
 time srun nv-nsight-cu-cli -k dlaed4 -o desi_ncom_02282020 -f python -u gpu_wrapper_specter.py -o out.fits --nspec 50 --nwavestep 50
 ```
 
-# Plans for Hackathon (3/3/2020 - 3/6/2020)
+`-s` specifies how many samples to skip (for example, skip the first 5)
 
-## Goals for the hackathon:
+`-c` controls the number of samples (~10 is a good number)
 
-* Pre-hackathon-- get correctness testing in place. Done!
-* Pre-hackathon-- get cpu baseline time to beat. `1:49`. Done!
-* Optimize overall structure of code to fully occupy GPU. Use CUDA/CuPy streams instead of computing bundles serially.
-* Get rid of unnecessary HtD and DtH transfer. Understand mystery overhead shown in nsys. May need kernel fusion to prevent CuPy from moving data back to the host. May need to do all memory management manually.
-* Overlap data transfer (like at the end of `ex2d_patch`) and compute. Use pinned memory.
-* GPU-ize code in ex2d (still largely on CPU).
-* Fix bookkeeping issues. Probably needs to be done by S. Bailey. 
-* Open to other goals too, so please suggest something!
+# Hackathon summary
 
+The NERSC COE GPU hackathon took place March 3-6, 2020. The PDF that summarizes
+our progress is in this repo (desi_gpu_hackathon_slides.pdf)
 
-## In the meantime, what can you do?
-
-* Please make sure you can log in to cori/corigpu and are able to run our code!
-* Take a look at our hackathon code
-* Take a look at Mark's CPU profiling in our dropbox folder
-* Please make sure you are familiar with CuPy and Numba CUDA basics
-* Try to use nvprof, nsight systems, and nsight compute GPU profiling tools
-* Check out M. Nicely's CuPy examples that include streams and pinned memory in `nicely_cupy_examples.py` in this repo. 
-* Keep an eye on our hackathon README (this page!)-- we'll continue to update it with our progress throughout the week
 
 
