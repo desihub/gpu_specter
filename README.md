@@ -1,4 +1,4 @@
-# This is a README file for the DESI gpu hackathon code, March 2020
+#This is a README file for the DESI gpu hackathon code, March 2020
 
 It is also useful in general for the ongoing progress of porting the DESI
 spectral extraction code to GPUs.
@@ -49,9 +49,9 @@ node and get started:
 
 # Getting ready to run
 
-`module load esslurm python cuda/10.1.243`
+`module load esslurm python cuda`
 
-Cuda and CuPy versions must be compatible (in this case, both are 10.1)
+Cuda and CuPy versions must be compatible (in this case, both are 10.2)
 
 `salloc -C gpu -N 1 -t 60 -c 10 --gres=gpu:1 -A m1759`
 
