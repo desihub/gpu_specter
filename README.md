@@ -1,4 +1,4 @@
-#This is a README file for the DESI gpu hackathon code, March 2020
+# This is a README file for the DESI gpu hackathon code, March 2020
 
 It is also useful in general for the ongoing progress of porting the DESI
 spectral extraction code to GPUs.
@@ -92,33 +92,6 @@ time srun -n 20 -c 2 -u python -u cpu_wrapper_specter.py -o out.fits
 
 For more info about running gpu version with mpi see our slides
 (desi_gpu_hackathon_slides.pdf).
-
-# Correctness checking
-
-**This is now broken afer our changes for pinned memory.** 
-
-Since the answers are currently wrong with respect the real version of specter,
-unit/correctness testing is tricky. 
-
-Our current solultion:
-
-1) Check that the gpu and cpu versions get the same results (they do) 
-2) Continue to compare the gpu output to the reference output files captured
-02/25/2020. This will at least let us know that we have made some change that
-affected the output.
-
-To use enable this feature, you can append `--test` to the end of the cpu or gpu version of the code:
-
-Note that on the cpu this should be done without mpi. If this is a bottleneck it's fixable.
-
-`time srun -u python -u gpu_wrapper_specter.py -o out.fits --test`
-
-Note that you must run with the entire frame for these comparisons to work.
-(Running with `--nspec 50` will cause the check to fail.)
-
-You will find the cpu and gpu reference files in 
-
-`/global/cfs/cdirs/m1759/desi/ref_files`
 
 # Profiling
 
