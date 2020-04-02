@@ -111,8 +111,6 @@ def main(args, comm=None, timing=None):
     #hack!
     wavelengths = np.arange(psfdata['WAVEMIN'][0]+100, psfdata['WAVEMAX'][0]-100, 0.8)
  
-    print("len(wavelengths)", len(wavelengths))
-
     #right now cache_spots happens once per bundle to make bookkeeping less of a nighmare
     #and also not to blow memory
 
@@ -133,6 +131,16 @@ def main(args, comm=None, timing=None):
         img = comm.bcast(img, root=0)    
 
     mark_read_input = time.time()
+
+    #add mpi sanity check for recent bug/weird behavior
+    if comm is not None:
+        size = MPI.COMM_WORLD.Get_size()
+        rank = MPI.COMM_WORLD.Get_rank()
+        name = MPI.Get_processor_name()
+        
+        sys.stdout.write(
+        "Hello, World! I am process %d of %d on %s.\n"
+        % (rank, size, name))
 
     # get spectral range
 
@@ -284,9 +292,14 @@ def main(args, comm=None, timing=None):
         #try streams
         gpu_num = str(rank)
 
-        print("moving work to %s" %(rank))
+        try:
+            cp.cuda.Device(rank).use()
+            print("moving work to %s" %(rank))
+        except Exception as e:
+            #print("e", e)
+            print("only 1 gpu, will continue on Device 0")
 
-        cp.cuda.Device(rank).use()
+
 
         #entering bundle stream
         #i think we need a function here to make this easier for parallel streaming
