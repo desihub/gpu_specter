@@ -5,22 +5,22 @@ Experimental rewrite of desi_extract_spectra + specter
 """
 
 import sys, os, argparse
+from pkg_resources import resource_filename
+
 import numpy as np
 import fitsio
 from astropy.table import Table
 
 from gpu_specter.util import native_endian
-from gpu_specter.io import read_psf
-
-from desiutil.log import get_logger
+from gpu_specter.io import read_psf, get_logger
 
 def parse(options=None):
     parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
-    parser.add_argument("-i", "--input", type=str, required=True,
+    parser.add_argument("-i", "--input", type=str, required=False,
                         help="input image")
     # parser.add_argument("-f", "--fibermap", type=str, required=False,
     #                     help="input fibermap file")
-    parser.add_argument("-p", "--psf", type=str, required=True,
+    parser.add_argument("-p", "--psf", type=str, required=False,
                         help="input psf file")
     parser.add_argument("-o", "--output", type=str, required=True,
                         help="output extracted spectra file")
@@ -40,7 +40,8 @@ def parse(options=None):
                         help="number of extraction sub-bundles")
     parser.add_argument("--nwavestep", type=int, required=False, default=50,
                         help="number of wavelength steps per divide-and-conquer extraction step")
-    parser.add_argument("-v", "--verbose", action="store_true", help="print more stuff")
+    # parser.add_argument("-v", "--verbose", action="store_true", help="print more stuff")
+    parser.add_argument("--loglevel", default='info', help='log print level (debug,info,warn,error)')
     parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
     parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
     # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
@@ -64,7 +65,6 @@ def check_input_options(args):
     
     returns ok(True/False), message
     """
-    log = get_logger()
     if args.bundlesize % args.nsubbundles != 0:
         msg = 'bundlesize ({}) must be evenly divisible by nsubbundles ({})'.format(
             args.bundlesize, args.nsubbundles)
@@ -84,9 +84,10 @@ def check_input_options(args):
 
 def main(args=None):
 
-    log = get_logger()
     if args is None:
         args = parse()
+
+    log = get_logger(args.loglevel)
 
     #- Preflight checks on input arguments
     ok, message = check_input_options(args)
@@ -102,6 +103,15 @@ def main(args=None):
     else:
         comm = None
         rank, size = 0, 1
+
+    #- For debugging convenience, default input image and psf
+    if args.input is None:
+        args.input = resource_filename('gpu_specter', 'test/data/preproc-r0-00051060.fits.gz')
+        log.warning(f'Using default test input image {args.input}')
+
+    if args.psf is None:
+        args.psf = resource_filename('gpu_specter', 'test/data/psf-r0-00051060.fits')
+        log.warning(f'Using default test input PSF {args.psf}')
 
     #- Extracting on CPU or GPU?
     if args.gpu:
@@ -167,8 +177,9 @@ def main(args=None):
     #- Work bundle by bundle
     for bspecmin in range(args.specmin, args.specmin+args.nspec, args.bundlesize):
         
+        log.info(f'Extracting spectra [{bspecmin}:{bspecmin+args.bundlesize}]')
+
         #- Cache PSF spots for all wavelengths for spectra in this bundle
-        log.info(f'Gettings spots for spectra [{bspecmin}:{bspecmin+args.bundlesize}]')
         spots = corners = None
         if rank == 0:
             spots, corners = get_spots(bspecmin, args.bundlesize, fullwave, psf)
@@ -190,7 +201,7 @@ def main(args=None):
         
         #- TODO: parallelize this
         for ispec, iwave in subbundles:
-            print(ispec, iwave)
+            log.debug(f'rank={rank}, ispec={ispec}, iwave={iwave}')
             
             #- Always extract the same patch size (more efficient for GPU
             #- memory transfer) then decide post-facto whether to keep it all
@@ -229,7 +240,7 @@ def main(args=None):
 
     #- Write output to temp file and then rename so that final file is atomic
     if rank == 0:
-        print(f'Writing {args.output}')
+        log.info(f'Writing {args.output}')
         tmpfilename = args.output + '.tmp'
         with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
             fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
