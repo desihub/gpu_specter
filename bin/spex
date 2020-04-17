@@ -111,20 +111,26 @@ def main(args=None):
 
     #- Load inputs
     log.info('Loading inputs')
-    image = imgivar = psftable = psfhdr = None
+    image = imgivar = psftable = imagehdr = fibermap = fibermaphdr = None
     if rank == 0:
         with fitsio.FITS(args.input) as fx:
             image = native_endian(fx['IMAGE'].read().astype('f8'))
             imageivar = native_endian(fx['IVAR'].read().astype('f8'))
+            imagehdr = fx['IMAGE'].read_header()
             mask = fx['MASK'].read()
             imageivar[mask != 0] = 0.0
+            fibermap = fx['FIBERMAP'].read()
+            fibermaphdr = fx['FIBERMAP'].read_header()
         
         psf = read_psf(args.psf)
     
     if comm is not None:
         image = comm.bcast(image, root=0)
         imageivar = comm.bcast(imageivar, root=0)
+        imagehdr = comm.bcast(imagehdr, root=0)
         psf = comm.bcast(psf, root=0)
+        fibermap = comm.bcast(fibermap, root=0)
+        fibermaphdr = comm.bcast(fibermaphdr, root=0)
 
     if args.wavelength is not None:
         wmin, wmax, dw = map(float, args.wavelength.split(','))
@@ -132,7 +138,7 @@ def main(args=None):
         wmin, wmax = psf.meta['WAVEMIN'], psf.meta['WAVEMAX']
         dw = 0.8
     
-    #- TODO: don't hardcode
+    #- TODO: calculate this instead of hardcoding it
     wavepad = 10
     
     #- Wavelength range that we want to extract
@@ -151,11 +157,12 @@ def main(args=None):
     
     #- TODO: barycentric wavelength corrections
 
-    #- Output arrays to fill
-    #- TODO: with MPI, only allocate these for rank 0
+    #- Allocate output arrays to fill
     #- TODO: with multiprocessing, use shared memory?
-    specflux = np.zeros((args.nspec, nwave))
-    specivar = np.zeros((args.nspec, nwave))
+    if rank == 0:
+        specflux = np.zeros((args.nspec, nwave))
+        specivar = np.zeros((args.nspec, nwave))
+        Rdiags = np.zeros((args.nspec, 2*psf.meta['HSIZEY']+1, nwave))
 
     #- Work bundle by bundle
     for bspecmin in range(args.specmin, args.specmin+args.nspec, args.bundlesize):
@@ -197,21 +204,43 @@ def main(args=None):
 
             fx = result['flux']
             fxivar = result['ivar']
+            xRdiags = result['Rdiags']
 
             assert fx.shape == (subbundlesize, args.nwavestep)
-            
-            specslice = np.s_[ispec-args.specmin:ispec-args.specmin+subbundlesize,
-                              iwave-wavepad:iwave-wavepad+args.nwavestep]
+
+            #- put the extracted patch into the final output arrays
+            specslice = np.s_[ispec-args.specmin:ispec-args.specmin+subbundlesize]
+            waveslice = np.s_[iwave-wavepad:iwave-wavepad+args.nwavestep]
             
             nwavekeep = min(nwave - (iwave-wavepad), args.nwavestep)
             if nwavekeep < args.nwavestep:
-                specflux[specslice] = fx[:, 0:nwavekeep]
-                specivar[specslice] = fxivar[:, 0:nwavekeep]
+                specflux[specslice, waveslice] = fx[:, 0:nwavekeep]
+                specivar[specslice, waveslice] = fxivar[:, 0:nwavekeep]
+                Rdiags[specslice, :, waveslice] = xRdiags[:,:,0:nwavekeep]
             else:
-                specflux[specslice] = fx
-                specivar[specslice] = fxivar
+                specflux[specslice, waveslice] = fx
+                specivar[specslice, waveslice] = fxivar
+                Rdiags[specslice, :, waveslice] = xRdiags
 
-    #- TODO: write output files
+    #- TODO: specmask and chi2pix
+    if rank == 0:
+        specmask = (specivar > 0).astype(np.int)
+        chi2pix = np.ones(specflux.shape)
+
+    #- Write output to temp file and then rename so that final file is atomic
+    if rank == 0:
+        print(f'Writing {args.output}')
+        tmpfilename = args.output + '.tmp'
+        with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
+            fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
+            fx.write(specivar.astype(np.float32), extname='IVAR')
+            fx.write(specmask, extname='MASK')
+            fx.write(wave, extname='WAVELENGTH')
+            fx.write(Rdiags.astype(np.float32), extname='RESOLUTION')
+            fx.write(fibermap, extname='FIBERMAP', header=fibermaphdr)
+            fx.write(chi2pix.astype(np.float32), extname='CHI2PIX')
+    
+        os.rename(tmpfilename, args.output)
 
 if __name__ == '__main__':
     main()
