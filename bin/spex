@@ -11,8 +11,8 @@ import numpy as np
 import fitsio
 from astropy.table import Table
 
-from gpu_specter.util import native_endian
-from gpu_specter.io import read_psf, get_logger
+from gpu_specter.util import get_logger
+from gpu_specter.io import read_psf, native_endian
 
 def parse(options=None):
     parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
