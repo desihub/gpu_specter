@@ -1,0 +1,292 @@
+#!/usr/bin/env python
+
+"""
+Experimental rewrite of desi_extract_spectra + specter
+"""
+
+import sys, os, argparse
+from pkg_resources import resource_filename
+
+import numpy as np
+import fitsio
+from astropy.table import Table
+
+from gpu_specter.util import get_logger
+from gpu_specter.io import read_psf, native_endian
+
+def parse(options=None):
+    parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
+    parser.add_argument("-i", "--input", type=str, required=False,
+                        help="input image")
+    # parser.add_argument("-f", "--fibermap", type=str, required=False,
+    #                     help="input fibermap file")
+    parser.add_argument("-p", "--psf", type=str, required=False,
+                        help="input psf file")
+    parser.add_argument("-o", "--output", type=str, required=True,
+                        help="output extracted spectra file")
+    # parser.add_argument("-m", "--model", type=str, required=False,
+    #                     help="output 2D pixel model file")
+    parser.add_argument("-w", "--wavelength", type=str, required=False,
+                        help="wavemin,wavemax,dw")
+    parser.add_argument("-s", "--specmin", type=int, required=False, default=0,
+                        help="first spectrum to extract")
+    parser.add_argument("-n", "--nspec", type=int, required=False, default=500,
+                        help="number of spectra to extract")
+    # parser.add_argument("-r", "--regularize", type=float, required=False, default=0.0,
+    #                     help="regularization amount (default %(default)s)")
+    parser.add_argument("--bundlesize", type=int, required=False, default=25,
+                        help="number of spectra per bundle")
+    parser.add_argument("--nsubbundles", type=int, required=False, default=5,
+                        help="number of extraction sub-bundles")
+    parser.add_argument("--nwavestep", type=int, required=False, default=50,
+                        help="number of wavelength steps per divide-and-conquer extraction step")
+    # parser.add_argument("-v", "--verbose", action="store_true", help="print more stuff")
+    parser.add_argument("--loglevel", default='info', help='log print level (debug,info,warn,error)')
+    parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
+    parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
+    # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
+    # parser.add_argument("--no-scores", action="store_true", help="Do not compute scores")
+    # parser.add_argument("--psferr", type=float, default=None, required=False,
+    #                     help="fractional PSF model error used to compute chi2 and mask pixels (default = value saved in psf file)")
+    # parser.add_argument("--fibermap-index", type=int, default=None, required=False,
+    #                     help="start at this index in the fibermap table instead of using the spectro id from the camera")
+    # parser.add_argument("--barycentric-correction", action="store_true", help="apply barycentric correction to wavelength")
+    
+    args = None
+    if options is None:
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args(options)
+    return args
+
+def check_input_options(args):
+    """
+    Perform pre-flight checks on input options
+    
+    returns ok(True/False), message
+    """
+    if args.bundlesize % args.nsubbundles != 0:
+        msg = 'bundlesize ({}) must be evenly divisible by nsubbundles ({})'.format(
+            args.bundlesize, args.nsubbundles)
+        return False, msg
+    
+    if args.nspec % args.bundlesize != 0:
+        msg = 'nspec ({}) must be evenly divisible by bundlesize ({})'.format(
+            args.nspec, args.bundlesize)
+        log.critical(msg)
+        return False, msg
+    
+    if args.specmin % args.bundlesize != 0:
+        msg = 'specmin ({}) must begin at a bundle boundary'.format(args.specmin)
+        return False, msg
+    
+    return True, 'OK'
+
+def main(args=None):
+
+    if args is None:
+        args = parse()
+
+    log = get_logger(args.loglevel)
+
+    #- Preflight checks on input arguments
+    ok, message = check_input_options(args)
+    if not ok:
+        log.critical(message)
+        raise ValueError(message)
+    
+    #- Load MPI only if requested
+    if args.mpi:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        rank, size = comm.rank, comm.size
+    else:
+        comm = None
+        rank, size = 0, 1
+
+    #- For debugging convenience, default input image and psf
+    if args.input is None:
+        args.input = resource_filename('gpu_specter',
+                                       'test/data/preproc-r0-00051060.fits.gz')
+        if rank == 0:
+            log.warning(f'Using default test input image {args.input}')
+
+    if args.psf is None:
+        args.psf = resource_filename('gpu_specter',
+                                     'test/data/psf-r0-00051060.fits')
+        if rank == 0:
+            log.warning(f'Using default test input PSF {args.psf}')
+
+    #- Extracting on CPU or GPU?
+    if args.gpu:
+        from gpu_specter.extract.gpu import \
+                get_spots, projection_matrix, ex2d_padded
+    else:
+        from gpu_specter.extract.cpu import \
+                get_spots, projection_matrix, ex2d_padded
+
+    #- Load inputs
+    if rank == 0:
+        log.info('Loading inputs')
+
+    image = imageivar = psf = imagehdr = fibermap = fibermaphdr = None
+    if rank == 0:
+        with fitsio.FITS(args.input) as fx:
+            image = native_endian(fx['IMAGE'].read().astype('f8'))
+            imageivar = native_endian(fx['IVAR'].read().astype('f8'))
+            imagehdr = fx['IMAGE'].read_header()
+            mask = fx['MASK'].read()
+            imageivar[mask != 0] = 0.0
+            fibermap = fx['FIBERMAP'].read()
+            fibermaphdr = fx['FIBERMAP'].read_header()
+        
+        psf = read_psf(args.psf)
+
+    if comm is not None:
+        if rank == 0:
+            log.info('Broadcasting inputs to other MPI ranks')
+
+        image = comm.bcast(image, root=0)
+        imageivar = comm.bcast(imageivar, root=0)
+        imagehdr = comm.bcast(imagehdr, root=0)
+        psf = comm.bcast(psf, root=0)
+        fibermap = comm.bcast(fibermap, root=0)
+        fibermaphdr = comm.bcast(fibermaphdr, root=0)
+
+    if args.wavelength is not None:
+        wmin, wmax, dw = map(float, args.wavelength.split(','))
+    else:
+        wmin, wmax = psf.meta['WAVEMIN'], psf.meta['WAVEMAX']
+        dw = 0.8
+
+    if rank == 0:
+        log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
+    
+    #- TODO: calculate this instead of hardcoding it
+    wavepad = 10
+    
+    #- Wavelength range that we want to extract
+    wave = np.arange(wmin, wmax, dw)
+    nwave = len(wave)
+    
+    #- Pad that with buffer wavelengths to extract and discard, including an
+    #- extra args.nwavestep bins to allow coverage for a final partial bin
+    wavelo = np.arange(wavepad)*dw
+    wavelo -= (np.max(wavelo)+dw)
+    wavelo += wmin
+    wavehi = wave[-1] + (1.0+np.arange(wavepad+args.nwavestep))*dw
+    
+    fullwave = np.concatenate((wavelo, wave, wavehi))
+    assert np.allclose(np.diff(fullwave), dw)
+    
+    #- TODO: barycentric wavelength corrections
+
+    #- Allocate output arrays to fill
+    #- TODO: with multiprocessing, use shared memory?
+    if rank == 0:
+        specflux = np.zeros((args.nspec, nwave))
+        specivar = np.zeros((args.nspec, nwave))
+        Rdiags = np.zeros((args.nspec, 2*psf.meta['HSIZEY']+1, nwave))
+
+    #- Work bundle by bundle
+    for bspecmin in range(args.specmin, args.specmin+args.nspec, args.bundlesize):
+        if rank == 0:
+            log.info(f'Extracting spectra [{bspecmin}:{bspecmin+args.bundlesize}]')
+            sys.stdout.flush()
+
+        #- Cache PSF spots for all wavelengths for spectra in this bundle
+        spots = corners = None
+        if rank == 0:
+            spots, corners = get_spots(bspecmin, args.bundlesize, fullwave, psf)
+        
+        #- TODO: it might be faster for all ranks to calculate instead of bcast
+        if comm is not None:
+            spots = comm.bcast(spots, root=0)
+            corners = comm.bcast(corners, root=0)
+
+        #- Size of the individual spots
+        spot_nx, spot_ny = spots.shape[2:4]
+
+        #- Organize what sub-bundle patches to extract
+        subbundles = list()
+        subbundlesize = args.bundlesize // args.nsubbundles
+        for ispec in range(bspecmin, bspecmin+args.bundlesize, subbundlesize):
+            for iwave in range(wavepad, wavepad+nwave, args.nwavestep):
+                subbundles.append((ispec, iwave))
+
+        #- place to keep extraction patch results before assembling in rank 0
+        results = list()
+
+        for ispec, iwave in subbundles[rank::size]:
+            log.debug(f'rank={rank}, ispec={ispec}, iwave={iwave}')
+            
+            #- Always extract the same patch size (more efficient for GPU
+            #- memory transfer) then decide post-facto whether to keep it all
+
+            result = ex2d_padded(image, imageivar,
+                                 ispec-bspecmin, subbundlesize,
+                                 iwave, args.nwavestep,
+                                 spots, corners,
+                                 wavepad=wavepad,
+                                 bundlesize=args.bundlesize)
+            results.append( (ispec, iwave, result) )
+
+        if comm is not None:
+            rankresults = comm.gather(results, root=0)
+        else:
+            rankresults = [results,]
+
+        if rank == 0:
+            #- flatten list of lists into single list
+            allresults = list()
+            for rr in rankresults:
+                allresults.extend(rr)
+
+            #- Now put these into the final arrays
+            for ispec, iwave, results in allresults:
+                fx = result['flux']
+                fxivar = result['ivar']
+                xRdiags = result['Rdiags']
+
+                assert fx.shape == (subbundlesize, args.nwavestep)
+
+                #- put the extracted patch into the final output arrays
+                specslice = np.s_[ispec-args.specmin:ispec-args.specmin+subbundlesize]
+                waveslice = np.s_[iwave-wavepad:iwave-wavepad+args.nwavestep]
+
+                nwavekeep = min(nwave - (iwave-wavepad), args.nwavestep)
+                if nwavekeep < args.nwavestep:
+                    specflux[specslice, waveslice] = fx[:, 0:nwavekeep]
+                    specivar[specslice, waveslice] = fxivar[:, 0:nwavekeep]
+                    Rdiags[specslice, :, waveslice] = xRdiags[:,:,0:nwavekeep]
+                else:
+                    specflux[specslice, waveslice] = fx
+                    specivar[specslice, waveslice] = fxivar
+                    Rdiags[specslice, :, waveslice] = xRdiags
+
+        #- for good measure, have other ranks wait for rank 0
+        if comm is not None:
+            comm.barrier()
+
+    #- TODO: specmask and chi2pix
+    if rank == 0:
+        specmask = (specivar > 0).astype(np.int)
+        chi2pix = np.ones(specflux.shape)
+
+    #- Write output to temp file and then rename so that final file is atomic
+    if rank == 0:
+        log.info(f'Writing {args.output}')
+        tmpfilename = args.output + '.tmp'
+        with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
+            fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
+            fx.write(specivar.astype(np.float32), extname='IVAR')
+            fx.write(specmask, extname='MASK')
+            fx.write(wave, extname='WAVELENGTH')
+            fx.write(Rdiags.astype(np.float32), extname='RESOLUTION')
+            fx.write(fibermap, extname='FIBERMAP', header=fibermaphdr)
+            fx.write(chi2pix.astype(np.float32), extname='CHI2PIX')
+    
+        os.rename(tmpfilename, args.output)
+
+if __name__ == '__main__':
+    main()

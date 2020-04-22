@@ -1,20 +1,15 @@
+"""
+NOTE: these functions are copied from "gpu_extract.py" in the hackathon branch;
+the pieces have not yet been put together into a working GPU extraction
+in this branch.
+"""
+
+import numpy as np
 import cupy as cp
 import cupyx.scipy.special
 from numba import cuda
 
-def native_endian(data):
-    """Temporary function, sourced from desispec.io
-    Convert numpy array data to native endianness if needed.
-    Returns new array if endianness is swapped, otherwise returns input data
-    Context:
-    By default, FITS data from astropy.io.fits.getdata() are not Intel
-    native endianness and scipy 0.14 sparse matrices have a bug with
-    non-native endian data.
-    """
-    if data.dtype.isnative:
-        return data
-    else:
-        return data.byteswap().newbyteorder()
+from ..io import native_endian
 
 @cuda.jit
 def hermevander(x, deg, output_matrix):
