@@ -209,8 +209,8 @@ def main(args=None):
 
         #- Organize what sub-bundle patches to extract
         patches = list()
-        subbundlesize = args.bundlesize // args.nsubbundles
-        for ispec in range(bspecmin, bspecmin+args.bundlesize, subbundlesize):
+        nspectra_per_patch = args.bundlesize // args.nsubbundles
+        for ispec in range(bspecmin, bspecmin+args.bundlesize, nspectra_per_patch):
             for iwave in range(wavepad, wavepad+nwave, args.nwavestep):
                 patches.append((ispec, iwave))
 
@@ -224,7 +224,7 @@ def main(args=None):
             #- memory transfer) then decide post-facto whether to keep it all
 
             result = ex2d_padded(image, imageivar,
-                                 ispec-bspecmin, subbundlesize,
+                                 ispec-bspecmin, nspectra_per_patch,
                                  iwave, args.nwavestep,
                                  spots, corners,
                                  wavepad=wavepad,
@@ -248,10 +248,10 @@ def main(args=None):
                 fxivar = result['ivar']
                 xRdiags = result['Rdiags']
 
-                assert fx.shape == (subbundlesize, args.nwavestep)
+                assert fx.shape == (nspectra_per_patch, args.nwavestep)
 
                 #- put the extracted patch into the final output arrays
-                specslice = np.s_[ispec-args.specmin:ispec-args.specmin+subbundlesize]
+                specslice = np.s_[ispec-args.specmin:ispec-args.specmin+nspectra_per_patch]
                 waveslice = np.s_[iwave-wavepad:iwave-wavepad+args.nwavestep]
 
                 nwavekeep = min(nwave - (iwave-wavepad), args.nwavestep)
