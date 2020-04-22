@@ -208,16 +208,16 @@ def main(args=None):
         spot_nx, spot_ny = spots.shape[2:4]
 
         #- Organize what sub-bundle patches to extract
-        subbundles = list()
+        patches = list()
         subbundlesize = args.bundlesize // args.nsubbundles
         for ispec in range(bspecmin, bspecmin+args.bundlesize, subbundlesize):
             for iwave in range(wavepad, wavepad+nwave, args.nwavestep):
-                subbundles.append((ispec, iwave))
+                patches.append((ispec, iwave))
 
         #- place to keep extraction patch results before assembling in rank 0
         results = list()
 
-        for ispec, iwave in subbundles[rank::size]:
+        for ispec, iwave in patches[rank::size]:
             log.debug(f'rank={rank}, ispec={ispec}, iwave={iwave}')
             
             #- Always extract the same patch size (more efficient for GPU
@@ -243,7 +243,7 @@ def main(args=None):
                 allresults.extend(rr)
 
             #- Now put these into the final arrays
-            for ispec, iwave, results in allresults:
+            for ispec, iwave, result in allresults:
                 fx = result['flux']
                 fxivar = result['ivar']
                 xRdiags = result['Rdiags']
