@@ -4,6 +4,7 @@ Tools for DESI spectroperfectionism extractions implemented for a CPU
 
 import sys
 import numpy as np
+from numpy.polynomial.legendre import legvander, legval
 from numpy.polynomial import hermite_e as He
 import scipy.special
 import numba
@@ -31,23 +32,39 @@ def evalcoeffs(wavelengths, psfdata, specmin=0, nspec=None):
     2*(HSIZEX, HSIZEY)+1 and Gauss-Hermite degrees GHDEGX, GHDEGY
     (which is also derivable from the dimensions of params['GH'])
     '''
-    wavemin, wavemax = psfdata.meta['WAVEMIN'], psfdata.meta['WAVEMAX']
-    wx = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
-    L = np.polynomial.legendre.legvander(wx, psfdata.meta['LEGDEG'])
-
     if nspec is None:
-        nspec = psfdata['COEFF'].shape[1]
-
-    nparam = psfdata['COEFF'].shape[0]
-    ndeg = psfdata['COEFF'].shape[2]
+        nspec = psfdata['PSF']['COEFF'].shape[1]
 
     p = dict(WAVE=wavelengths)
 
+    #- Evaluate X and Y which have different dimensionality from the
+    #- PSF coefficients (and might have different WAVEMIN, WAVEMAX)
+    meta = psfdata['XTRACE'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    p['X'] = legval(ww, psfdata['XTRACE']['X'][specmin:specmin+nspec].T)
+
+    meta = psfdata['YTRACE'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    p['Y'] = legval(ww, psfdata['YTRACE']['Y'][specmin:specmin+nspec].T)
+
+    #- Evaluate the remaining PSF coefficients with a shared dimensionality
+    #- and WAVEMIN, WAVEMAX
+    meta = psfdata['PSF'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    L = np.polynomial.legendre.legvander(ww, meta['LEGDEG'])
+
+    nparam = psfdata['PSF']['COEFF'].shape[0]
+    ndeg = psfdata['PSF']['COEFF'].shape[2]
+
+
     nwave = L.shape[0]
-    nghx = psfdata.meta['GHDEGX']+1
-    nghy = psfdata.meta['GHDEGY']+1
+    nghx = meta['GHDEGX']+1
+    nghy = meta['GHDEGY']+1
     p['GH'] = np.zeros((nghx, nghy, nspec, nwave))
-    for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
+    for name, coeff in zip(psfdata['PSF']['PARAM'], psfdata['PSF']['COEFF']):
         name = name.strip()
         coeff = coeff[specmin:specmin+nspec]
         if name.startswith('GH-'):
@@ -58,7 +75,7 @@ def evalcoeffs(wavelengths, psfdata, specmin=0, nspec=None):
 
     #- Include some additional keywords that we'll need
     for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
-        p[key] = psfdata.meta[key]
+        p[key] = meta[key]
 
     return p
 
