@@ -10,13 +10,13 @@ import scipy.special
 import numba
 
 #-------------------------------------------------------------------------
-def evalcoeffs(wavelengths, psfdata, specmin=0, nspec=None):
+def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     '''
     evaluate PSF coefficients parameterized as Legendre polynomials
 
     Args:
+        psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
         wavelengths: 1D array of wavelengths
-        psfdata: Table of param data from a GaussHermite format PSF file
 
     Options:
         specmin: first spectrum to include
@@ -194,7 +194,7 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     Returns spots, corners
     '''
     nwave = len(wavelengths)
-    p = evalcoeffs(wavelengths, psfdata, specmin, nspec)
+    p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
     spots = np.zeros((nspec, nwave, ny, nx))
