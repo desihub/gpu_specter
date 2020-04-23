@@ -59,6 +59,7 @@ class TestPSFCoeff(unittest.TestCase):
         psf = specter.psf.load_psf(self.psffile)
         iispec = np.arange(500)
         
+        print('Comparing X and Y')
         self.assertTrue(np.allclose(psf.x(iispec, wavelengths), psfparams['X']))
         self.assertTrue(np.allclose(psf.y(iispec, wavelengths), psfparams['Y']))
 
@@ -66,11 +67,13 @@ class TestPSFCoeff(unittest.TestCase):
         self.assertTrue(len(common_keys) > 0)
         
         for key in common_keys:
+            print(f'Comparing {key}')
             ok = np.allclose(psfparams[key], psf.coeff[key].eval(iispec, wavelengths))
             self.assertTrue(ok, key)
 
         for i in range(psfparams['GH'].shape[0]):
             for j in range(psfparams['GH'].shape[1]):
+                print(f'Comparing GH-{i}-{j}')
                 ok = np.allclose(psfparams['GH'][i,j],
                                  psf.coeff[f'GH-{i}-{j}'].eval(iispec, wavelengths))
                 self.assertTrue(ok, f'GH-{i}-{j}')
