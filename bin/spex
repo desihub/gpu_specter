@@ -156,7 +156,7 @@ def main(args=None):
     if args.wavelength is not None:
         wmin, wmax, dw = map(float, args.wavelength.split(','))
     else:
-        wmin, wmax = psf.meta['WAVEMIN'], psf.meta['WAVEMAX']
+        wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
         dw = 0.8
 
     if rank == 0:
@@ -186,7 +186,7 @@ def main(args=None):
     if rank == 0:
         specflux = np.zeros((args.nspec, nwave))
         specivar = np.zeros((args.nspec, nwave))
-        Rdiags = np.zeros((args.nspec, 2*psf.meta['HSIZEY']+1, nwave))
+        Rdiags = np.zeros((args.nspec, 2*psf['PSF'].meta['HSIZEY']+1, nwave))
 
     #- Work bundle by bundle
     for bspecmin in range(args.specmin, args.specmin+args.nspec, args.bundlesize):
