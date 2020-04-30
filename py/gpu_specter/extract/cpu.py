@@ -59,7 +59,6 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     nparam = psfdata['PSF']['COEFF'].shape[0]
     ndeg = psfdata['PSF']['COEFF'].shape[2]
 
-
     nwave = L.shape[0]
     nghx = meta['GHDEGX']+1
     nghy = meta['GHDEGY']+1
@@ -110,16 +109,17 @@ def calc_pgh(ispec, wavelengths, psfparams):
     # print('nwave = {}'.format(nwave))
 
     #- x and y edges of bins that span the center of the PSF spot
-    xedges = np.repeat(np.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
-    yedges = np.repeat(np.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+    xedges = np.repeat(np.arange(nx+1) - nx//2 - 0.5, nwave).reshape(nx+1, nwave)
+    yedges = np.repeat(np.arange(ny+1) - ny//2 - 0.5, nwave).reshape(ny+1, nwave)
 
-    #- Shift to be relative to the PSF center at 0 and normalize
-    #- by the PSF sigma (GHSIGX, GHSIGY)
-    #- xedges[nx+1, nwave]
-    #- yedges[ny+1, nwave]
-    #- TODO: compare with specter GaussHermite; I don't think this is right
-    xedges = ((xedges - p['X'][ispec]%1)/p['GHSIGX'][ispec])
-    yedges = ((yedges - p['Y'][ispec]%1)/p['GHSIGY'][ispec])    
+    #- Shift to be relative to the PSF center and normalize
+    #- by the PSF sigma (GHSIGX, GHSIGY).
+    #- Note: x,y = 0,0 is center of pixel 0,0 not corner
+    #- Dimensions: xedges[nx+1, nwave], yedges[ny+1, nwave]
+    dx = (p['X'][ispec]+0.5)%1 - 0.5
+    dy = (p['Y'][ispec]+0.5)%1 - 0.5
+    xedges = ((xedges - dx)/p['GHSIGX'][ispec])
+    yedges = ((yedges - dy)/p['GHSIGY'][ispec])
     # print('xedges.shape = {}'.format(xedges.shape))
     # print('yedges.shape = {}'.format(yedges.shape))
 
@@ -173,7 +173,6 @@ def multispot(pGHx, pGHy, ghc):
     nwave = pGHx.shape[1]
     spots = np.zeros((nwave, ny, nx))
 
-    tmpspot = np.zeros((ny,nx))
     for iwave in range(nwave):
         for i in range(pGHx.shape[0]):
             px = pGHx[i,iwave]
@@ -202,8 +201,16 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
         spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
 
-    xc = np.floor(p['X'] - p['HSIZEX']).astype(int)
-    yc = np.floor(p['Y'] - p['HSIZEY']).astype(int)
+    #- ensure positivity and normalize
+    #- TODO: should this be within multispot itself?
+    spots = spots.clip(0.0)
+    norm = np.sum(spots, axis=(2,3))  #- norm[nspec, nwave] = sum over each spot
+    spots = (spots.T / norm.T).T      #- transpose magic for numpy array broadcasting
+
+    #- Define corners of spots
+    #- extra 0.5 is because X and Y are relative to center of pixel not edge
+    xc = np.floor(p['X'] - p['HSIZEX'] + 0.5).astype(int)
+    yc = np.floor(p['Y'] - p['HSIZEY'] + 0.5).astype(int)
 
     corners = (xc, yc)
 
