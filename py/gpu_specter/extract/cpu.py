@@ -258,7 +258,7 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
         spots: 4D array[ispec, iwave, ny, nx] of PSF spots
         corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
 
-    Returns 4D A[iy, ix, ispec, iwave] projection matrix
+    Returns (A[iy, ix, ispec, iwave], (xmin, xmax, ymin, ymax))
 
     Cast to 2D for using with linear algebra:
 
