@@ -82,7 +82,7 @@ class TestEx2dPatch(unittest.TestCase):
 
         #- TODO: set ndecorr=True to disable?
         flux0, ivar0, R0 = specter.extract.ex2d_patch(
-            noisyimg, imgivar, psf, 0, nspec, wavelengths, xyrange=xyrange, ndecorr=True)
+            noisyimg, imgivar, psf, 0, nspec, wavelengths, xyrange=xyrange)
 
         #- TODO: use the exact same projection matrix?
         # A = psf.projection_matrix((0, nspec), wavelengths, xyrange).toarray()
