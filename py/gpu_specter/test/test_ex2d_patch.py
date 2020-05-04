@@ -21,42 +21,13 @@ class TestEx2dPatch(unittest.TestCase):
             'gpu_specter', 'test/data/psf-r0-00051060.fits')
         cls.psfdata = read_psf(cls.psffile)
 
-    @classmethod
-    def tearDownClass(cls):
-        pass
-
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
-
-    def test_basics(self):
-        wavelengths = np.arange(6000.0, 6050.0, 1.0)
-        nwave = len(wavelengths)
+        cls.wavelengths = np.arange(6000, 6050, 1)
+        nwave = len(cls.wavelengths)
         nspec = 5
 
-        spots, corners = get_spots(0, nspec, wavelengths, self.psfdata)
-        A4, xyrange = projection_matrix(0, nspec, 0, nwave, spots, corners)
+        spots, corners = get_spots(0, nspec, cls.wavelengths, cls.psfdata)
+        cls.A4, cls.xyrange = projection_matrix(0, nspec, 0, nwave, spots, corners)
 
-        ny, nx = A4.shape[0:2]
-
-        image = np.random.randn(ny, nx)
-        imageivar = np.ones((ny, nx))
-
-        flux, varflux, R = ex2d_patch(image, imageivar, A4)
-
-        self.assertEqual(flux.shape, (nspec, nwave))
-        self.assertEqual(varflux.shape, (nspec, nwave))
-        self.assertEqual(R.shape, (nspec*nwave, nspec*nwave))
-
-
-    @unittest.skipIf(not specter_available, 'specter not available')
-    def test_compare_specter(self):
-
-        wavelengths = np.arange(6000, 6050, 1)
-        nwave = len(wavelengths)
-        nspec = 5
         phot = np.zeros((nspec, nwave))
         phot[0] = 100
         phot[1] = 5*np.arange(nwave)
@@ -68,11 +39,36 @@ class TestEx2dPatch(unittest.TestCase):
         phot[3,25] += 1000
         phot[4,30] += 600
 
-        spots, corners = get_spots(0, nspec, wavelengths, self.psfdata)
-        A4, xyrange = projection_matrix(0, nspec, 0, nwave, spots, corners)
+        cls.phot = phot
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+    def test_basics(self):
+        ny, nx, nspec, nwave = self.A4.shape
+
+        img = np.random.randn(ny, nx)
+        imgivar = np.ones((ny, nx))
+
+        flux, varflux, R = ex2d_patch(img, imgivar, self.A4)
+
+        self.assertEqual(flux.shape, (nspec, nwave))
+        self.assertEqual(varflux.shape, (nspec, nwave))
+        self.assertEqual(R.shape, (nspec*nwave, nspec*nwave))
+
+    @unittest.skipIf(not specter_available, 'specter not available')
+    def test_compare_specter(self):
+        ny, nx, nspec, nwave = self.A4.shape
 
         psf = specter.psf.load_psf(self.psffile)
-        img = psf.project(wavelengths, phot, xyrange=xyrange)
+        img = psf.project(self.wavelengths, self.phot, xyrange=self.xyrange)
 
         readnoise = 3.0
         noisyimg = np.random.normal(loc=0.0, scale=readnoise, size=img.shape)
@@ -80,19 +76,26 @@ class TestEx2dPatch(unittest.TestCase):
         #- for test, cheat by using noiseless img instead of noisyimg to estimate variance
         imgivar = 1.0/(img + readnoise**2)   
 
-        #- TODO: set ndecorr=True to disable?
+        #- Compare default mode
         flux0, ivar0, R0 = specter.extract.ex2d_patch(
-            noisyimg, imgivar, psf, 0, nspec, wavelengths, xyrange=xyrange)
-
-        #- TODO: use the exact same projection matrix?
+            noisyimg, imgivar, psf, 0, nspec, self.wavelengths, xyrange=self.xyrange)
+        #- TODO: test using the same projection matrix?
         # A = psf.projection_matrix((0, nspec), wavelengths, xyrange).toarray()
         # A4 = A.reshape(A4.shape)
-
-        flux1, varflux1, R1 = ex2d_patch(noisyimg, imgivar, A4)
+        flux1, varflux1, R1 = ex2d_patch(noisyimg, imgivar, self.A4)
 
         self.assertTrue(np.allclose(flux0, flux1))
         self.assertTrue(np.allclose(ivar0, 1.0/varflux1))
         self.assertTrue(np.allclose(R0, R1))
+
+        #- Compare decorrelation across neighboring fibers mode
+        flux2, ivar2, R2 = specter.extract.ex2d_patch(
+            noisyimg, imgivar, psf, 0, nspec, self.wavelengths, xyrange=self.xyrange, ndecorr=True)
+        flux3, varflux3, R3 = ex2d_patch(noisyimg, imgivar, self.A4, decorrelate='noise')
+
+        self.assertTrue(np.allclose(flux2, flux3))
+        self.assertTrue(np.allclose(ivar2, 1.0/varflux3))
+        self.assertTrue(np.allclose(R2, R3))
 
 
 if __name__ == '__main__':
