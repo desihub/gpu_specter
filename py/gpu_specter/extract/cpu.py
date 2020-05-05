@@ -470,8 +470,6 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
 
     #- Eigen-decompose iCov to assist in upcoming steps
     u, v = np.linalg.eigh(iCov)
-    # _iCov = 0.5*(iCov + iCov.T)
-    # u, v = scipy.linalg.eigh(iCov)
     u = np.asarray(u)
     v = np.asarray(v)
 
