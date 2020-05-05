@@ -434,7 +434,7 @@ def dotdot3(A, w):
     return B    
 
 # @profile
-def ex2d_patch(noisyimg, imgweights, A4):
+def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
     '''
     Perform spectroperfectionism extractions returning flux, varflux, R
 
@@ -451,6 +451,8 @@ def ex2d_patch(noisyimg, imgweights, A4):
     ny, nx, nspec, nwave = A4.shape
     assert noisyimg.shape == (ny, nx)
     npix = ny*nx
+
+    assert decorrelate in ('signal', 'noise')
 
     A = A4.reshape(ny*nx, nspec*nwave)
 
@@ -471,8 +473,24 @@ def ex2d_patch(noisyimg, imgweights, A4):
     u = np.asarray(u)
     v = np.asarray(v)
 
-    #- Calculate C^-1 = QQ (B&S eq 10)
-    Q = (v*np.sqrt(u)).dot(v.T)
+    #- Invert iCov (B&S eq 17, eq 15 prereq)
+    Cov = (v * (1.0/u)).dot(v.T)
+
+    if decorrelate == 'signal':
+        #- Calculate C^-1 = QQ (B&S eq 17-19)
+        Q = np.zeros_like(iCov)
+        #- Proceed one block at a time
+        for i in np.arange(0, Q.shape[0], nwave):
+            s = np.s_[i:i+nwave, i:i+nwave]
+            #- Invert this block
+            bu, bv = np.linalg.eigh(Cov[s])
+            bQ = (bv * np.sqrt(1.0/bu)).dot(bv.T)
+            Q[s] = bQ
+    elif decorrelate == 'noise':
+        #- Calculate C^-1 = QQ (B&S eq 10)
+        Q = (v * np.sqrt(u)).dot(v.T)
+    else:
+        raise ValueError(f'{decorrelate} is not a valid value for decorrelate')
     
     #- normalization vector (B&S eq 11)
     norm_vector = np.sum(Q, axis=1)
@@ -481,7 +499,6 @@ def ex2d_patch(noisyimg, imgweights, A4):
     R = np.outer(1.0/norm_vector, np.ones(norm_vector.size)) * Q
 
     #- Decorrelated covariance matrix (B&S eq 13-15)
-    Cov = (v * (1.0/u)).dot( v.T )
     Cx = R.dot(Cov.dot(R.T))
     
     #- Decorrelated flux (B&S eq 16)
