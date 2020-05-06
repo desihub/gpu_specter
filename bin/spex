@@ -166,7 +166,7 @@ def main(args=None):
     wavepad = 10
     
     #- Wavelength range that we want to extract
-    wave = np.arange(wmin, wmax, dw)
+    wave = np.arange(wmin, wmax + 0.5*dw, dw)
     nwave = len(wave)
     
     #- Pad that with buffer wavelengths to extract and discard, including an
@@ -267,6 +267,12 @@ def main(args=None):
         #- for good measure, have other ranks wait for rank 0
         if comm is not None:
             comm.barrier()
+
+    #- Convert flux to photons/A instead of photons/bin
+    if rank == 0:
+        dwave = np.gradient(wave)
+        specflux /= dwave
+        specivar *= dwave**2
 
     #- TODO: specmask and chi2pix
     if rank == 0:
