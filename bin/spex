@@ -166,7 +166,7 @@ def main(args=None):
     wavepad = 10
     
     #- Wavelength range that we want to extract
-    wave = np.arange(wmin, wmax, dw)
+    wave = np.arange(wmin, wmax + 0.5*dw, dw)
     nwave = len(wave)
     
     #- Pad that with buffer wavelengths to extract and discard, including an
