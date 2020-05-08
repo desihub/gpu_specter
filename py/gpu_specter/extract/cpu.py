@@ -309,7 +309,7 @@ def get_spec_padding(ispec, nspec, bundlesize):
     return specmin, nspecpad
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25, specter_psf=None, fullwave=None):
+                wavepad, bundlesize=25, specter_psf=None, fullwave=None, bspecmin=None):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -344,12 +344,13 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     if specter_psf is None:
         xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
     else:
-        specrange = specmin, specmin+nspecpad
+        specrange = bspecmin+specmin, bspecmin+specmin+nspecpad
         if iwave + nwave + wavepad == nwavetot:
             waverange = fullwave[iwave], fullwave[iwave+nwave]
         else:
             waverange = fullwave[iwave], fullwave[iwave+nwave-1]
         xlo, xhi, ymin, ymax = specter_psf.xyrange(specrange, waverange)
+
     ypadlo = ymin - ypadmin
     ypadhi = ypadmax - ymax
     A4 = A4[ypadlo:-ypadhi]

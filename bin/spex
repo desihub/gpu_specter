@@ -135,6 +135,7 @@ def main(args=None):
         log.info('Loading inputs')
 
     image = imageivar = psf = imagehdr = fibermap = fibermaphdr = None
+    specter_psf = specter.psf.load_psf(args.psf)
     if rank == 0:
         with fitsio.FITS(args.input) as fx:
             image = native_endian(fx['IMAGE'].read().astype('f8'))
@@ -146,8 +147,6 @@ def main(args=None):
             fibermaphdr = fx['FIBERMAP'].read_header()
         
         psf = read_psf(args.psf)
-
-        specter_psf = specter.psf.load_psf(args.psf)
 
     if comm is not None:
         if rank == 0:
@@ -234,6 +233,7 @@ def main(args=None):
                 kwargs = dict(
                     specter_psf=specter_psf,
                     fullwave=fullwave,
+                    bspecmin=bspecmin,
                 )
             else:
                 kwargs = dict()
