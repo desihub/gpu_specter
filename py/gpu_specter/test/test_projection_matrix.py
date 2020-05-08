@@ -76,5 +76,9 @@ class TestProjectionMatrix(unittest.TestCase):
             self.assertEqual(A.shape, A2.shape)
             self.assertTrue(np.allclose(A, A2))
 
+            specter_xyrange = psf.xyrange((ispec, ispec+nspec), (wavelengths[iwave], wavelengths[iwave+nwave]))
+            self.assertEqual(xyrange, specter_xyrange)
+
+
 if __name__ == '__main__':
     unittest.main()
