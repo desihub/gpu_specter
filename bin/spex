@@ -14,6 +14,8 @@ from astropy.table import Table
 from gpu_specter.util import get_logger
 from gpu_specter.io import read_psf, native_endian
 
+import specter.psf
+
 def parse(options=None):
     parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
     parser.add_argument("-i", "--input", type=str, required=False,
@@ -22,7 +24,7 @@ def parse(options=None):
     #                     help="input fibermap file")
     parser.add_argument("-p", "--psf", type=str, required=False,
                         help="input psf file")
-    parser.add_argument("-o", "--output", type=str, required=True,
+    parser.add_argument("-o", "--output", type=str, required=False,
                         help="output extracted spectra file")
     # parser.add_argument("-m", "--model", type=str, required=False,
     #                     help="output 2D pixel model file")
@@ -40,10 +42,13 @@ def parse(options=None):
                         help="number of extraction sub-bundles")
     parser.add_argument("--nwavestep", type=int, required=False, default=50,
                         help="number of wavelength steps per divide-and-conquer extraction step")
+    parser.add_argument("--wavepad", type=int, required=False, default=10,
+                        help="number of extra wave bins to extract (and discard) on each end of patch")
     # parser.add_argument("-v", "--verbose", action="store_true", help="print more stuff")
     parser.add_argument("--loglevel", default='info', help='log print level (debug,info,warn,error)')
     parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
     parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
+    parser.add_argument("--debug", action="store_true", help="for debugging")
     # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
     # parser.add_argument("--no-scores", action="store_true", help="Do not compute scores")
     # parser.add_argument("--psferr", type=float, default=None, required=False,
@@ -142,6 +147,8 @@ def main(args=None):
         
         psf = read_psf(args.psf)
 
+        specter_psf = specter.psf.load_psf(args.psf)
+
     if comm is not None:
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
@@ -163,7 +170,7 @@ def main(args=None):
         log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
     
     #- TODO: calculate this instead of hardcoding it
-    wavepad = 10
+    wavepad = args.wavepad
     
     #- Wavelength range that we want to extract
     wave = np.arange(wmin, wmax + 0.5*dw, dw)
@@ -223,12 +230,22 @@ def main(args=None):
             #- Always extract the same patch size (more efficient for GPU
             #- memory transfer) then decide post-facto whether to keep it all
 
+            if args.debug:
+                kwargs = dict(
+                    specter_psf=specter_psf,
+                    fullwave=fullwave,
+                )
+            else:
+                kwargs = dict()
+
             result = ex2d_padded(image, imageivar,
                                  ispec-bspecmin, nspectra_per_patch,
                                  iwave, args.nwavestep,
                                  spots, corners,
                                  wavepad=wavepad,
-                                 bundlesize=args.bundlesize)
+                                 bundlesize=args.bundlesize,
+                                 **kwargs
+                                 )
             results.append( (ispec, iwave, result) )
 
         if comm is not None:
@@ -281,18 +298,18 @@ def main(args=None):
 
     #- Write output to temp file and then rename so that final file is atomic
     if rank == 0:
-        log.info(f'Writing {args.output}')
-        tmpfilename = args.output + '.tmp'
-        with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
-            fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
-            fx.write(specivar.astype(np.float32), extname='IVAR')
-            fx.write(specmask, extname='MASK')
-            fx.write(wave, extname='WAVELENGTH')
-            fx.write(Rdiags.astype(np.float32), extname='RESOLUTION')
-            fx.write(fibermap, extname='FIBERMAP', header=fibermaphdr)
-            fx.write(chi2pix.astype(np.float32), extname='CHI2PIX')
-    
-        os.rename(tmpfilename, args.output)
+        if args.output is not None:
+            log.info(f'Writing {args.output}')
+            tmpfilename = args.output + '.tmp'
+            with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
+                fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
+                fx.write(specivar.astype(np.float32), extname='IVAR')
+                fx.write(specmask, extname='MASK')
+                fx.write(wave, extname='WAVELENGTH')
+                fx.write(Rdiags.astype(np.float32), extname='RESOLUTION')
+                fx.write(fibermap, extname='FIBERMAP', header=fibermaphdr)
+                fx.write(chi2pix.astype(np.float32), extname='CHI2PIX')
+            os.rename(tmpfilename, args.output)
 
 if __name__ == '__main__':
     main()

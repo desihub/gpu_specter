@@ -309,7 +309,7 @@ def get_spec_padding(ispec, nspec, bundlesize):
     return specmin, nspecpad
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25):
+                wavepad, bundlesize=25, specter_psf=None, fullwave=None):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -335,13 +335,21 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     #- Get the projection matrix for the full wavelength range with padding
     A4, xyrange = projection_matrix(specmin, nspecpad,
-        iwave-wavepad, nwave+2*wavepad, spots, corners)
+        iwave-wavepad, nwavetot, spots, corners)
 
     xmin, xmax, ypadmin, ypadmax = xyrange
 
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
-    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+    if specter_psf is None:
+        xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+    else:
+        specrange = specmin, specmin+nspecpad
+        if iwave + nwave + wavepad == nwavetot:
+            waverange = fullwave[iwave], fullwave[iwave+nwave]
+        else:
+            waverange = fullwave[iwave], fullwave[iwave+nwave-1]
+        xlo, xhi, ymin, ymax = specter_psf.xyrange(specrange, waverange)
     ypadlo = ymin - ypadmin
     ypadhi = ypadmax - ymax
     A4 = A4[ypadlo:-ypadhi]
