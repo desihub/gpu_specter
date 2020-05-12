@@ -12,10 +12,11 @@ import fitsio
 from astropy.table import Table
 
 from gpu_specter.util import get_logger
-from gpu_specter.io import read_psf, native_endian
+from gpu_specter.io import read_img, read_psf, write_extract
 
 def parse(options=None):
-    parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.")
+    parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-i", "--input", type=str, required=False,
                         help="input image")
     # parser.add_argument("-f", "--fibermap", type=str, required=False,
@@ -129,29 +130,16 @@ def main(args=None):
     if rank == 0:
         log.info('Loading inputs')
 
-    image = imageivar = psf = imagehdr = fibermap = fibermaphdr = None
+    img = psf = None
     if rank == 0:
-        with fitsio.FITS(args.input) as fx:
-            image = native_endian(fx['IMAGE'].read().astype('f8'))
-            imageivar = native_endian(fx['IVAR'].read().astype('f8'))
-            imagehdr = fx['IMAGE'].read_header()
-            mask = fx['MASK'].read()
-            imageivar[mask != 0] = 0.0
-            fibermap = fx['FIBERMAP'].read()
-            fibermaphdr = fx['FIBERMAP'].read_header()
-        
+        img = read_img(args.input)
         psf = read_psf(args.psf)
-
+        
     if comm is not None:
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
-
-        image = comm.bcast(image, root=0)
-        imageivar = comm.bcast(imageivar, root=0)
-        imagehdr = comm.bcast(imagehdr, root=0)
+        img = comm.bcast(img, root=0)
         psf = comm.bcast(psf, root=0)
-        fibermap = comm.bcast(fibermap, root=0)
-        fibermaphdr = comm.bcast(fibermaphdr, root=0)
 
     if args.wavelength is not None:
         wmin, wmax, dw = map(float, args.wavelength.split(','))
@@ -223,7 +211,7 @@ def main(args=None):
             #- Always extract the same patch size (more efficient for GPU
             #- memory transfer) then decide post-facto whether to keep it all
 
-            result = ex2d_padded(image, imageivar,
+            result = ex2d_padded(img['image'], img['ivar'],
                                  ispec-bspecmin, nspectra_per_patch,
                                  iwave, args.nwavestep,
                                  spots, corners,
@@ -268,31 +256,33 @@ def main(args=None):
         if comm is not None:
             comm.barrier()
 
-    #- Convert flux to photons/A instead of photons/bin
+    #- Finalize and write output
     if rank == 0:
+
+        #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
         specflux /= dwave
         specivar *= dwave**2
 
-    #- TODO: specmask and chi2pix
-    if rank == 0:
+         #- TODO: specmask and chi2pix
         specmask = (specivar > 0).astype(np.int)
         chi2pix = np.ones(specflux.shape)
 
-    #- Write output to temp file and then rename so that final file is atomic
-    if rank == 0:
-        log.info(f'Writing {args.output}')
-        tmpfilename = args.output + '.tmp'
-        with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
-            fx.write(specflux.astype(np.float32), extname='FLUX', header=imagehdr)
-            fx.write(specivar.astype(np.float32), extname='IVAR')
-            fx.write(specmask, extname='MASK')
-            fx.write(wave, extname='WAVELENGTH')
-            fx.write(Rdiags.astype(np.float32), extname='RESOLUTION')
-            fx.write(fibermap, extname='FIBERMAP', header=fibermaphdr)
-            fx.write(chi2pix.astype(np.float32), extname='CHI2PIX')
-    
-        os.rename(tmpfilename, args.output)
+        extract = dict(
+            imagehdr = img['imagehdr'],
+            specflux = specflux,
+            specivar = specivar,
+            specmask = specmask,
+            wave = wave,
+            Rdiags = Rdiags,
+            fibermap = img['fibermap'],
+            fibermaphdr = img['fibermaphdr'],
+            chi2pix = np.ones(specflux.shape),
+        )
+
+        if args.output is not None:
+            log.info(f'Writing {args.output}')
+            write_extract(args.output, extract)
 
 if __name__ == '__main__':
     main()
