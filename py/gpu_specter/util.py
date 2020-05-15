@@ -2,6 +2,8 @@
 General utility non-I/O code for gpu_specter.
 """
 
+import time, datetime
+
 import os, logging
 
 #- subset of desiutil.log.get_logger, to avoid desiutil dependency
@@ -48,3 +50,37 @@ def get_logger(level=None):
         _loggers[level] = logger
 
     return _loggers[level]
+
+
+class Timer(object):
+    def __init__(self):
+        self.start = self.time()
+        self.splits = list()
+        self.n = 5
+
+    def split(self, name):
+        split = (name, self.time())
+        self.n = max(len(name), self.n)
+        self.splits.append(split)
+
+    def time(self):
+        return time.time()
+
+    def _gen_split_summary(self):
+        start_iso = datetime.datetime.utcfromtimestamp(self.start).isoformat()
+        yield '{name:<{n}s} {time}'.format(name='start', time=start_iso, n=self.n)
+        last = self.start
+        fmt = '{name:<{n}s} {delta:=+22.2f}'
+        for name, time in self.splits:
+            delta = time - last
+            yield fmt.format(name=name, delta=delta, n=self.n)
+            last = time
+        yield fmt.format(name='total', delta=last-self.start, n=self.n)
+
+    def log_splits(self, log):
+        for line in self._gen_split_summary():
+            log.info(line)
+
+    def print_splits(self):
+        for line in self._gen_split_summary():
+            print(line)
