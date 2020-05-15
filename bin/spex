@@ -133,18 +133,13 @@ def main(args=None):
         img = comm.bcast(img, root=0)
         psf = comm.bcast(psf, root=0)
 
-    if args.wavelength is not None:
-        wmin, wmax, dw = map(float, args.wavelength.split(','))
-    else:
-        wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
-        dw = 0.8
-
     timer.split('load')
 
+    #- Perform extraction
     frame = extract_frame(
         img, psf, args.bundlesize,         # input data
         args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
-        wmin, wmax, dw,                    # wavelength range to extract
+        args.wavelength,                   # wavelength range to extract
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
         comm, rank, size,                  # mpi parameters
         args.gpu,                          # gpu parameters
@@ -153,12 +148,14 @@ def main(args=None):
 
     timer.split('extract')
 
+    #- Write output
     if rank == 0:
-        
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
 
+    #- Print timing summary
+    if rank == 0:
         timer.split('write')
         timer.log_splits(log)
 

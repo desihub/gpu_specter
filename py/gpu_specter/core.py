@@ -30,7 +30,7 @@ class Patch(object):
         self.keepslice = np.s_[0:nwavekeep]
 
 
-def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles, 
+def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
     wavepad, nwavestep, wave, fullwave, comm, rank, size, gpu=None, loglevel=None):
 
     log = get_logger(loglevel)
@@ -131,10 +131,16 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
     return bundle_results
 
 
-def extract_frame(img, psf, bundlesize, specmin, nspec, 
-    wmin, wmax, dw, nwavestep, nsubbundles, comm, rank, size, gpu=None, loglevel=None):
+def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, nsubbundles=1, 
+    comm=None, rank=0, size=1, gpu=None, loglevel=None):
 
     log = get_logger(loglevel)
+
+    if wavelength is not None:
+        wmin, wmax, dw = map(float, wavelength.split(','))
+    else:
+        wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
+        dw = 0.8
 
     if rank == 0:
         log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
