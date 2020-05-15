@@ -8,6 +8,27 @@ import numpy as np
 
 from gpu_specter.util import get_logger
 
+class Patch(object):
+    def __init__(self, ispec, iwave, bspecmin, nspec, nwavestep, wavepad, nwave):
+        self.ispec = ispec
+        self.iwave = iwave
+
+        self.nspec = nspec
+        self.nwavestep = nwavestep
+
+        #- padding to apply to patch
+        self.wavepad = wavepad
+
+        #- where this patch should go
+        #- note: spec indexing is relative to subbundle
+        self.bspecmin = bspecmin
+        self.specslice = np.s_[ispec-bspecmin:ispec-bspecmin+nspec]
+        self.waveslice = np.s_[iwave-wavepad:iwave-wavepad+nwavestep]
+
+        #- how much of the patch to keep
+        nwavekeep = min(nwavestep, nwave - (iwave-wavepad))
+        self.keepslice = np.s_[0:nwavekeep]
+
 
 def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles, 
     wavepad, nwavestep, wave, fullwave, comm, rank, size, gpu=None, loglevel=None):
@@ -50,24 +71,25 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
     nspec = bundlesize // nsubbundles
     for ispec in range(bspecmin, bspecmin+bundlesize, nspec):
         for iwave in range(wavepad, wavepad+nwave, nwavestep):
-            patches.append((ispec, iwave))
+            patch = Patch(ispec, iwave, bspecmin, nspec, nwavestep, wavepad, nwave)
+            patches.append(patch)
 
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
+    for patch in patches[rank::size]:
 
-    for ispec, iwave in patches[rank::size]:
-        log.debug(f'rank={rank}, ispec={ispec}, iwave={iwave}')
+        log.debug(f'rank={rank}, ispec={patch.ispec}, iwave={patch.iwave}')
 
         #- Always extract the same patch size (more efficient for GPU
         #- memory transfer) then decide post-facto whether to keep it all
 
         result = ex2d_padded(image, imageivar,
-                             ispec-bspecmin, nspec,
-                             iwave, nwavestep,
+                             patch.ispec-bspecmin, nspec,
+                             patch.iwave, nwavestep,
                              spots, corners,
                              wavepad=wavepad,
                              bundlesize=bundlesize)
-        results.append( (ispec, iwave, result) )
+        results.append( (patch, result) )
 
     if comm is not None:
         rankresults = comm.gather(results, root=0)
@@ -81,7 +103,7 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
             allresults.extend(rr)
 
         #- Now put these into the final arrays
-        for ispec, iwave, result in allresults:
+        for patch, result in allresults:
             fx = result['flux']
             fxivar = result['ivar']
             xRdiags = result['Rdiags']
@@ -89,16 +111,9 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
             assert fx.shape == (nspec, nwavestep)
 
             #- put the extracted patch into the output arrays
-            specslice = np.s_[ispec-bspecmin:ispec-bspecmin+nspec]
-            waveslice = np.s_[iwave-wavepad:iwave-wavepad+nwavestep]
-
-            nwavekeep = min(nwavestep, nwave - (iwave-wavepad))
-            
-            keepslice = np.s_[0:nwavekeep]
-
-            specflux[specslice, waveslice] = fx[:, keepslice]
-            specivar[specslice, waveslice] = fxivar[:, keepslice]
-            Rdiags[specslice, :, waveslice] = xRdiags[:, :, keepslice]
+            specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
+            specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
+            Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
 
     #- for good measure, have other ranks wait for rank 0
     if comm is not None:
