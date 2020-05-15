@@ -10,7 +10,7 @@ from pkg_resources import resource_filename
 import numpy as np
 
 from gpu_specter.util import get_logger, Timer
-from gpu_specter.io import read_img, read_psf, write_extract
+from gpu_specter.io import read_img, read_psf, write_frame
 from gpu_specter.core import extract_frame
 
 def parse(options=None):
