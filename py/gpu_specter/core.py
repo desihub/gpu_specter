@@ -174,7 +174,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec,
             Rdiags[specslice, :, :] = bundle_results['R']
 
     #- Finalize and write output
-    extract = None
+    frame = None
     if rank == 0:
 
         #- Convert flux to photons/A instead of photons/bin
@@ -186,7 +186,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec,
         specmask = (specivar > 0).astype(np.int)
         chi2pix = np.ones(specflux.shape)
 
-        extract = dict(
+        frame = dict(
             imagehdr = img['imagehdr'],
             specflux = specflux,
             specivar = specivar,
@@ -198,5 +198,5 @@ def extract_frame(img, psf, bundlesize, specmin, nspec,
             chi2pix = np.ones(specflux.shape),
         )
 
-    return extract
+    return frame
 
