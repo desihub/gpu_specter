@@ -9,7 +9,7 @@ from pkg_resources import resource_filename
 
 import numpy as np
 
-from gpu_specter.util import get_logger
+from gpu_specter.util import get_logger, Timer
 from gpu_specter.io import read_img, read_psf, write_extract
 from gpu_specter.core import extract_frame
 
@@ -83,6 +83,8 @@ def check_input_options(args):
 
 def main(args=None):
 
+    timer = Timer()
+
     if args is None:
         args = parse()
 
@@ -116,6 +118,7 @@ def main(args=None):
         if rank == 0:
             log.warning(f'Using default test input PSF {args.psf}')
 
+    timer.split('init')
 
     #- Load inputs
     img = psf = None
@@ -136,7 +139,7 @@ def main(args=None):
         wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
         dw = 0.8
 
-
+    timer.split('load')
 
     frame = extract_frame(
         img, psf, args.bundlesize,         # input data
@@ -148,6 +151,7 @@ def main(args=None):
         args.loglevel,                     # log
     )
 
+    timer.split('extract')
 
     if rank == 0:
         
@@ -155,6 +159,9 @@ def main(args=None):
             log.info(f'Writing {args.output}')
             # TODO rename write_extract -> write_frame
             write_extract(args.output, frame)
+
+        timer.split('write')
+        timer.log_splits(log)
 
 if __name__ == '__main__':
     main()
