@@ -1,7 +1,5 @@
-#!/usr/bin/env python
-
 """
-Experimental rewrite of desi_extract_spectra + specter
+Core scaffolding for divide and conquer extraction algorithm
 """
 
 import sys
