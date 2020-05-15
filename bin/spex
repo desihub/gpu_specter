@@ -157,8 +157,7 @@ def main(args=None):
         
         if args.output is not None:
             log.info(f'Writing {args.output}')
-            # TODO rename write_extract -> write_frame
-            write_extract(args.output, frame)
+            write_frame(args.output, frame)
 
         timer.split('write')
         timer.log_splits(log)
