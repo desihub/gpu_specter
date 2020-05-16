@@ -30,6 +30,39 @@ class Patch(object):
         self.keepslice = np.s_[0:nwavekeep]
 
 
+def assemble_bundle_patches(results, comm, rank, bundlesize, nwave, ndiag):
+
+    if comm is not None:
+        rankresults = comm.gather(results, root=0)
+    else:
+        rankresults = [results,]
+
+    specflux = specivar = Rdiags = None
+    if rank == 0:
+        #- Allocate output arrays to fill
+        specflux = np.zeros((bundlesize, nwave))
+        specivar = np.zeros((bundlesize, nwave))
+        Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
+
+        #- flatten list of lists into single list
+        allresults = list()
+        for rr in rankresults:
+            allresults.extend(rr)
+
+        #- Now put these into the final arrays
+        for patch, result in allresults:
+            fx = result['flux']
+            fxivar = result['ivar']
+            xRdiags = result['Rdiags']
+
+            #- put the extracted patch into the output arrays
+            specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
+            specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
+            Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
+
+    return specflux, specivar, Rdiags
+
+
 def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
     wavepad, nwavestep, wave, fullwave, comm, rank, size, gpu=None, loglevel=None):
 
@@ -44,14 +77,7 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
                 get_spots, projection_matrix, ex2d_padded
 
     nwave = len(wave)
-
-    #- Allocate output arrays to fill
-    if rank == 0:
-        specflux = np.zeros((bundlesize, nwave))
-        specivar = np.zeros((bundlesize, nwave))
-        #- TODO: refactor ndiag calculation to PSF object?
-        ndiag = psf['PSF'].meta['HSIZEY']
-        Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
+    ndiag = psf['PSF'].meta['HSIZEY']
 
     #- Cache PSF spots for all wavelengths for spectra in this bundle
     spots = corners = None
@@ -91,44 +117,9 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
                              bundlesize=bundlesize)
         results.append( (patch, result) )
 
-    if comm is not None:
-        rankresults = comm.gather(results, root=0)
-    else:
-        rankresults = [results,]
+    bundle = assemble_bundle_patches(results, comm, rank, bundlesize, nwave, ndiag)
 
-    if rank == 0:
-        #- flatten list of lists into single list
-        allresults = list()
-        for rr in rankresults:
-            allresults.extend(rr)
-
-        #- Now put these into the final arrays
-        for patch, result in allresults:
-            fx = result['flux']
-            fxivar = result['ivar']
-            xRdiags = result['Rdiags']
-
-            assert fx.shape == (nspec, nwavestep)
-
-            #- put the extracted patch into the output arrays
-            specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
-            specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
-            Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
-
-    #- for good measure, have other ranks wait for rank 0
-    if comm is not None:
-        comm.barrier()
-
-    bundle_results = None
-
-    if rank == 0:
-        bundle_results = dict(
-            flux=specflux,
-            ivar=specivar,
-            R=Rdiags,
-        )
-
-    return bundle_results
+    return bundle
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, nsubbundles=1, 
@@ -166,10 +157,11 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, n
 
     #- Allocate output arrays to fill
     #- TODO: with multiprocessing, use shared memory?
+    ndiag = psf['PSF'].meta['HSIZEY']
     if rank == 0:
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
-        Rdiags = np.zeros((nspec, 2*psf['PSF'].meta['HSIZEY']+1, nwave))
+        Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
 
     #- Work bundle by bundle
     for bspecmin in range(specmin, specmin+nspec, bundlesize):
@@ -177,22 +169,25 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, n
             log.info(f'Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
             sys.stdout.flush()
 
-        bundle_results = extract_bundle(
+        bundle = extract_bundle(
             img['image'], img['ivar'], psf, 
             bspecmin, bundlesize, nsubbundles, 
             wavepad, nwavestep, 
             wave, fullwave,
-            comm, rank, size, gpu)
+            comm, rank, size, gpu
+        )
 
         #- for good measure, have other ranks wait for rank 0
         if comm is not None:
             comm.barrier()
 
         if rank == 0:
+            #- TODO: use vstack instead of preallocation and slicing?
             specslice = np.s_[bspecmin:bspecmin+bundlesize]
-            specflux[specslice, :] = bundle_results['flux']
-            specivar[specslice, :] = bundle_results['ivar']
-            Rdiags[specslice, :, :] = bundle_results['R']
+            flux, ivar, R = bundle
+            specflux[specslice, :] = flux
+            specivar[specslice, :] = ivar
+            Rdiags[specslice, :, :] = R
 
     #- Finalize and write output
     frame = None
