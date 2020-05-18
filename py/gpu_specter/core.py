@@ -30,35 +30,28 @@ class Patch(object):
         self.keepslice = np.s_[0:nwavekeep]
 
 
-def assemble_bundle_patches(results, comm, rank, bundlesize, nwave, ndiag):
+def assemble_bundle_patches(rankresults, bundlesize, nwave, ndiag):
 
-    if comm is not None:
-        rankresults = comm.gather(results, root=0)
-    else:
-        rankresults = [results,]
+    #- flatten list of lists into single list
+    allresults = list()
+    for rr in rankresults:
+        allresults.extend(rr)
 
-    specflux = specivar = Rdiags = None
-    if rank == 0:
-        #- Allocate output arrays to fill
-        specflux = np.zeros((bundlesize, nwave))
-        specivar = np.zeros((bundlesize, nwave))
-        Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
+    #- Allocate output ar`rays to fill
+    specflux = np.zeros((bundlesize, nwave))
+    specivar = np.zeros((bundlesize, nwave))
+    Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
 
-        #- flatten list of lists into single list
-        allresults = list()
-        for rr in rankresults:
-            allresults.extend(rr)
+    #- Now put these into the final arrays
+    for patch, result in allresults:
+        fx = result['flux']
+        fxivar = result['ivar']
+        xRdiags = result['Rdiags']
 
-        #- Now put these into the final arrays
-        for patch, result in allresults:
-            fx = result['flux']
-            fxivar = result['ivar']
-            xRdiags = result['Rdiags']
-
-            #- put the extracted patch into the output arrays
-            specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
-            specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
-            Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
+        #- put the extracted patch into the output arrays
+        specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
+        specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
+        Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
 
     return specflux, specivar, Rdiags
 
@@ -110,14 +103,21 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
         #- memory transfer) then decide post-facto whether to keep it all
 
         result = ex2d_padded(image, imageivar,
-                             patch.ispec-bspecmin, nspec,
-                             patch.iwave, nwavestep,
+                             patch.ispec-bspecmin, patch.nspec,
+                             patch.iwave, patch.nwavestep,
                              spots, corners,
-                             wavepad=wavepad,
+                             wavepad=patch.wavepad,
                              bundlesize=bundlesize)
         results.append( (patch, result) )
 
-    bundle = assemble_bundle_patches(results, comm, rank, bundlesize, nwave, ndiag)
+    if comm is not None:
+        rankresults = comm.gather(results, root=0)
+    else:
+        rankresults = [results,]
+
+    bundle = None
+    if rank == 0:
+        bundle = assemble_bundle_patches(rankresults, bundlesize, nwave, ndiag)
 
     return bundle
 
@@ -136,12 +136,12 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, n
     if rank == 0:
         log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
     
+    #- TODO: calculate this instead of hardcoding it
+    wavepad = 10
+
     #- Wavelength range that we want to extract
     wave = np.arange(wmin, wmax + 0.5*dw, dw)
     nwave = len(wave)
-
-    #- TODO: calculate this instead of hardcoding it
-    wavepad = 10
     
     #- Pad that with buffer wavelengths to extract and discard, including an
     #- extra args.nwavestep bins to allow coverage for a final partial bin
