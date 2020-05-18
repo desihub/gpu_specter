@@ -9,11 +9,11 @@ import numpy as np
 from gpu_specter.util import get_logger
 
 class Patch(object):
-    def __init__(self, ispec, iwave, bspecmin, nspec, nwavestep, wavepad, nwave):
+    def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave, bundlesize, ndiag):
         self.ispec = ispec
         self.iwave = iwave
 
-        self.nspec = nspec
+        self.nspectra_per_patch = nspectra_per_patch
         self.nwavestep = nwavestep
 
         #- padding to apply to patch
@@ -22,20 +22,40 @@ class Patch(object):
         #- where this patch should go
         #- note: spec indexing is relative to subbundle
         self.bspecmin = bspecmin
-        self.specslice = np.s_[ispec-bspecmin:ispec-bspecmin+nspec]
+        self.specslice = np.s_[ispec-bspecmin:ispec-bspecmin+nspectra_per_patch]
         self.waveslice = np.s_[iwave-wavepad:iwave-wavepad+nwavestep]
 
         #- how much of the patch to keep
         nwavekeep = min(nwavestep, nwave - (iwave-wavepad))
         self.keepslice = np.s_[0:nwavekeep]
 
+        #- to help with reassembly
+        self.nwave = nwave
+        self.bundlesize = bundlesize
+        self.ndiag = ndiag
 
-def assemble_bundle_patches(rankresults, bundlesize, nwave, ndiag):
+
+def assemble_bundle_patches(rankresults):
+    """
+    Assembles bundle patches into output arrays
+
+    Args:
+        rankresults: list of lists containing individual patch extraction results
+
+    Returns:
+        (spexflux, specivar, Rdiags) tuple
+    """
 
     #- flatten list of lists into single list
     allresults = list()
     for rr in rankresults:
         allresults.extend(rr)
+
+    #- peak at result to get bundle params
+    patch = allresults[0][0]
+    nwave = patch.nwave
+    bundlesize = patch.bundlesize
+    ndiag = patch.ndiag
 
     #- Allocate output ar`rays to fill
     specflux = np.zeros((bundlesize, nwave))
@@ -56,8 +76,34 @@ def assemble_bundle_patches(rankresults, bundlesize, nwave, ndiag):
     return specflux, specivar, Rdiags
 
 
-def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
-    wavepad, nwavestep, wave, fullwave, comm, rank, size, gpu=None, loglevel=None):
+def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
+    nwavestep=50, wavepad=10, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    """
+    Extract 1D spectra from a single bundle of a 2D image.
+
+    Args:
+        image: full 2D array of image pixels
+        imageivar: full 2D array of inverse variance for the image
+        psf: dictionary psf object (see gpu_specter.io.read_psf)
+        wave: 1D array of wavelengths to extract
+        fullwave: Padded 1D array of wavelengths to extract
+        bspecmin: index of the first spectrum in the bundle
+
+    Options:
+        bundlesize: fixed number of spectra per bundle (25 for DESI)
+        nsubbundles: number of spectra per patch
+        nwavestep: number of wavelength bins per patch
+        wavepad: number of wavelengths bins to add on each end of patch for extraction
+        comm: mpi communicator (no mpi: None)
+        rank: integer process identifier (no mpi: 0)
+        size: number of mpi processes (no mpi: 1)
+        gpu: use GPU for extraction (not yet implemented)
+        loglevel: log print level
+
+    Returns:
+        bundle: (flux, ivar, R) tuple
+
+    """
 
     log = get_logger(loglevel)
 
@@ -87,10 +133,12 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
 
     #- Organize what sub-bundle patches to extract
     patches = list()
-    nspec = bundlesize // nsubbundles
-    for ispec in range(bspecmin, bspecmin+bundlesize, nspec):
+    nspectra_per_patch = bundlesize // nsubbundles
+    for ispec in range(bspecmin, bspecmin+bundlesize, nspectra_per_patch):
         for iwave in range(wavepad, wavepad+nwave, nwavestep):
-            patch = Patch(ispec, iwave, bspecmin, nspec, nwavestep, wavepad, nwave)
+            patch = Patch(ispec, iwave, bspecmin,
+                          nspectra_per_patch, nwavestep, wavepad,
+                          nwave, bundlesize, ndiag)
             patches.append(patch)
 
     #- place to keep extraction patch results before assembling in rank 0
@@ -103,7 +151,7 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
         #- memory transfer) then decide post-facto whether to keep it all
 
         result = ex2d_padded(image, imageivar,
-                             patch.ispec-bspecmin, patch.nspec,
+                             patch.ispec-bspecmin, patch.nspectra_per_patch,
                              patch.iwave, patch.nwavestep,
                              spots, corners,
                              wavepad=patch.wavepad,
@@ -117,13 +165,36 @@ def extract_bundle(image, imageivar, psf, bspecmin, bundlesize, nsubbundles,
 
     bundle = None
     if rank == 0:
-        bundle = assemble_bundle_patches(rankresults, bundlesize, nwave, ndiag)
+        bundle = assemble_bundle_patches(rankresults)
 
     return bundle
 
 
-def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, nsubbundles=1, 
+def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    """
+    Extract 1D spectra from 2D image.
+
+    Args:
+        img: dictionary image object (see gpu_specter.io.read_img)
+        psf: dictionary psf object (see gpu_specter.io.read_psf)
+        bundlesize: fixed number of spectra per bundle (25 for DESI)
+        specmin: index of first spectrum to extract
+        nspec: number of spectra to extract
+
+    Options:
+        wavelength: wavelength range to extract, formatted as 'wmin,wmax,dw'
+        nwavestep: number of wavelength bins per patch
+        nsubbundles: number of spectra per patch
+        comm: mpi communicator (no mpi: None)
+        rank: integer process identifier (no mpi: 0)
+        size: number of mpi processes (no mpi: 1)
+        gpu: use GPU for extraction (not yet implemented)
+        loglevel: log print level
+
+    Returns:
+        frame: dictionary frame object (see gpu_specter.io.write_frame)
+    """
 
     log = get_logger(loglevel)
 
@@ -170,11 +241,11 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength, nwavestep, n
             sys.stdout.flush()
 
         bundle = extract_bundle(
-            img['image'], img['ivar'], psf, 
-            bspecmin, bundlesize, nsubbundles, 
-            wavepad, nwavestep, 
-            wave, fullwave,
-            comm, rank, size, gpu
+            img['image'], img['ivar'], psf,
+            wave, fullwave, bspecmin,
+            bundlesize=bundlesize, nsubbundles=nsubbundles,
+            nwavestep=nwavestep, wavepad=wavepad,
+            comm=comm, rank=rank, size=size, gpu=gpu
         )
 
         #- for good measure, have other ranks wait for rank 0
