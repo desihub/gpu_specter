@@ -68,14 +68,14 @@ class Timer(object):
 
     def _gen_split_summary(self):
         start_iso = datetime.datetime.utcfromtimestamp(self.start).isoformat()
-        yield '{name:<{n}s} {time}'.format(name='start', time=start_iso, n=self.n)
+        yield '{name:>{n}s}:{time}'.format(name='start', time=start_iso, n=self.n)
         last = self.start
-        fmt = '{name:<{n}s} {delta:=+22.2f}'
+        fmt = '{name:>{n}s}:{delta:>22.2f}'
         for name, time in self.splits:
             delta = time - last
             yield fmt.format(name=name, delta=delta, n=self.n)
             last = time
-        yield fmt.format(name='total', delta=last-self.start, n=self.n)
+        yield '{name:>{n}s}:{total:>22.2f}'.format(name='total', total=last-self.start, n=self.n)
 
     def log_splits(self, log):
         for line in self._gen_split_summary():
