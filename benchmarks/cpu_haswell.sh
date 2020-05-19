@@ -39,8 +39,10 @@ elapsed_time=$(_elapsed_time ${start_time} ${end_time})
 
 nnodes=1
 nframes=1
-nodehours=$(echo "$nnodes * $elapsed_time / (60 * 60)" | bc)
+nodehours=$(echo "$nnodes * $elapsed_time / (60 * 60)" | bc -l)
 framespernodehour=$(echo "scale=1; $nframes / $nodehours" | bc)
 
 echo "elapsed time (seconds): $(_elapsed_time ${start_time} ${end_time})"
+echo "frames per node hour: ${framespernodehour}"
 echo "End time: $(date --iso-8601=seconds)"
+
