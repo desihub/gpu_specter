@@ -15,6 +15,7 @@ Differences in the output might be expected depending on the nature of the code 
 Example:
 
 ```
+cd gpu_specter
 git checkout master
 args=...
 bin/spex $args -o output-master.fits 
@@ -34,17 +35,18 @@ Example comparison between `spex` and `desi_extract_spectra`
 Generate output files:
 
 ```
+cd gpu_specter
 source /global/cfs/cdirs/desi/software/desi_environment.sh master
 export PATH=$(pwd)/bin:$PATH
 export PYTHONPATH=$(pwd)/py:$PYTHONPATH
 
 salloc -N 1 -C haswell -t 60 -q interactive
 
-basedir=/global/cfs/cdirs/desi/spectro/redux/andes/
+basedir=/global/cfs/cdirs/desi/spectro/redux/andes
 args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-00051060.fits -p $basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
 
-srun -n 32 -c 2 desi_extract_spectra --mpi -o $SCRATCH/desi_extract.fits $args 
-srun -n 32 -c 2 spex --mpi -o $SCRATCH/spex_extract.fits $args 
+srun -n 32 -c 2 desi_extract_spectra --mpi -o $SCRATCH/desi_extract.fits $args
+srun -n 32 -c 2 bin/spex --mpi -o $SCRATCH/spex_extract.fits $args
 ```
 
 Example parity test output:
