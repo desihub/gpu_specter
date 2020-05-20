@@ -76,3 +76,19 @@ def write_extract(filename, extract, dtype=np.float32):
         fx.write(extract['chi2pix'].astype(dtype), extname='CHI2PIX')
     os.rename(tmpfilename, filename)
 
+def read_frame(filename):
+    """
+    Read frame data (extracted 1D spectra) from input filename
+
+    Returns a dictionary of numpy arrays
+    """
+    with fitsio.FITS(filename) as fx:
+        flux = fx['FLUX'].read().astype('f8')
+        ivar = fx['IVAR'].read().astype('f8')
+        wave = fx['WAVELENGTH'].read().astype('f8')
+    frame = dict(
+        flux=flux,
+        ivar=ivar,
+        wave=wave,
+    )
+    return frame

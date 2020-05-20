@@ -11,23 +11,6 @@ import matplotlib.colors as mcolors
 
 import fitsio
 
-def read_frame(filename):
-    """
-    Simple fits file reader
-
-    TODO: move to gpu_specter.io
-    """
-    with fitsio.FITS(filename) as fx:
-        flux = fx['FLUX'].read().astype('f8')
-        ivar = fx['IVAR'].read().astype('f8')
-        wave = fx['WAVELENGTH'].read().astype('f8')
-    frame = dict(
-        flux=flux,
-        ivar=ivar,
-        wave=wave,
-    )
-    return frame
-
 def plot_diff_2d(diff, wave, output):
     fig, ax = plt.subplots(figsize=(12, 4))
 
