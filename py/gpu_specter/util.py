@@ -54,33 +54,53 @@ def get_logger(level=None):
 
 class Timer(object):
     def __init__(self):
+        """A helper class for capturing timing splits.
+
+        The start time is set on instantiation.
+        """
         self.start = self.time()
         self.splits = list()
-        self.n = 5
+        self._max_name_length = 5
 
     def split(self, name):
+        """Capture timing split since start or previous split.
+
+        Args:
+            name: name to use for the captured interval
+        """
         split = (name, self.time())
-        self.n = max(len(name), self.n)
+        self._max_name_length = max(len(name), self._max_name_length)
         self.splits.append(split)
 
     def time(self):
+        """Returns the number of seconds since start of unix epoch.
+        """
         return time.time()
 
     def _gen_split_summary(self):
+        """Split summary generator.
+        """
         start_iso = datetime.datetime.utcfromtimestamp(self.start).isoformat()
-        yield '{name:>{n}s}:{time}'.format(name='start', time=start_iso, n=self.n)
+        yield '{name:>{n}s}:{time}'.format(name='start', time=start_iso, n=self._max_name_length)
         last = self.start
         fmt = '{name:>{n}s}:{delta:>22.2f}'
         for name, time in self.splits:
             delta = time - last
-            yield fmt.format(name=name, delta=delta, n=self.n)
+            yield fmt.format(name=name, delta=delta, n=self._max_name_length)
             last = time
-        yield '{name:>{n}s}:{total:>22.2f}'.format(name='total', total=last-self.start, n=self.n)
+        yield fmt.format(name='total', delta=last-self.start, n=self._max_name_length)
 
     def log_splits(self, log):
+        """Logs the timer's split summary as INFO
+
+        Args:
+            log: a logger object
+        """
         for line in self._gen_split_summary():
             log.info(line)
 
     def print_splits(self):
+        """Prints the timer's split summary
+        """
         for line in self._gen_split_summary():
             print(line)
