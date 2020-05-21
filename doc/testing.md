@@ -52,7 +52,7 @@ srun -n 32 -c 2 bin/spex --mpi -o $SCRATCH/spex_extract.fits $args
 Example parity test output:
 
 ```
-$ python py/gpu_specter/test/parity.py -a $SCRATCH/spex_extract.fits -b $SCRATCH/desi_extract.fits
+$ python bin/compare-frame -a $SCRATCH/spex_extract.fits -b $SCRATCH/desi_extract.fits
 (f_a, f_b):
   isclose:   70.17%
 (f_a - f_b)/sqrt(var_a + var_b):
