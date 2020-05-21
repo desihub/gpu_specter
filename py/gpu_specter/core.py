@@ -9,7 +9,30 @@ import numpy as np
 from gpu_specter.util import get_logger
 
 class Patch(object):
-    def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave, bundlesize, ndiag):
+    def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
+        bundlesize, ndiag):
+        """Convenience data wrapper for divide and conquer extraction patches
+
+        Args:
+            ispec: starting spectrum index
+            iwave: starting wavelength index
+            bspecmin: starting spectrum index of the bundle that this patch belongs to
+            nspectra_per_patch: number of spectra to extract (not including padding)
+            nwavestep: number of wavelengths to extract (not including padding)
+            wavepad: number of extra wave bins to extract (and discard) on each end
+            nwave: number of wavelength bins in for entire bundle
+            bundlesize: size of fiber bundles
+            ndiag: number of diagonal elements to keep in the resolution matrix
+
+        All args become attributes.
+
+        Additional attributes created:
+            specslice: where this patch goes in the bundle result array
+            waveslice: where this patch goes in the bundle result array
+            keepslice: wavelength slice to keep from padded patch (the final patch in the bundle
+                will be narrower when (nwave % nwavestep) != 0)
+        """
+
         self.ispec = ispec
         self.iwave = iwave
 
