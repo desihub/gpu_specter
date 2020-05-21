@@ -84,12 +84,13 @@ yaml                      0.1.7                had09818_2
 zlib                      1.2.11               h7b6447c_3  
 ```
 
-## Caveats
+## Additional info and caveats
 
 On 5/21/2020 I was able to run spex (cpu only) using this environment.
 
-This environment has not been tested with both cpu and gpu Numba. Unclear
-if trying to use both will cause problems.
+On 5/21/2020 I was able to run the hackathon branch cpu version and gpu version
+using this environment. I think it is suitable for both cpu and gpu Numba (my
+chief concern).
 
 Per this [page](https://docs-dev.nersc.gov/cgpu/software/#mvapich2-ptmalloc-warnings-with-python-mpi-codes),
 the warning:
