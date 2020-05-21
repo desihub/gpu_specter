@@ -17,11 +17,30 @@ _elapsed_time () {
     echo "scale=3; ($2 - $1) / 1" | bc
 }
 
-# Environement setup
-source /global/cfs/cdirs/desi/software/desi_environment.sh master
+# Check environement
+python -c "import fitsio" 2&> /dev/null
+if [ $? != 0 ]; then
+    echo "ERROR: fitsio not in PYTHONPATH"
+    echo "Try loading an environment such as:"
+    echo "    source /global/cfs/cdirs/desi/software/desi_environment.sh master"
+    echo "exiting"
+    exit 1
+fi
 
-export PATH=$(pwd)/bin:$PATH
-export PYTHONPATH=$(pwd)/py:$PYTHONPATH
+# See if gpu_specter is already in PYTHONPATH
+python -c "import gpu_specter" 2&> /dev/null
+if [ $? != 0 ]; then
+    # try adding current directory
+    export PATH=$(pwd)/bin:$PATH
+    export PYTHONPATH=$(pwd)/py:$PYTHONPATH
+    python -c "import gpu_specter" 2&> /dev/null
+
+    # did that work?
+    if [ $? != 0 ]; then
+        echo "ERROR: gpu_specter not in PYTHONPATH; exiting"
+        exit 1
+    fi
+fi
 
 # Assemble command with arguments
 basedir="/global/cfs/cdirs/desi/spectro/redux/andes"
@@ -42,7 +61,7 @@ nframes=1
 nodehours=$(echo "$nnodes * $elapsed_time / (60 * 60)" | bc -l)
 frames_per_nodehour=$(echo "scale=1; $nframes / $nodehours" | bc)
 
-echo "Elapsed time (seconds): ${elapsed_time})"
+echo "Elapsed time (seconds): ${elapsed_time}"
 echo "Frames per node hour: ${frames_per_nodehour}"
 echo "End time: $(date --iso-8601=seconds)"
 
