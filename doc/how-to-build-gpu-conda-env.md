@@ -12,7 +12,7 @@ source activate desi-gpu
 ## Now install DESI libraries and GPU libraries
 
 ```
-conda install numpy scipy numba pyyaml astropy
+conda install numpy scipy numba cudatoolkit pyyaml astropy
 pip install fitsio
 pip install speclite
 pip install cupy-cuda102
