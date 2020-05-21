@@ -18,10 +18,9 @@ pip install speclite
 pip install cupy-cuda102
 ```
 
-!!! warning "CuPy/CUDA must be same version"
-    Note that the CUDA version and the CuPy version must match. As
-    of May 2020 the default CUDA version is 10.2, hence we need
-    `cupy-cuda102`.
+**Note that the CUDA version and the CuPy version must match. As
+of May 2020 the default CUDA version is 10.2, hence we need
+`cupy-cuda102`.**
 
 ## Now build mpi4py
 
