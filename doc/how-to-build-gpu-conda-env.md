@@ -18,7 +18,7 @@ pip install speclite
 pip install cupy-cuda102
 ```
 
-!!! Warning
+!!! warning "CuPy/CUDA must be same version"
     Note that the CUDA version and the CuPy version must match. As
     of May 2020 the default CUDA version is 10.2, hence we need
     `cupy-cuda102`.
@@ -37,7 +37,7 @@ python setup.py install
 ## Finished desi-gpu conda env should have all of the following:
 
 ```
-(desi-gpu) stephey@cgpu12:~> conda list
+(desi-gpu) stephey@cgpu08:/global/cscratch1/sd/stephey/gpu_specter> conda list
 # packages in environment at /global/homes/s/stephey/.conda/envs/desi-gpu:
 #
 # Name                    Version                   Build  Channel
@@ -46,6 +46,7 @@ astropy                   4.0.1.post1      py37h7b6447c_1
 blas                      1.0                         mkl  
 ca-certificates           2020.1.1                      0  
 certifi                   2020.4.5.1               py37_0  
+cudatoolkit               10.2.89              hfd86e86_1  
 cupy-cuda102              7.4.0                    pypi_0    pypi
 fastrlock                 0.4                      pypi_0    pypi
 fitsio                    1.1.2                    pypi_0    pypi
@@ -82,6 +83,7 @@ wheel                     0.34.2                   py37_0
 xz                        5.2.5                h7b6447c_0  
 yaml                      0.1.7                had09818_2  
 zlib                      1.2.11               h7b6447c_3  
+
 ```
 
 ## Additional info and caveats
@@ -90,7 +92,12 @@ On 5/21/2020 I was able to run spex (cpu only) using this environment.
 
 On 5/21/2020 I was able to run the hackathon branch cpu version and gpu version
 using this environment. I think it is suitable for both cpu and gpu Numba (my
-chief concern).
+chief concern). Note that this version has dependencies on desispec, desiutil,
+specter, and desitarget, all of which are loaded via
+```
+source /global/cfs/cdirs/m1759/desi/desi_libs.sh
+```
+
 
 Per this [page](https://docs-dev.nersc.gov/cgpu/software/#mvapich2-ptmalloc-warnings-with-python-mpi-codes),
 the warning:
