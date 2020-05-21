@@ -11,6 +11,9 @@ import matplotlib.colors as mcolors
 
 import fitsio
 
+from gpu_specter.io import read_frame
+
+
 def plot_diff_2d(diff, wave, output):
     fig, ax = plt.subplots(figsize=(12, 4))
 
