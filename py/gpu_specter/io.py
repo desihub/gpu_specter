@@ -59,21 +59,21 @@ def read_img(filename):
 
     return imgdata
 
-def write_extract(filename, extract, dtype=np.float32):
+def write_frame(filename, frame, dtype=np.float32):
     """
-    Write extract data to output filename
+    Write frame to output filename
     """
 
     #- Write output to temp file and then rename so that final file is atomic
     tmpfilename = filename + '.tmp'
     with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
-        fx.write(extract['specflux'].astype(dtype), extname='FLUX', header=extract['imagehdr'])
-        fx.write(extract['specivar'].astype(dtype), extname='IVAR')
-        fx.write(extract['specmask'], extname='MASK')
-        fx.write(extract['wave'], extname='WAVELENGTH')
-        fx.write(extract['Rdiags'].astype(dtype), extname='RESOLUTION')
-        fx.write(extract['fibermap'], extname='FIBERMAP', header=extract['fibermaphdr'])
-        fx.write(extract['chi2pix'].astype(dtype), extname='CHI2PIX')
+        fx.write(frame['specflux'].astype(dtype), extname='FLUX', header=frame['imagehdr'])
+        fx.write(frame['specivar'].astype(dtype), extname='IVAR')
+        fx.write(frame['specmask'], extname='MASK')
+        fx.write(frame['wave'], extname='WAVELENGTH')
+        fx.write(frame['Rdiags'].astype(dtype), extname='RESOLUTION')
+        fx.write(frame['fibermap'], extname='FIBERMAP', header=frame['fibermaphdr'])
+        fx.write(frame['chi2pix'].astype(dtype), extname='CHI2PIX')
     os.rename(tmpfilename, filename)
 
 def read_frame(filename):
