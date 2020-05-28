@@ -359,12 +359,12 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        fx, varfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        fx, ivarfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4)
 
         #- Select the non-padded spectra x wavelength core region
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
         specflux = fx[specslice]
-        specivar = 1/varfx[specslice]
+        specivar = ivarfx[specslice]
 
         #- TODO: check indexing
         i0 = ispec-specmin
@@ -498,13 +498,10 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
     #- Resolution matrix (B&S eq 12)
     R = np.outer(1.0/norm_vector, np.ones(norm_vector.size)) * Q
 
-    #- Decorrelated covariance matrix (B&S eq 13-15)
-    Cx = R.dot(Cov.dot(R.T))
-    
     #- Decorrelated flux (B&S eq 16)
     fx = R.dot(f.ravel()).reshape(f.shape)
     
-    #- Variance on f (B&S eq 13)
-    varfx = np.diagonal(Cx).reshape(fx.shape)
+    #- Inverse variance on f (B&S eq 13)
+    ivarfx = (norm_vector**2).reshape(fx.shape)
     
-    return fx, varfx, R
+    return fx, ivarfx, R
