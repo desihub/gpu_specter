@@ -187,10 +187,18 @@ def multispot(pGHx, pGHy, ghc):
     return spots
 
 def get_spots(specmin, nspec, wavelengths, psfdata):
-    '''
-    TODO: Document
+    '''Calculate PSF spots for the specified spectra and wavelengths
 
-    Returns spots, corners
+    Args:
+        specmin: first spectrum to include
+        nspec: number of spectra to evaluate spots for
+        wavelengths: 1D array of wavelengths
+        psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
+
+    Returns:
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
     '''
     nwave = len(wavelengths)
     p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
