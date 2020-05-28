@@ -153,20 +153,25 @@ def calc_pgh(ispec, wavelengths, psfparams):
     p = psfparams
 
     #- spot size (ny,nx)
-    nx = p['HSIZEX']
-    ny = p['HSIZEY']
+    nx = 2*p['HSIZEX'] + 1
+    ny = 2*p['HSIZEY'] + 1
     nwave = len(wavelengths)
-    p['X'], p['Y'], p['GHSIGX'], p['GHSIGY'] = \
-    cp.array(p['X']), cp.array(p['Y']), cp.array(p['GHSIGX']), cp.array(p['GHSIGY'])
-    xedges = cp.repeat(cp.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
-    yedges = cp.repeat(cp.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+    #- convert to cupy arrays
+    for k in ['X', 'Y', 'GHSIGX', 'GHSIGY']:
+        p[k] = cp.asarray(p[k])
 
-    #- Shift to be relative to the PSF center at 0 and normalize
-    #- by the PSF sigma (GHSIGX, GHSIGY)
-    #- xedges[nx+1, nwave]
-    #- yedges[ny+1, nwave]
-    xedges = (xedges - p['X'][ispec]%1)/p['GHSIGX'][ispec]
-    yedges = (yedges - p['Y'][ispec]%1)/p['GHSIGY'][ispec]
+    #- x and y edges of bins that span the center of the PSF spot
+    xedges = cp.repeat(cp.arange(nx+1) - nx//2 - 0.5, nwave).reshape(nx+1, nwave)
+    yedges = cp.repeat(cp.arange(ny+1) - ny//2 - 0.5, nwave).reshape(ny+1, nwave)
+
+    #- Shift to be relative to the PSF center and normalize
+    #- by the PSF sigma (GHSIGX, GHSIGY).
+    #- Note: x,y = 0,0 is center of pixel 0,0 not corner
+    #- Dimensions: xedges[nx+1, nwave], yedges[ny+1, nwave]
+    dx = (p['X'][ispec]+0.5)%1 - 0.5
+    dy = (p['Y'][ispec]+0.5)%1 - 0.5
+    xedges = ((xedges - dx)/p['GHSIGX'][ispec])
+    yedges = ((yedges - dy)/p['GHSIGY'][ispec])
 
     #- Degree of the Gauss-Hermite polynomials
     ghdegx = p['GHDEGX']
@@ -175,8 +180,8 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- Evaluate the Hermite polynomials at the pixel edges
     #- HVx[ghdegx+1, nwave, nx+1]
     #- HVy[ghdegy+1, nwave, ny+1]
-    HVx = hermevander_wrapper(xedges, ghdegx).T
-    HVy = hermevander_wrapper(yedges, ghdegy).T
+    HVx = hermevander(xedges, ghdegx).T
+    HVy = hermevander(yedges, ghdegy).T
 
     #- Evaluate the Gaussians at the pixel edges
     #- Gx[nwave, nx+1]
@@ -201,6 +206,59 @@ def calc_pgh(ispec, wavelengths, psfparams):
     pGHy[1:] = GHy[:ghdegy,:,0:ny] - GHy[:ghdegy,:,1:ny+1]
     
     return pGHx, pGHy
+
+
+@cuda.jit()
+def _multispot(pGHx, pGHy, ghc, mspots):
+    nx = pGHx.shape[-1]
+    ny = pGHy.shape[-1]
+    nwave = pGHx.shape[1]
+
+    #this is the magic step
+    iwave = cuda.grid(1)
+
+    n = pGHx.shape[0]
+    m = pGHy.shape[0]
+
+    if (0 <= iwave < nwave):
+    #yanked out the i and j loops in lieu of the cuda grid of threads
+        for i in range(pGHx.shape[0]):
+            px = pGHx[i,iwave]
+            for j in range(0, pGHy.shape[0]):
+                py = pGHy[j,iwave]
+                c = ghc[i,j,iwave]
+                for iy in range(len(py)):
+                    for ix in range(len(px)):
+                        mspots[iwave, iy, ix] += c * py[iy] * px[ix]
+
+def get_spots(specmin, nspec, wavelengths, psfdata):
+    nwave = len(wavelengths)
+    p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
+    nx = 2*p['HSIZEX']+1
+    ny = 2*p['HSIZEY']+1
+    spots = cp.zeros((nspec, nwave, ny, nx))
+    #use mark's numblocks and blocksize method
+    blocksize = 256
+    numblocks = (nwave + blocksize - 1) // blocksize
+    for ispec in range(nspec):
+        pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
+        ghc = cp.asarray(p['GH'][:,:,ispec,:])
+        mspots = cp.zeros((nwave, ny, nx)) #empty every time!
+        _multispot[numblocks, blocksize](pGHx, pGHy, ghc, mspots)
+        spots[ispec] = mspots
+
+    #- ensure positivity and normalize
+    #- TODO: should this be within multispot itself?
+    spots = spots.clip(0.0)
+    norm = cp.sum(spots, axis=(2,3))  #- norm[nspec, nwave] = sum over each spot
+    spots = (spots.T / norm.T).T      #- transpose magic for numpy array broadcasting
+
+    #- Define corners of spots
+    #- extra 0.5 is because X and Y are relative to center of pixel not edge
+    xc = np.floor(p['X'] - p['HSIZEX'] + 0.5).astype(int)
+    yc = np.floor(p['Y'] - p['HSIZEY'] + 0.5).astype(int)
+
+    return spots, (xc, yc)
 
 
 @cuda.jit()
@@ -237,6 +295,8 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     spots[ispec:ispec+nspec,iwave:iwave+nwave] touch pixels[ymin:ymax,xmin:xmax]
     """
     ny, nx = spots.shape[2:4]
+
+    # Note: transfer corners back to host
     xc = corners[0][ispec:ispec+nspec, iwave:iwave+nwave].get()
     yc = corners[1][ispec:ispec+nspec, iwave:iwave+nwave].get()
 
