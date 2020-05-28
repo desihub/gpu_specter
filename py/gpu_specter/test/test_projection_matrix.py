@@ -14,7 +14,7 @@ except ImportError:
 
 try:
     import cupy as cp
-    from numbda import cuda
+    from numba import cuda
     from gpu_specter.extract.gpu import projection_matrix as gpu_projection_matrix
     gpu_available = True
 except ImportError:

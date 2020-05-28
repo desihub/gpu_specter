@@ -4,6 +4,8 @@ the pieces have not yet been put together into a working GPU extraction
 in this branch.
 """
 
+import math
+
 import numpy as np
 import cupy as cp
 import cupyx.scipy.special
@@ -235,6 +237,7 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     xmin, xmax, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwave, spots, corners)
     A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
 
+    threads_per_block = (16, 16)
     blocks_per_grid_x = math.ceil(A.shape[0] / threads_per_block[0])
     blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
@@ -242,4 +245,4 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     _cuda_projection_matrix[blocks_per_grid, threads_per_block](
         A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
 
-    return A, xyrange
+    return A, (xmin, xmax, ymin, ymax)
