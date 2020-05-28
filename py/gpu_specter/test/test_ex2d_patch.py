@@ -104,9 +104,9 @@ class TestEx2dPatch(unittest.TestCase):
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_xp_gpu(self):
-        noisyimg_gpu = cp.asaarray(self.noisyimg)
-        imgivar_gpu = cp.asaarray(self.imgivar)
-        A4_gpu = cp.asaarray(self.A4)
+        noisyimg_gpu = cp.asarray(self.noisyimg)
+        imgivar_gpu = cp.asarray(self.imgivar)
+        A4_gpu = cp.asarray(self.A4)
 
         # Compare the "signal" decorrelation method
         flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
