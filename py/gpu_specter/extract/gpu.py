@@ -13,6 +13,8 @@ from numba import cuda
 
 from ..io import native_endian
 
+import numpy.polynomial.legendre
+
 @cuda.jit
 def _hermevander(x, deg, output_matrix):
     i = cuda.blockIdx.x

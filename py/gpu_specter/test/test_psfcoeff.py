@@ -97,7 +97,7 @@ class TestPSFCoeff(unittest.TestCase):
         for i in range(psfparams['GH'].shape[0]):
             for j in range(psfparams['GH'].shape[1]):
                 # print(f'Comparing GH-{i}-{j}')
-                ok = np.allclose(psfparams['GH'][i,j], psfparams_gpu[key])
+                ok = np.allclose(psfparams['GH'][i,j], psfparams_gpu['GH'][i,j])
                 self.assertTrue(ok, f'GH-{i}-{j}')
 
 
