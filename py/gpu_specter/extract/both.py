@@ -7,7 +7,17 @@ except ImportError:
     cupy_available = False
 
 def xp_deconvolve(pixel_values, pixel_ivar, A):
-    """
+    """Calculate the weighted linear least-squares flux solution for an observed trace.
+
+    Args:
+        pixel_values (ny*nx,): 1D array of pixel values
+        pixel_ivar (ny*nx,): 1D array of pixel inverse variances to use for weighting
+        A (ny*nx, nspec*nwave): projection matrix that transforms a 1D spectrum into a 2D image
+
+    Returns:
+        deconvolved (nspec*nwave): the best-fit 1D array of flux values
+        iCov (nspec*nwave, nspec*nwave): the correlated inverse covariance matrix of the deconvolved flux
+
     """
     try:
         xp = cp.get_array_module(A)
@@ -28,7 +38,14 @@ def xp_deconvolve(pixel_values, pixel_ivar, A):
     return deconvolved, iCov
 
 def xp_decorrelate(iCov):
-    """
+    """Calculate the decorrelated errors and resolution matrix via BS Eq 10-13
+
+    Args:
+        iCov (nspec*nwave, nspec*nwave): the inverse covariance matrix
+
+    Returns:
+        ivar (ny*nx,): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): resoultion matrix
     """
     try:
         xp = cp.get_array_module(A)
@@ -54,7 +71,15 @@ def xp_decorrelate(iCov):
     
 
 def xp_decorrelate_blocks(iCov, block_size):
-    """
+    """Calculate the decorrelated errors and resolution matrix via BS Eq 19
+
+    Args:
+        iCov (nspec*nwave, nspec*nwave): the inverse covariance matrix
+        block_size (int): size of the block corresponding to a single spectrum (i.e. nwave)
+
+    Returns:
+        ivar (ny*nx,): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): resoultion matrix
     """
     try:
         xp = cp.get_array_module(iCov)
@@ -90,7 +115,17 @@ def xp_decorrelate_blocks(iCov, block_size):
     return ivar, R
 
 def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
-    """
+    """Perform spectroperfectionism extractions returning flux, ivar, and resolution matrix
+
+    Args:
+        img (ny, nx): 2D array of image pixel values
+        imgivar (ny, nx): 2D array of independent pixel inverse variances
+        A4 (ny, nx, spex, nwave): the projection matrix
+
+    Returns:
+        flux (nspec, nwave): extracted resolution convolved flux
+        ivar (nspec, nwave): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): dense resolution matrix
     """
     assert decorrelate in ('signal', 'noise')
     ny, nx, nspec, nwave = A4.shape
