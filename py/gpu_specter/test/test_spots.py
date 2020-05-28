@@ -95,8 +95,8 @@ class TestPSFSpots(unittest.TestCase):
             xc_gpu, yc_gpu = corners_gpu
 
             self.assertTrue(cp.allclose(xc, xc_gpu))
-            self.assertTrue(cp.allclose(yx, yc_gpu))
-            self.asserEqual(spots.shape, spots_gpu.shape)
+            self.assertTrue(cp.allclose(yc, yc_gpu))
+            self.assertEqual(spots.shape, spots_gpu.shape)
             self.assertTrue(cp.allclose(spots, spots_gpu))
 
 
