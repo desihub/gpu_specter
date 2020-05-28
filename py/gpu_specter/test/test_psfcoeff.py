@@ -12,12 +12,21 @@ try:
 except ImportError:
     specter_available = False
 
+try:
+    import cupy as cp
+    from numba import cuda
+    from gpu_specter.extract.gpu import evalcoeffs as gpu_evalcoeffs
+    gpu_available = True
+except ImportError:
+    gpu_available = False
+
 class TestPSFCoeff(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.psffile = pkg_resources.resource_filename(
             'gpu_specter', 'test/data/psf-r0-00051060.fits')
+        cls.psfdata = read_psf(cls.psffile)
 
     @classmethod
     def tearDownClass(cls):
@@ -30,7 +39,7 @@ class TestPSFCoeff(unittest.TestCase):
         pass
 
     def test_basics(self):
-        psfdata = read_psf(self.psffile)
+        psfdata = self.psfdata
         for key in ('XTRACE', 'YTRACE', 'PSF'):
             self.assertTrue(key in psfdata.keys(), f'{key} is not in psfdata')
             meta = psfdata[key].meta
@@ -39,18 +48,63 @@ class TestPSFCoeff(unittest.TestCase):
 
         #- wavelengths outside original range are allowed
         meta = psfdata['PSF'].meta
+        nspec = psfdata['PSF']['COEFF'].shape[1]
         nwave = 30
         wavelengths = np.linspace(meta['WAVEMIN']-10, meta['WAVEMAX']+10, nwave)
         psfparams = evalcoeffs(psfdata, wavelengths)
+        self.assertEqual(psfparams['X'].shape, (nspec, nwave))
         psfparams = evalcoeffs(psfdata, wavelengths, specmin=0, nspec=25)
         self.assertEqual(psfparams['X'].shape, (25, nwave))
         psfparams = evalcoeffs(psfdata, wavelengths, specmin=25, nspec=5)
-        self.assertEqual(psfparams['Y'].shape, (5, nwave))        
+        self.assertEqual(psfparams['Y'].shape, (5, nwave))
+
+    @unittest.skipIf(not gpu_available, 'gpu not available')
+    def test_gpu_basics(self):
+        psfdata = self.psfdata
+
+        #- wavelengths outside original range are allowed
+        meta = psfdata['PSF'].meta
+        nspec = psfdata['PSF']['COEFF'].shape[1]
+        nwave = 30
+        wavelengths = np.linspace(meta['WAVEMIN']-10, meta['WAVEMAX']+10, nwave)
+        psfparams = gpu_evalcoeffs(psfdata, wavelengths)
+        self.assertEqual(psfparams['X'].shape, (nspec, nwave))
+        psfparams = gpu_evalcoeffs(psfdata, wavelengths, specmin=0, nspec=25)
+        self.assertEqual(psfparams['X'].shape, (25, nwave))
+        psfparams = gpu_evalcoeffs(psfdata, wavelengths, specmin=25, nspec=5)
+        self.assertEqual(psfparams['Y'].shape, (5, nwave))
+
+    @unittest.skipIf(not gpu_available, 'gpu not available')
+    def test_compare_gpu(self):
+        psfdata = self.psfdata
+        meta = psfdata['PSF'].meta
+        wavelengths = np.linspace(meta['WAVEMIN'], meta['WAVEMAX'], 30)
+        psfparams = evalcoeffs(psfdata, wavelengths)
+
+        psfparams_gpu = gpu_evalcoeffs(psfdata, wavelengths)
+
+        self.assertTrue(np.allclose(psfparams['X'], psfparams_gpu['X']))
+        self.assertTrue(np.allclose(psfparams['Y'], psfparams_gpu['Y']))
+
+        common_keys = set(psfparams.keys() & set(psfparams_gpu.keys()))
+        self.assertTrue(len(common_keys) > 0)
+
+        for key in common_keys:
+            # print(f'Comparing {key}')
+            ok = np.allclose(psfparams[key], psfparams_gpu[key])
+            self.assertTrue(ok, key)
+
+        for i in range(psfparams['GH'].shape[0]):
+            for j in range(psfparams['GH'].shape[1]):
+                # print(f'Comparing GH-{i}-{j}')
+                ok = np.allclose(psfparams['GH'][i,j], psfparams_gpu[key])
+                self.assertTrue(ok, f'GH-{i}-{j}')
+
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):
         #- gpu_specter version
-        psfdata = read_psf(self.psffile)
+        psfdata = self.psfdata
         meta = psfdata['PSF'].meta
         wavelengths = np.linspace(meta['WAVEMIN'], meta['WAVEMAX'], 30)
         psfparams = evalcoeffs(psfdata, wavelengths)
