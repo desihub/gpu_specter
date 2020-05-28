@@ -171,3 +171,75 @@ def calc_pgh(ispec, wavelengths, psfparams):
     pGHy[1:] = GHy[:ghdegy,:,0:ny] - GHy[:ghdegy,:,1:ny+1]
     
     return pGHx, pGHy
+
+
+@cuda.jit()
+def _cuda_projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
+    #this is the heart of the projection matrix calculation
+    ny, nx = spots.shape[2:4]
+    i, j = cuda.grid(2)
+    #no loops, just a boundary check
+    if (0 <= i < nspec) and (0 <= j <nwave):
+        ixc = xc[ispec+i, iwave+j] - xmin
+        iyc = yc[ispec+i, iwave+j] - ymin
+        #A[iyc:iyc+ny, ixc:ixc+nx, i, j] = spots[ispec+i,iwave+j]
+        #this fancy indexing is not allowed in numba gpu (although it is in numba cpu...)
+        #try this instead
+        for iy, y in enumerate(range(iyc,iyc+ny)):
+            for ix, x in enumerate(range(ixc,ixc+nx)):
+                temp_spot = spots[ispec+i, iwave+j][iy, ix]
+                A[y, x, i, j] += temp_spot
+
+def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
+    """
+    Find xy ranges that these spectra cover
+
+    Args:
+        ispec: starting spectrum index
+        nspec: number of spectra
+        iwave: starting wavelength index
+        nwave: number of wavelengths
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
+    Returns (xmin, xmax, ymin, ymax)
+
+    spots[ispec:ispec+nspec,iwave:iwave+nwave] touch pixels[ymin:ymax,xmin:xmax]
+    """
+    ny, nx = spots.shape[2:4]
+    xc = corners[0][ispec:ispec+nspec, iwave:iwave+nwave].get()
+    yc = corners[1][ispec:ispec+nspec, iwave:iwave+nwave].get()
+
+    xmin = np.min(xc)
+    xmax = np.max(xc) + nx
+    ymin = np.min(yc)
+    ymax = np.max(yc) + ny
+
+    return xmin, xmax, ymin, ymax
+
+def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
+    '''
+    Create the projection matrix A for p = Af
+
+    Args:
+        ispec: starting spectrum index
+        nspec: number of spectra
+        iwave: starting wavelength index
+        nwave: number of wavelengths
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
+    Returns (A[iy, ix, ispec, iwave], (xmin, xmax, ymin, ymax))
+    '''
+    xc, yc = corners
+    xmin, xmax, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwave, spots, corners)
+    A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
+
+    blocks_per_grid_x = math.ceil(A.shape[0] / threads_per_block[0])
+    blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
+    blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
+
+    _cuda_projection_matrix[blocks_per_grid, threads_per_block](
+        A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
+
+    return A, xyrange
