@@ -17,7 +17,7 @@ try:
     import cupy as cp
     from numba import cuda
     from gpu_specter.extract.gpu import get_spots as gpu_get_spots
-    gpu_available = True
+    gpu_available = cp.is_available()
 except ImportError:
     gpu_available = False
 

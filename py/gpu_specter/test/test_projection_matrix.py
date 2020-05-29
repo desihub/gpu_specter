@@ -16,7 +16,7 @@ try:
     import cupy as cp
     from numba import cuda
     from gpu_specter.extract.gpu import projection_matrix as gpu_projection_matrix
-    gpu_available = True
+    gpu_available = cp.is_available()
 except ImportError:
     gpu_available = False
 

@@ -16,7 +16,7 @@ except ImportError:
 
 try:
     import cupy as cp
-    cupy_available = True
+    cupy_available = cp.is_available()
 except ImportError:
     cupy_available = False
 
