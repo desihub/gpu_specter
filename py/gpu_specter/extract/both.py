@@ -1,10 +1,12 @@
+"""
+Tools for DESI spectroperfectionism extractions implemented in a generic fashion
+for both CPU and GPU by leveraging the compatible API of NumPy and CuPy.
+"""
+
 import numpy as np
 
-try:
-    import cupy as cp
-    cupy_available = True
-except ImportError:
-    cupy_available = False
+from ..util import get_array_module
+from .cpu import get_spec_padding
 
 def xp_deconvolve(pixel_values, pixel_ivar, A):
     """Calculate the weighted linear least-squares flux solution for an observed trace.
@@ -19,11 +21,9 @@ def xp_deconvolve(pixel_values, pixel_ivar, A):
         iCov (nspec*nwave, nspec*nwave): the correlated inverse covariance matrix of the deconvolved flux
 
     """
-    try:
-        xp = cp.get_array_module(A)
-    except NameError:
-        #- If the cupy module is unavailble, default to numpy
-        xp = np
+    xp = get_array_module(A)
+    assert xp == get_array_module(pixel_values)
+    assert xp == get_array_module(pixel_ivar)
     #- Set up the equation to solve (B&S eq 4)
     ATNinv = A.T.dot(xp.diag(pixel_ivar))
     iCov = ATNinv.dot(A)
@@ -47,11 +47,7 @@ def xp_decorrelate(iCov):
         ivar (ny*nx,): uncorrelated flux inverse variances
         R (nspec*nwave, nspec*nwave): resoultion matrix
     """
-    try:
-        xp = cp.get_array_module(A)
-    except NameError:
-        # If the cupy module is unavailble, default to numpy
-        xp = np
+    xp = get_array_module(iCov)
     # Calculate the matrix square root of iCov to diagonalize the flux errors.
     u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
     # Check that all eigenvalues are positive.
@@ -81,11 +77,7 @@ def xp_decorrelate_blocks(iCov, block_size):
         ivar (ny*nx,): uncorrelated flux inverse variances
         R (nspec*nwave, nspec*nwave): resoultion matrix
     """
-    try:
-        xp = cp.get_array_module(iCov)
-    except NameError:
-        # If the cupy module is unavailble, default to numpy
-        xp = np
+    xp = get_array_module(iCov)
     size = iCov.shape[0]
     assert size % block_size == 0
     #- Invert iCov (B&S eq 17)

@@ -6,6 +6,34 @@ import time, datetime
 
 import os, logging
 
+import numpy as np
+
+try:
+    import cupy as cp
+except ImportError:
+    pass
+
+def get_array_module(x):
+    """Returns the array module for arguments.
+
+    This function is used to implement CPU/GPU generic code. If the argument
+    is a :class:`cupy.ndarray` object, the :mod:`cupy` module is returned.
+
+    For more details see: https://docs-cupy.chainer.org/en/stable/reference/generated/cupy.get_array_module.html
+
+    Args:
+        args: array to determine whether NumPy or CuPy should be used.
+
+    Returns:
+        module: :mod:`cupy` or :mod:`numpy` is returned based on the types of
+        the arguments.
+    """
+    try:
+        return cp.get_array_module(x)
+    except NameError:
+        # If the cupy module is unavailble, default to numpy
+        return np
+
 #- subset of desiutil.log.get_logger, to avoid desiutil dependency
 _loggers = dict()
 def get_logger(level=None):
