@@ -12,6 +12,14 @@ try:
 except ImportError:
     specter_available = False
 
+try:
+    import cupy as cp
+    from numba import cuda
+    from gpu_specter.extract.gpu import projection_matrix as gpu_projection_matrix
+    gpu_available = cp.is_available()
+except ImportError:
+    gpu_available = False
+
 class TestProjectionMatrix(unittest.TestCase):
 
     @classmethod
@@ -45,6 +53,34 @@ class TestProjectionMatrix(unittest.TestCase):
             ispec=10, nspec=5, iwave=20, nwave=25, spots=spots, corners=corners)
         self.assertEqual(A4.shape[2:4], (5,25))
         self.assertEqual(A4.shape[0:2], (ymax-ymin, xmax-xmin))
+
+    @unittest.skipIf(not gpu_available, 'gpu not available')
+    def test_compare_gpu(self):
+        wavelengths = np.arange(6000.0, 6050.0, 1.0)
+        spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
+
+        spots_gpu = cp.asarray(spots)
+        corners_gpu = [cp.asarray(c) for c in corners]
+
+        #- Compare projection matrix for a few combos of spectra & waves
+        for ispec, nspec, iwave, nwave in (
+            (0, 5, 0, 25),
+            (10, 5, 20, 25),
+            (7, 3, 10, 12),
+            ):
+
+            #- cpu projection matrix
+            A4, xyrange = projection_matrix(
+                ispec=ispec, nspec=nspec, iwave=iwave, nwave=nwave, spots=spots, corners=corners)
+
+            #- gpu projection matrix
+            A4_gpu, xyrange_gpu = gpu_projection_matrix(
+                ispec=ispec, nspec=nspec, iwave=iwave, nwave=nwave, spots=spots_gpu, corners=corners_gpu)
+
+            self.assertEqual(xyrange, xyrange_gpu)
+            self.assertEqual(A4.shape, A4_gpu.shape)
+            self.assertTrue(cp.allclose(A4, A4_gpu))
+
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):

@@ -187,10 +187,18 @@ def multispot(pGHx, pGHy, ghc):
     return spots
 
 def get_spots(specmin, nspec, wavelengths, psfdata):
-    '''
-    TODO: Document
+    '''Calculate PSF spots for the specified spectra and wavelengths
 
-    Returns spots, corners
+    Args:
+        specmin: first spectrum to include
+        nspec: number of spectra to evaluate spots for
+        wavelengths: 1D array of wavelengths
+        psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
+
+    Returns:
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
     '''
     nwave = len(wavelengths)
     p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
@@ -359,12 +367,12 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        fx, varfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        fx, ivarfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4)
 
         #- Select the non-padded spectra x wavelength core region
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
         specflux = fx[specslice]
-        specivar = 1/varfx[specslice]
+        specivar = ivarfx[specslice]
 
         #- TODO: check indexing
         i0 = ispec-specmin
@@ -498,13 +506,10 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
     #- Resolution matrix (B&S eq 12)
     R = np.outer(1.0/norm_vector, np.ones(norm_vector.size)) * Q
 
-    #- Decorrelated covariance matrix (B&S eq 13-15)
-    Cx = R.dot(Cov.dot(R.T))
-    
     #- Decorrelated flux (B&S eq 16)
     fx = R.dot(f.ravel()).reshape(f.shape)
     
-    #- Variance on f (B&S eq 13)
-    varfx = np.diagonal(Cx).reshape(fx.shape)
+    #- Inverse variance on f (B&S eq 13)
+    ivarfx = (norm_vector**2).reshape(fx.shape)
     
-    return fx, varfx, R
+    return fx, ivarfx, R

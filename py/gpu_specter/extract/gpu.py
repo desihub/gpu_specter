@@ -4,6 +4,8 @@ the pieces have not yet been put together into a working GPU extraction
 in this branch.
 """
 
+import math
+
 import numpy as np
 import cupy as cp
 import cupyx.scipy.special
@@ -11,8 +13,10 @@ from numba import cuda
 
 from ..io import native_endian
 
+import numpy.polynomial.legendre
+
 @cuda.jit
-def hermevander(x, deg, output_matrix):
+def _hermevander(x, deg, output_matrix):
     i = cuda.blockIdx.x
     _, j = cuda.grid(2)
     _, stride = cuda.gridsize(2)
@@ -23,7 +27,7 @@ def hermevander(x, deg, output_matrix):
             for k in range(2, deg + 1):
                 output_matrix[i][j][k] = output_matrix[i][j][k-1]*x[i][j] - output_matrix[i][j][k-2]*(k-1)
 
-def hermevander_wrapper(x, deg):
+def hermevander(x, deg):
     """Temprorary wrapper that allocates memory and calls hermevander_gpu
     """
     if x.ndim == 1:
@@ -31,11 +35,11 @@ def hermevander_wrapper(x, deg):
     output = cp.ndarray(x.shape + (deg+1,))
     blocksize = 256
     numblocks = (x.shape[0], (x.shape[1] + blocksize - 1) // blocksize)
-    hermevander[numblocks, blocksize](x, deg, output)
+    _hermevander[numblocks, blocksize](x, deg, output)
     return cp.squeeze(output)
 
 @cuda.jit
-def legvander(x, deg, output_matrix):
+def _legvander(x, deg, output_matrix):
     i = cuda.grid(1)
     stride = cuda.gridsize(1)
     for i in range(i, x.shape[0], stride):
@@ -44,7 +48,7 @@ def legvander(x, deg, output_matrix):
         for j in range(2, deg + 1):
             output_matrix[i][j] = (output_matrix[i][j-1]*x[i]*(2*j - 1) - output_matrix[i][j-2]*(j - 1)) / j
 
-def legvander_wrapper(x, deg):
+def legvander(x, deg):
     """Temporary wrapper that allocates memory and defines grid before calling legvander.
     Probably won't be needed once cupy has the correpsponding legvander function.
 
@@ -54,13 +58,20 @@ def legvander_wrapper(x, deg):
     output = cp.ndarray((len(x), deg + 1))
     blocksize = 256
     numblocks = (len(x) + blocksize - 1) // blocksize
-    legvander[numblocks, blocksize](x, deg, output)
+    _legvander[numblocks, blocksize](x, deg, output)
     return output
 
-def evalcoeffs(wavelengths, psfdata):
+def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     '''
-    wavelengths: 1D array of wavelengths to evaluate all coefficients for all wavelengths of all spectra
-    psfdata: Table of parameter data ready from a GaussHermite format PSF file
+    evaluate PSF coefficients parameterized as Legendre polynomials
+
+    Args:
+        psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
+        wavelengths: 1D array of wavelengths
+
+    Options:
+        specmin: first spectrum to include
+        nspec: number of spectra to include (default: all)
 
     Returns a dictionary params[paramname] = value[nspec, nwave]
 
@@ -68,37 +79,56 @@ def evalcoeffs(wavelengths, psfdata):
 
         params['GH'] = value[i,j,nspec,nwave]
 
-    The dictionary also contains scalars with the recommended spot size HSIZEX, HSIZEY
-    and Gauss-Hermite degrees GHDEGX, GHDEGY (which is also derivable from the dimensions
-    of params['GH'])
+    The dictionary also contains scalars with the recommended spot size
+    2*(HSIZEX, HSIZEY)+1 and Gauss-Hermite degrees GHDEGX, GHDEGY
+    (which is also derivable from the dimensions of params['GH'])
     '''
-    # Initialization
-    wavemin, wavemax = psfdata['WAVEMIN'][0], psfdata['WAVEMAX'][0]
-    wx = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    if nspec is None:
+        nspec = psfdata['PSF']['COEFF'].shape[1]
 
-    L = legvander_wrapper(wx, psfdata.meta['LEGDEG'])
-    p = dict(WAVE=wavelengths) # p doesn't live on the gpu, but it's last-level values do
-    nparam, nspec, ndeg = psfdata['COEFF'].shape
+    p = dict(WAVE=wavelengths)
+
+    #- Evaluate X and Y which have different dimensionality from the
+    #- PSF coefficients (and might have different WAVEMIN, WAVEMAX)
+    meta = psfdata['XTRACE'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    # TODO: Implement cuda legval
+    p['X'] = cp.asarray(numpy.polynomial.legendre.legval(ww, psfdata['XTRACE']['X'][specmin:specmin+nspec].T))
+
+    meta = psfdata['YTRACE'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    # TODO: Implement cuda legval
+    p['Y'] = cp.asarray(numpy.polynomial.legendre.legval(ww, psfdata['YTRACE']['Y'][specmin:specmin+nspec].T))
+
+    #- Evaluate the remaining PSF coefficients with a shared dimensionality
+    #- and WAVEMIN, WAVEMAX
+    meta = psfdata['PSF'].meta
+    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    L = legvander(ww, meta['LEGDEG'])
+
+    nparam = psfdata['PSF']['COEFF'].shape[0]
+    ndeg = psfdata['PSF']['COEFF'].shape[2]
+
     nwave = L.shape[0]
-
-    # Init zeros
-    p['GH'] = cp.zeros((psfdata.meta['GHDEGX']+1, psfdata.meta['GHDEGY']+1, nspec, nwave))
-    # Init gpu coeff
-    coeff_gpu = cp.array(native_endian(psfdata['COEFF']))
-
-    k = 0
-    for name, coeff in zip(psfdata['PARAM'], psfdata['COEFF']):
+    nghx = meta['GHDEGX']+1
+    nghy = meta['GHDEGY']+1
+    p['GH'] = cp.zeros((nghx, nghy, nspec, nwave))
+    coeff_gpu = cp.array(native_endian(psfdata['PSF']['COEFF']))
+    for name, coeff in zip(psfdata['PSF']['PARAM'], coeff_gpu):
         name = name.strip()
+        coeff = coeff[specmin:specmin+nspec]
         if name.startswith('GH-'):
             i, j = map(int, name.split('-')[1:3])
-            p['GH'][i,j] = L.dot(coeff_gpu[k].T).T
+            p['GH'][i,j] = L.dot(coeff.T).T
         else:
-            p[name] = L.dot(coeff_gpu[k].T).T
-        k += 1
+            p[name] = L.dot(coeff.T).T
 
     #- Include some additional keywords that we'll need
     for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
-        p[key] = psfdata.meta[key]
+        p[key] = meta[key]
 
     return p
 
@@ -123,20 +153,25 @@ def calc_pgh(ispec, wavelengths, psfparams):
     p = psfparams
 
     #- spot size (ny,nx)
-    nx = p['HSIZEX']
-    ny = p['HSIZEY']
+    nx = 2*p['HSIZEX'] + 1
+    ny = 2*p['HSIZEY'] + 1
     nwave = len(wavelengths)
-    p['X'], p['Y'], p['GHSIGX'], p['GHSIGY'] = \
-    cp.array(p['X']), cp.array(p['Y']), cp.array(p['GHSIGX']), cp.array(p['GHSIGY'])
-    xedges = cp.repeat(cp.arange(nx+1) - nx//2, nwave).reshape(nx+1, nwave)
-    yedges = cp.repeat(cp.arange(ny+1) - ny//2, nwave).reshape(ny+1, nwave)
+    #- convert to cupy arrays
+    for k in ['X', 'Y', 'GHSIGX', 'GHSIGY']:
+        p[k] = cp.asarray(p[k])
 
-    #- Shift to be relative to the PSF center at 0 and normalize
-    #- by the PSF sigma (GHSIGX, GHSIGY)
-    #- xedges[nx+1, nwave]
-    #- yedges[ny+1, nwave]
-    xedges = (xedges - p['X'][ispec]%1)/p['GHSIGX'][ispec]
-    yedges = (yedges - p['Y'][ispec]%1)/p['GHSIGY'][ispec]
+    #- x and y edges of bins that span the center of the PSF spot
+    xedges = cp.repeat(cp.arange(nx+1) - nx//2 - 0.5, nwave).reshape(nx+1, nwave)
+    yedges = cp.repeat(cp.arange(ny+1) - ny//2 - 0.5, nwave).reshape(ny+1, nwave)
+
+    #- Shift to be relative to the PSF center and normalize
+    #- by the PSF sigma (GHSIGX, GHSIGY).
+    #- Note: x,y = 0,0 is center of pixel 0,0 not corner
+    #- Dimensions: xedges[nx+1, nwave], yedges[ny+1, nwave]
+    dx = (p['X'][ispec]+0.5)%1 - 0.5
+    dy = (p['Y'][ispec]+0.5)%1 - 0.5
+    xedges = ((xedges - dx)/p['GHSIGX'][ispec])
+    yedges = ((yedges - dy)/p['GHSIGY'][ispec])
 
     #- Degree of the Gauss-Hermite polynomials
     ghdegx = p['GHDEGX']
@@ -145,8 +180,8 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- Evaluate the Hermite polynomials at the pixel edges
     #- HVx[ghdegx+1, nwave, nx+1]
     #- HVy[ghdegy+1, nwave, ny+1]
-    HVx = hermevander_wrapper(xedges, ghdegx).T
-    HVy = hermevander_wrapper(yedges, ghdegy).T
+    HVx = hermevander(xedges, ghdegx).T
+    HVy = hermevander(yedges, ghdegy).T
 
     #- Evaluate the Gaussians at the pixel edges
     #- Gx[nwave, nx+1]
@@ -171,3 +206,144 @@ def calc_pgh(ispec, wavelengths, psfparams):
     pGHy[1:] = GHy[:ghdegy,:,0:ny] - GHy[:ghdegy,:,1:ny+1]
     
     return pGHx, pGHy
+
+
+@cuda.jit()
+def _multispot(pGHx, pGHy, ghc, mspots):
+    nx = pGHx.shape[-1]
+    ny = pGHy.shape[-1]
+    nwave = pGHx.shape[1]
+
+    #this is the magic step
+    iwave = cuda.grid(1)
+
+    n = pGHx.shape[0]
+    m = pGHy.shape[0]
+
+    if (0 <= iwave < nwave):
+    #yanked out the i and j loops in lieu of the cuda grid of threads
+        for i in range(pGHx.shape[0]):
+            px = pGHx[i,iwave]
+            for j in range(0, pGHy.shape[0]):
+                py = pGHy[j,iwave]
+                c = ghc[i,j,iwave]
+                for iy in range(len(py)):
+                    for ix in range(len(px)):
+                        mspots[iwave, iy, ix] += c * py[iy] * px[ix]
+
+def get_spots(specmin, nspec, wavelengths, psfdata):
+    '''Calculate PSF spots for the specified spectra and wavelengths
+
+    Args:
+        specmin: first spectrum to include
+        nspec: number of spectra to evaluate spots for
+        wavelengths: 1D array of wavelengths
+        psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
+
+    Returns:
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
+    '''
+    nwave = len(wavelengths)
+    p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
+    nx = 2*p['HSIZEX']+1
+    ny = 2*p['HSIZEY']+1
+    spots = cp.zeros((nspec, nwave, ny, nx))
+    #use mark's numblocks and blocksize method
+    blocksize = 256
+    numblocks = (nwave + blocksize - 1) // blocksize
+    for ispec in range(nspec):
+        pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
+        ghc = cp.asarray(p['GH'][:,:,ispec,:])
+        mspots = cp.zeros((nwave, ny, nx)) #empty every time!
+        _multispot[numblocks, blocksize](pGHx, pGHy, ghc, mspots)
+        spots[ispec] = mspots
+
+    #- ensure positivity and normalize
+    #- TODO: should this be within multispot itself?
+    spots = spots.clip(0.0)
+    norm = cp.sum(spots, axis=(2,3))  #- norm[nspec, nwave] = sum over each spot
+    spots = (spots.T / norm.T).T      #- transpose magic for numpy array broadcasting
+
+    #- Define corners of spots
+    #- extra 0.5 is because X and Y are relative to center of pixel not edge
+    xc = np.floor(p['X'] - p['HSIZEX'] + 0.5).astype(int)
+    yc = np.floor(p['Y'] - p['HSIZEY'] + 0.5).astype(int)
+
+    return spots, (xc, yc)
+
+
+@cuda.jit()
+def _cuda_projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
+    #this is the heart of the projection matrix calculation
+    ny, nx = spots.shape[2:4]
+    i, j = cuda.grid(2)
+    #no loops, just a boundary check
+    if (0 <= i < nspec) and (0 <= j <nwave):
+        ixc = xc[ispec+i, iwave+j] - xmin
+        iyc = yc[ispec+i, iwave+j] - ymin
+        #A[iyc:iyc+ny, ixc:ixc+nx, i, j] = spots[ispec+i,iwave+j]
+        #this fancy indexing is not allowed in numba gpu (although it is in numba cpu...)
+        #try this instead
+        for iy, y in enumerate(range(iyc,iyc+ny)):
+            for ix, x in enumerate(range(ixc,ixc+nx)):
+                temp_spot = spots[ispec+i, iwave+j][iy, ix]
+                A[y, x, i, j] += temp_spot
+
+def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
+    """
+    Find xy ranges that these spectra cover
+
+    Args:
+        ispec: starting spectrum index
+        nspec: number of spectra
+        iwave: starting wavelength index
+        nwave: number of wavelengths
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
+    Returns (xmin, xmax, ymin, ymax)
+
+    spots[ispec:ispec+nspec,iwave:iwave+nwave] touch pixels[ymin:ymax,xmin:xmax]
+    """
+    ny, nx = spots.shape[2:4]
+
+    # Note: transfer corners back to host
+    xc = corners[0][ispec:ispec+nspec, iwave:iwave+nwave].get()
+    yc = corners[1][ispec:ispec+nspec, iwave:iwave+nwave].get()
+
+    xmin = np.min(xc)
+    xmax = np.max(xc) + nx
+    ymin = np.min(yc)
+    ymax = np.max(yc) + ny
+
+    return xmin, xmax, ymin, ymax
+
+def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
+    '''
+    Create the projection matrix A for p = Af
+
+    Args:
+        ispec: starting spectrum index
+        nspec: number of spectra
+        iwave: starting wavelength index
+        nwave: number of wavelengths
+        spots: 4D array[ispec, iwave, ny, nx] of PSF spots
+        corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
+
+    Returns (A[iy, ix, ispec, iwave], (xmin, xmax, ymin, ymax))
+    '''
+    xc, yc = corners
+    xmin, xmax, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwave, spots, corners)
+    A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
+
+    threads_per_block = (16, 16)
+    blocks_per_grid_x = math.ceil(A.shape[0] / threads_per_block[0])
+    blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
+    blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
+
+    _cuda_projection_matrix[blocks_per_grid, threads_per_block](
+        A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
+
+    return A, (xmin, xmax, ymin, ymax)

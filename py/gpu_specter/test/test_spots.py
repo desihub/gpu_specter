@@ -13,6 +13,15 @@ try:
 except ImportError:
     specter_available = False
 
+try:
+    import cupy as cp
+    from numba import cuda
+    from gpu_specter.extract.gpu import get_spots as gpu_get_spots
+    gpu_available = cp.is_available()
+except ImportError:
+    gpu_available = False
+
+
 class TestPSFSpots(unittest.TestCase):
 
     @classmethod
@@ -75,6 +84,21 @@ class TestPSFSpots(unittest.TestCase):
                 msg = f'ispec={ispec}, iwave={iwave}'
                 self.assertTrue((-0.7 <= dx) and (dx < 0.7), msg + f' dx={dx}')
                 self.assertTrue((-0.7 <= dy) and (dy < 0.7), msg + f' dy={dy}')
+
+    @unittest.skipIf(not gpu_available, 'gpu not available')
+    def test_compare_gpu(self):
+        for ispec in np.linspace(0, 499, 20).astype(int):
+            spots, corners = get_spots(ispec, 1, self.wavelengths, self.psfdata)
+            xc, yc = corners
+
+            spots_gpu, corners_gpu = gpu_get_spots(ispec, 1, self.wavelengths, self.psfdata)
+            xc_gpu, yc_gpu = corners_gpu
+
+            self.assertTrue(cp.allclose(xc, xc_gpu))
+            self.assertTrue(cp.allclose(yc, yc_gpu))
+            self.assertEqual(spots.shape, spots_gpu.shape)
+            self.assertTrue(cp.allclose(spots, spots_gpu))
+
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):
