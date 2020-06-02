@@ -8,6 +8,7 @@ import numpy as np
 
 from gpu_specter.util import get_logger
 from gpu_specter.util import get_array_module
+from gpu_specter.util import Timer
 
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
@@ -130,6 +131,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         bundle: (flux, ivar, R) tuple
 
     """
+    timer = Timer()
 
     log = get_logger(loglevel)
 
@@ -137,6 +139,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if gpu:
         from gpu_specter.extract.gpu import \
                 get_spots, projection_matrix, ex2d_padded
+        # move image to device
+        # TODO: don't do this for every bundle!
         import cupy as cp
         image = cp.asarray(image)
         imageivar = cp.asarray(imageivar)
@@ -147,6 +151,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     nwave = len(wave)
     ndiag = psf['PSF'].meta['HSIZEY']
 
+    timer.split('init')
+
     #- Cache PSF spots for all wavelengths for spectra in this bundle
     spots = corners = None
     if rank == 0:
@@ -156,6 +162,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if comm is not None:
         spots = comm.bcast(spots, root=0)
         corners = comm.bcast(corners, root=0)
+
+    timer.split('spots/corners')
 
     #- Size of the individual spots
     spot_nx, spot_ny = spots.shape[2:4]
@@ -169,6 +177,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                           nspectra_per_patch, nwavestep, wavepad,
                           nwave, bundlesize, ndiag)
             patches.append(patch)
+
+    timer.split('organize patches')
 
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
@@ -192,9 +202,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     else:
         rankresults = [results,]
 
+    timer.split('extracted patches')
+
     bundle = None
     if rank == 0:
         bundle = assemble_bundle_patches(rankresults)
+        timer.split('assembled patches')
+        timer.log_splits(log)
 
     if gpu:
         bundle = (cp.asnumpy(x) for x in bundle)
@@ -227,6 +241,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
     """
+
+    timer = Timer()
 
     log = get_logger(loglevel)
 
@@ -266,12 +282,15 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
 
+    timer.split('init')
+
     #- Work bundle by bundle
     for bspecmin in range(specmin, specmin+nspec, bundlesize):
         if rank == 0:
             log.info(f'Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
             sys.stdout.flush()
 
+        timer.split(f'starting bundle {bspecmin}')
         bundle = extract_bundle(
             img['image'], img['ivar'], psf,
             wave, fullwave, bspecmin,
@@ -279,6 +298,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             nwavestep=nwavestep, wavepad=wavepad,
             comm=comm, rank=rank, size=size, gpu=gpu
         )
+        timer.split(f'extracted bundle {bspecmin}')
 
         #- for good measure, have other ranks wait for rank 0
         if comm is not None:
@@ -292,9 +312,13 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             specivar[specslice, :] = ivar
             Rdiags[specslice, :, :] = R
 
+        timer.split(f'saved bundle {bspecmin}')
+
     #- Finalize and write output
     frame = None
     if rank == 0:
+
+        timer.split(f'finished all bundles')
 
         #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
@@ -316,6 +340,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             fibermaphdr = img['fibermaphdr'],
             chi2pix = np.ones(specflux.shape),
         )
+
+        timer.split(f'finished frame')
+        timer.log_splits(log)
 
     return frame
 
