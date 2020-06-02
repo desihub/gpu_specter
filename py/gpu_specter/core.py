@@ -215,7 +215,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     bundle = None
     if rank == 0:
         if gpu:
-            cp.cuda.nvtx.RangePush('assemble patchs on device')
+            cp.cuda.nvtx.RangePush('assemble patches on device')
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
             cp.cuda.nvtx.RangePop()
@@ -224,7 +224,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     if gpu:
         cp.cuda.nvtx.RangePush('copy bundle results to host')
-        bundle = (cp.asnumpy(x) for x in bundle)
+        bundle = list(cp.asnumpy(x) for x in bundle)
         cp.cuda.nvtx.RangePop()
         cp.cuda.nvtx.RangePop()
 
