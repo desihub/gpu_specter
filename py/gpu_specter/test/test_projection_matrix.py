@@ -56,7 +56,7 @@ class TestProjectionMatrix(unittest.TestCase):
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
-        wavelengths = np.arange(6000.0, 6050.0, 1.0)
+        wavelengths = np.arange(5990.0, 6060.0, 1.0)
         spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
 
         spots_gpu = cp.asarray(spots)
@@ -64,9 +64,10 @@ class TestProjectionMatrix(unittest.TestCase):
 
         #- Compare projection matrix for a few combos of spectra & waves
         for ispec, nspec, iwave, nwave in (
-            (0, 5, 0, 25),
-            (10, 5, 20, 25),
-            (7, 3, 10, 12),
+            (0, 5, 10, 25),
+            (10, 5, 30, 25),
+            (7, 3, 20, 12),
+            (0, 6, 0, 70),
             ):
 
             #- cpu projection matrix
@@ -86,7 +87,7 @@ class TestProjectionMatrix(unittest.TestCase):
     def test_compare_specter(self):
         
         #- gpu_specter
-        wavelengths = np.arange(6000.0, 6050.0, 1.0)
+        wavelengths = np.arange(5990.0, 6060.0, 1.0)
         spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
 
         #- Load specter PSF
@@ -94,9 +95,10 @@ class TestProjectionMatrix(unittest.TestCase):
         
         #- Compare projection matrix for a few combos of spectra & waves
         for ispec, nspec, iwave, nwave in (
-            (0, 5, 0, 25),
-            (10, 5, 20, 25),
-            (7, 3, 10, 12),
+            (0, 5, 10, 25),
+            (10, 5, 30, 25),
+            (7, 3, 20, 12),
+            (0, 6, 0, 70),
             ):
         
             A4, xyrange = projection_matrix(
