@@ -371,29 +371,26 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     Options:
         bundlesize: size of fiber bundles; padding not needed on their edges
     """
-    timer = Timer()
+    # timer = Timer()
 
     specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
 
     #- Total number of wavelengths to be extracted, including padding
     nwavetot = nwave+2*wavepad
 
-    cuda.synchronize()
-    timer.split('init')
+    # timer.split('init')
 
     #- Get the projection matrix for the full wavelength range with padding
     A4, xyrange = projection_matrix(specmin, nspecpad,
         iwave-wavepad, nwave+2*wavepad, spots, corners)
-    cuda.synchronize()
-    timer.split('projection_matrix')
+    # timer.split('projection_matrix')
 
     xmin, xmax, ypadmin, ypadmax = xyrange
 
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
     xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
-    cuda.synchronize()
-    timer.split('get_xyrange')
+    # timer.split('get_xyrange')
 
     ypadlo = ymin - ypadmin
     ypadhi = ypadmax - ymax
@@ -412,11 +409,9 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        cuda.synchronize()
-        timer.split('ready for extraction')
+        # timer.split('ready for extraction')
         fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
-        cuda.synchronize()
-        timer.split('extracted patch')
+        # timer.split('extracted patch')
 
         #- Select the non-padded spectra x wavelength core region
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
@@ -434,8 +429,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
             for j in range(wavepad,wavepad+nwave):
                 # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
                 Rdiags[i-i0, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
-        cuda.synchronize()
-        timer.split('saved Rdiags')
+        # timer.split('saved Rdiags')
 
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
@@ -449,8 +443,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         ivar = specivar,
         Rdiags = Rdiags,
     )
-    cuda.synchronize()
-    timer.split('done')
-    timer.print_splits()
+    # timer.split('done')
+    # timer.print_splits()
 
     return result
