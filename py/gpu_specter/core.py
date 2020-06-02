@@ -197,12 +197,14 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                              bundlesize=bundlesize)
         results.append( (patch, result) )
 
+    timer.split('extracted patches')
+
     if comm is not None:
         rankresults = comm.gather(results, root=0)
     else:
         rankresults = [results,]
 
-    timer.split('extracted patches')
+    timer.split('gathered patches')
 
     bundle = None
     if rank == 0:

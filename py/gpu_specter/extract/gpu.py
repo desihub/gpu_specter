@@ -378,12 +378,13 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     #- Total number of wavelengths to be extracted, including padding
     nwavetot = nwave+2*wavepad
 
+    cuda.synchronize()
     timer.split('init')
 
     #- Get the projection matrix for the full wavelength range with padding
     A4, xyrange = projection_matrix(specmin, nspecpad,
         iwave-wavepad, nwave+2*wavepad, spots, corners)
-
+    cuda.synchronize()
     timer.split('projection_matrix')
 
     xmin, xmax, ypadmin, ypadmax = xyrange
@@ -391,7 +392,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
     xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
-
+    cuda.synchronize()
     timer.split('get_xyrange')
 
     ypadlo = ymin - ypadmin
@@ -411,8 +412,10 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
+        cuda.synchronize()
         timer.split('ready for extraction')
         fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        cuda.synchronize()
         timer.split('extracted patch')
 
         #- Select the non-padded spectra x wavelength core region
@@ -431,6 +434,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
             for j in range(wavepad,wavepad+nwave):
                 # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
                 Rdiags[i-i0, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
+        cuda.synchronize()
         timer.split('saved Rdiags')
 
     else:
@@ -445,6 +449,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         ivar = specivar,
         Rdiags = Rdiags,
     )
+    cuda.synchronize()
     timer.split('done')
     timer.print_splits()
 
