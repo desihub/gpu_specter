@@ -5,6 +5,7 @@ for both CPU and GPU by leveraging the compatible API of NumPy and CuPy.
 
 import numpy as np
 
+from ..util import Timer
 from ..util import get_array_module
 from .cpu import get_spec_padding
 
@@ -119,6 +120,7 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
         ivar (nspec, nwave): uncorrelated flux inverse variances
         R (nspec*nwave, nspec*nwave): dense resolution matrix
     """
+    timer = Timer()
     assert decorrelate in ('signal', 'noise')
     ny, nx, nspec, nwave = A4.shape
     assert img.shape == (ny, nx)
@@ -126,16 +128,21 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     pixel_values = img.ravel()
     pixel_ivar = ivar.ravel()
     A = A4.reshape(ny*nx, nspec*nwave)
+    timer.split('init')
     # Deconvole fiber traces
     deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A)
+    timer.split('deconvolve')
     # Calculate the decorrelated errors and resolution matrix.
     if decorrelate == 'signal':
-        ivar, resolution = xp_decorrelate_blocks(iCov, nwave)
+        fluxivar, resolution = xp_decorrelate_blocks(iCov, nwave)
     elif decorrelate == 'noise':
-        ivar, resolution = xp_decorrelate(iCov)
+        fluxivar, resolution = xp_decorrelate(iCov)
     else:
         raise ValueError(f'{decorrelate} is not a valid value for decorrelate')
+    timer.split('decorrelate')
     # Convolve the reduced flux (BS eq 16)
     flux = resolution.dot(deconvolved).reshape(nspec, nwave)
-    ivar = ivar.reshape(nspec, nwave)
-    return flux, ivar, resolution
+    fluxivar = fluxivar.reshape(nspec, nwave)
+    timer.split('reconvolve')
+    timer.print_splits()
+    return flux, fluxivar, resolution
