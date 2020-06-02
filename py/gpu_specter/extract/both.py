@@ -9,7 +9,6 @@ from ..util import Timer
 from ..util import get_array_module
 from .cpu import get_spec_padding
 
-
 def safe_range_push(xp, name):
     if xp.__name__ == 'cupy':
         xp.cuda.nvtx.RangePush(name)
@@ -96,7 +95,7 @@ def xp_decorrelate_blocks(iCov, block_size):
     size = iCov.shape[0]
     assert size % block_size == 0
     #- Invert iCov (B&S eq 17)
-    safe_range_push(xp, 'iCov eigh decompose')
+    safe_range_push(xp, 'eigh iCov')
     u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
     safe_range_pop(xp)
     assert xp.all(u > 0), 'Found some negative iCov eigenvalues.'
@@ -106,17 +105,21 @@ def xp_decorrelate_blocks(iCov, block_size):
     C = (v * (1.0/u)).dot(v.T)
     safe_range_pop(xp)
     #- Calculate C^-1 = QQ (B&S eq 17-19)
-    safe_range_push(xp, 'C^-1 = QQ by block')
+    safe_range_push(xp, 'C^-1 = QQ')
     Q = xp.zeros_like(iCov)
     #- Proceed one block at a time
     for i in range(0, size, block_size):
         s = np.s_[i:i+block_size, i:i+block_size]
         #- Invert this block
+        safe_range_push(xp, 'eigh block')
         bu, bv = xp.linalg.eigh(C[s])
+        safe_range_pop(xp)
         assert xp.all(bu > 0), 'Found some negative iCov eigenvalues.'
         # Check that the eigenvectors are orthonormal so that vt.v = 1
         assert xp.allclose(xp.eye(len(bu)), bv.T.dot(bv))
+        safe_range_push(xp, 'compose block')
         bQ = (bv * xp.sqrt(1.0/bu)).dot(bv.T)
+        safe_range_pop(xp)
         Q[s] = bQ
     safe_range_pop(xp)
     #- Calculate the corresponding resolution matrix and diagonal flux errors. (BS Eq 11-13)
@@ -144,7 +147,7 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     """
     # timer = Timer()
     xp = get_array_module(A4)
-    safe_range_push(xp, 'patch init')
+    safe_range_push(xp, 'xp_ex2d_patch')
     assert decorrelate in ('signal', 'noise')
     ny, nx, nspec, nwave = A4.shape
     assert img.shape == (ny, nx)
@@ -152,7 +155,6 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     pixel_values = img.ravel()
     pixel_ivar = ivar.ravel()
     A = A4.reshape(ny*nx, nspec*nwave)
-    safe_range_pop(xp)
     # timer.split('init')
     # Deconvole fiber traces
     safe_range_push(xp, 'deconvolve')
@@ -176,4 +178,5 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     safe_range_pop(xp)
     # timer.split('reconvolve')
     # timer.print_splits()
+    safe_range_pop(xp)
     return flux, fluxivar, resolution
