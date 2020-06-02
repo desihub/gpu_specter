@@ -142,8 +142,11 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         # move image to device
         # TODO: don't do this for every bundle!
         import cupy as cp
+        cp.cuda.nvtx.RangePush(f'bundle {bspecmin}')
+        cp.cuda.nvtx.RangePush('copy image, imageivar to device')
         image = cp.asarray(image)
         imageivar = cp.asarray(imageivar)
+        cp.cuda.nvtx.RangePop()
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, projection_matrix, ex2d_padded
@@ -156,8 +159,11 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- Cache PSF spots for all wavelengths for spectra in this bundle
     spots = corners = None
     if rank == 0:
+        if gpu:
+            cp.cuda.nvtx.RangePush('get_spots')
         spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
-    
+        if gpu:
+            cp.cuda.nvtx.RangePop()
     #- TODO: it might be faster for all ranks to calculate instead of bcast
     if comm is not None:
         spots = comm.bcast(spots, root=0)
@@ -208,12 +214,19 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     bundle = None
     if rank == 0:
+        if gpu:
+            cp.cuda.nvtx.RangePush('assemble patchs on device')
         bundle = assemble_bundle_patches(rankresults)
+        if gpu:
+            cp.cuda.nvtx.RangePop()
         timer.split('assembled patches')
         timer.log_splits(log)
 
     if gpu:
+        cp.cuda.nvtx.RangePush('copy bundle results to host')
         bundle = (cp.asnumpy(x) for x in bundle)
+        cp.cuda.nvtx.RangePop()
+        cp.cuda.nvtx.RangePop()
 
     return bundle
 
