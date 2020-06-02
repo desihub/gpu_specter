@@ -7,6 +7,7 @@ import sys
 import numpy as np
 
 from gpu_specter.util import get_logger
+from gpu_specter.util import get_array_module
 
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
@@ -80,10 +81,12 @@ def assemble_bundle_patches(rankresults):
     bundlesize = patch.bundlesize
     ndiag = patch.ndiag
 
-    #- Allocate output ar`rays to fill
-    specflux = np.zeros((bundlesize, nwave))
-    specivar = np.zeros((bundlesize, nwave))
-    Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
+    xp = get_array_module(allresults[0][1]['flux'])
+
+    #- Allocate output arrays to fill
+    specflux = xp.zeros((bundlesize, nwave))
+    specivar = xp.zeros((bundlesize, nwave))
+    Rdiags = xp.zeros((bundlesize, 2*ndiag+1, nwave))
 
     #- Now put these into the final arrays
     for patch, result in allresults:
@@ -134,6 +137,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if gpu:
         from gpu_specter.extract.gpu import \
                 get_spots, projection_matrix, ex2d_padded
+        import cupy as cp
+        image = cp.asarray(image)
+        imageivar = cp.asarray(imageivar)
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, projection_matrix, ex2d_padded
@@ -189,6 +195,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     bundle = None
     if rank == 0:
         bundle = assemble_bundle_patches(rankresults)
+
+    if gpu:
+        bundle = (cp.asnumpy(x) for x in bundle)
 
     return bundle
 
