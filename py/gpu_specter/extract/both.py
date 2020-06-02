@@ -32,10 +32,11 @@ def xp_deconvolve(pixel_values, pixel_ivar, A):
     #- Solve the linear least-squares problem.
     #- Force rcond to be the same when using cupy/numpy 
     #- See: https://github.com/numpy/numpy/blob/v1.18.4/numpy/linalg/linalg.py#L2247
-    rcond = np.core.finfo(iCov.dtype).eps * max(iCov.shape)
-    deconvolved, res, rank, sing = xp.linalg.lstsq(iCov, ATNinv.dot(pixel_values), rcond=rcond)
-    if rank < len(deconvolved):
-        print('WARNING: deconvolved inverse-covariance is not positive definite.')
+    # rcond = np.core.finfo(iCov.dtype).eps * max(iCov.shape)
+    # deconvolved, res, rank, sing = xp.linalg.lstsq(iCov, ATNinv.dot(pixel_values), rcond=rcond)
+    # if rank < len(deconvolved):
+    #     print('WARNING: deconvolved inverse-covariance is not positive definite.')
+    deconvolved = xp.linalg.solve(iCov, ATNinv.dot(pixel_values))
     return deconvolved, iCov
 
 def xp_decorrelate(iCov):
