@@ -195,12 +195,18 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         #- Always extract the same patch size (more efficient for GPU
         #- memory transfer) then decide post-facto whether to keep it all
 
+        if gpu:
+            cp.cuda.nvtx.RangePush('ex2d_padded')
+
         result = ex2d_padded(image, imageivar,
                              patch.ispec-bspecmin, patch.nspectra_per_patch,
                              patch.iwave, patch.nwavestep,
                              spots, corners,
                              wavepad=patch.wavepad,
                              bundlesize=bundlesize)
+        if gpu:
+            cp.cuda.nvtx.RangePop()
+
         results.append( (patch, result) )
 
     timer.split('extracted patches')

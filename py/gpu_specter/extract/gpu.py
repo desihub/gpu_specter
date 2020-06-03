@@ -381,15 +381,19 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     # timer.split('init')
 
     #- Get the projection matrix for the full wavelength range with padding
+    cp.cuda.nvtx.RangePush('projection_matrix')
     A4, xyrange = projection_matrix(specmin, nspecpad,
         iwave-wavepad, nwave+2*wavepad, spots, corners)
+    cp.cuda.nvtx.RangePop()
     # timer.split('projection_matrix')
 
     xmin, xmax, ypadmin, ypadmax = xyrange
 
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
+    cp.cuda.nvtx.RangePush('get_xyrange')
     xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+    cp.cuda.nvtx.RangePop()
     # timer.split('get_xyrange')
 
     ypadlo = ymin - ypadmin
@@ -405,15 +409,20 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
     ndiag = spots.shape[2]//2
+    cp.cuda.nvtx.RangePush('Rdiags allocation')
     Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
+    cp.cuda.nvtx.RangePop()
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
         # timer.split('ready for extraction')
+        cp.cuda.nvtx.RangePush('extract patch')
         fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        cp.cuda.nvtx.RangePop()
         # timer.split('extracted patch')
 
         #- Select the non-padded spectra x wavelength core region
+        cp.cuda.nvtx.RangePush('select slices to keep')
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
         specflux = fx[specslice]
         specivar = ivarfx[specslice]
@@ -430,6 +439,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
                 # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
                 Rdiags[i-i0, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
         # timer.split('saved Rdiags')
+        cp.cuda.nvtx.RangePop()
 
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
