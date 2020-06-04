@@ -424,21 +424,24 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         #- Select the non-padded spectra x wavelength core region
         cp.cuda.nvtx.RangePush('select slices to keep')
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
+        cp.cuda.nvtx.RangePush('slice flux')
         specflux = fx[specslice]
+        cp.cuda.nvtx.RangePop()
+        cp.cuda.nvtx.RangePush('slice ivar')
         specivar = ivarfx[specslice]
+        cp.cuda.nvtx.RangePop()
 
-        #- TODO: check indexing
+        cp.cuda.nvtx.RangePush('slice R')
+        mask = (
+            ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
+            cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
+        )
         i0 = ispec-specmin
-        for i in np.arange(i0, i0+nspec):
-            #- subregion of R for this spectrum
+        for i in range(i0, i0+nspec):
             ii = slice(nwavetot*i, nwavetot*(i+1))
-            Rx = R[ii, ii]
-
-            #- subregion of non-padded wavelengths for this spectrum
-            for j in range(wavepad,wavepad+nwave):
-                # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
-                Rdiags[i-i0, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
+            Rdiags[i-i0] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
         # timer.split('saved Rdiags')
+        cp.cuda.nvtx.RangePop()
         cp.cuda.nvtx.RangePop()
 
     else:
@@ -448,11 +451,13 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         specivar = cp.zeros((nspec, nwave))
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
+    cp.cuda.nvtx.RangePush('prepare result')
     result = dict(
         flux = specflux,
         ivar = specivar,
         Rdiags = Rdiags,
     )
+    cp.cuda.nvtx.RangePop()
     # timer.split('done')
     # timer.print_splits()
 
