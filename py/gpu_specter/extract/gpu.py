@@ -12,6 +12,7 @@ import cupyx.scipy.special
 from numba import cuda
 
 from ..io import native_endian
+from ..util import Timer
 
 import numpy.polynomial.legendre
 
@@ -339,11 +340,125 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
 
     threads_per_block = (16, 16)
-    blocks_per_grid_x = math.ceil(A.shape[0] / threads_per_block[0])
-    blocks_per_grid_y = math.ceil(A.shape[1] / threads_per_block[1])
+    blocks_per_grid_y = math.ceil(A.shape[0] / threads_per_block[0])
+    blocks_per_grid_x = math.ceil(A.shape[1] / threads_per_block[1])
     blocks_per_grid = (blocks_per_grid_x, blocks_per_grid_y)
 
     _cuda_projection_matrix[blocks_per_grid, threads_per_block](
         A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots)
 
     return A, (xmin, xmax, ymin, ymax)
+
+from .cpu import get_spec_padding
+from .both import xp_ex2d_patch
+
+def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
+                wavepad, bundlesize=25):
+    """
+    Extracted a patch with border padding, but only return results for patch
+
+    Args:
+        image: full image (not trimmed to a particular xy range)
+        imageivar: image inverse variance (same dimensions as image)
+        ispec: starting spectrum index relative to `spots` indexing
+        nspec: number of spectra to extract (not including padding)
+        iwave: starting wavelength index
+        nwave: number of wavelengths to extract (not including padding)
+        spots: array[nspec, nwave, ny, nx] pre-evaluated PSF spots
+        corners: tuple of arrays xcorners[nspec, nwave], ycorners[nspec, nwave]
+        wavepad: number of extra wave bins to extract (and discard) on each end
+
+    Options:
+        bundlesize: size of fiber bundles; padding not needed on their edges
+    """
+    # timer = Timer()
+
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+
+    #- Total number of wavelengths to be extracted, including padding
+    nwavetot = nwave+2*wavepad
+
+    # timer.split('init')
+
+    #- Get the projection matrix for the full wavelength range with padding
+    cp.cuda.nvtx.RangePush('projection_matrix')
+    A4, xyrange = projection_matrix(specmin, nspecpad,
+        iwave-wavepad, nwave+2*wavepad, spots, corners)
+    cp.cuda.nvtx.RangePop()
+    # timer.split('projection_matrix')
+
+    xmin, xmax, ypadmin, ypadmax = xyrange
+
+    #- But we only want to use the pixels covered by the original wavelengths
+    #- TODO: this unnecessarily also re-calculates xranges
+    cp.cuda.nvtx.RangePush('get_xyrange')
+    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+    cp.cuda.nvtx.RangePop()
+    # timer.split('get_xyrange')
+
+    ypadlo = ymin - ypadmin
+    ypadhi = ypadmax - ymax
+    A4 = A4[ypadlo:-ypadhi]
+
+    #- Number of image pixels in y and x
+    ny, nx = A4.shape[0:2]
+
+    #- Check dimensions
+    assert A4.shape[2] == nspecpad
+    assert A4.shape[3] == nwave + 2*wavepad
+
+    #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+    ndiag = spots.shape[2]//2
+    cp.cuda.nvtx.RangePush('Rdiags allocation')
+    Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
+    cp.cuda.nvtx.RangePop()
+
+    if (0 <= ymin) & (ymin+ny < image.shape[0]):
+        xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
+        # timer.split('ready for extraction')
+        cp.cuda.nvtx.RangePush('extract patch')
+        fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        cp.cuda.nvtx.RangePop()
+        # timer.split('extracted patch')
+
+        #- Select the non-padded spectra x wavelength core region
+        cp.cuda.nvtx.RangePush('select slices to keep')
+        specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
+        cp.cuda.nvtx.RangePush('slice flux')
+        specflux = fx[specslice]
+        cp.cuda.nvtx.RangePop()
+        cp.cuda.nvtx.RangePush('slice ivar')
+        specivar = ivarfx[specslice]
+        cp.cuda.nvtx.RangePop()
+
+        cp.cuda.nvtx.RangePush('slice R')
+        mask = (
+            ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
+            cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
+        )
+        i0 = ispec-specmin
+        for i in range(i0, i0+nspec):
+            ii = slice(nwavetot*i, nwavetot*(i+1))
+            Rdiags[i-i0] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+        # timer.split('saved Rdiags')
+        cp.cuda.nvtx.RangePop()
+        cp.cuda.nvtx.RangePop()
+
+    else:
+        #- TODO: this zeros out the entire patch if any of it is off the edge
+        #- of the image; we can do better than that
+        specflux = cp.zeros((nspec, nwave))
+        specivar = cp.zeros((nspec, nwave))
+
+    #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
+    cp.cuda.nvtx.RangePush('prepare result')
+    result = dict(
+        flux = specflux,
+        ivar = specivar,
+        Rdiags = Rdiags,
+    )
+    cp.cuda.nvtx.RangePop()
+    # timer.split('done')
+    # timer.print_splits()
+
+    return result

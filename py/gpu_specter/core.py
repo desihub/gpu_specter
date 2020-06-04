@@ -7,6 +7,8 @@ import sys
 import numpy as np
 
 from gpu_specter.util import get_logger
+from gpu_specter.util import get_array_module
+from gpu_specter.util import Timer
 
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
@@ -80,10 +82,12 @@ def assemble_bundle_patches(rankresults):
     bundlesize = patch.bundlesize
     ndiag = patch.ndiag
 
-    #- Allocate output ar`rays to fill
-    specflux = np.zeros((bundlesize, nwave))
-    specivar = np.zeros((bundlesize, nwave))
-    Rdiags = np.zeros((bundlesize, 2*ndiag+1, nwave))
+    xp = get_array_module(allresults[0][1]['flux'])
+
+    #- Allocate output arrays to fill
+    specflux = xp.zeros((bundlesize, nwave))
+    specivar = xp.zeros((bundlesize, nwave))
+    Rdiags = xp.zeros((bundlesize, 2*ndiag+1, nwave))
 
     #- Now put these into the final arrays
     for patch, result in allresults:
@@ -127,6 +131,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         bundle: (flux, ivar, R) tuple
 
     """
+    timer = Timer()
 
     log = get_logger(loglevel)
 
@@ -134,6 +139,14 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if gpu:
         from gpu_specter.extract.gpu import \
                 get_spots, projection_matrix, ex2d_padded
+        # move image to device
+        # TODO: don't do this for every bundle!
+        import cupy as cp
+        cp.cuda.nvtx.RangePush(f'bundle {bspecmin}')
+        cp.cuda.nvtx.RangePush('copy image, imageivar to device')
+        image = cp.asarray(image)
+        imageivar = cp.asarray(imageivar)
+        cp.cuda.nvtx.RangePop()
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, projection_matrix, ex2d_padded
@@ -141,15 +154,22 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     nwave = len(wave)
     ndiag = psf['PSF'].meta['HSIZEY']
 
+    timer.split('init')
+
     #- Cache PSF spots for all wavelengths for spectra in this bundle
     spots = corners = None
     if rank == 0:
+        if gpu:
+            cp.cuda.nvtx.RangePush('get_spots')
         spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
-    
+        if gpu:
+            cp.cuda.nvtx.RangePop()
     #- TODO: it might be faster for all ranks to calculate instead of bcast
     if comm is not None:
         spots = comm.bcast(spots, root=0)
         corners = comm.bcast(corners, root=0)
+
+    timer.split('spots/corners')
 
     #- Size of the individual spots
     spot_nx, spot_ny = spots.shape[2:4]
@@ -164,6 +184,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                           nwave, bundlesize, ndiag)
             patches.append(patch)
 
+    timer.split('organize patches')
+
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
     for patch in patches[rank::size]:
@@ -173,22 +195,44 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         #- Always extract the same patch size (more efficient for GPU
         #- memory transfer) then decide post-facto whether to keep it all
 
+        if gpu:
+            cp.cuda.nvtx.RangePush('ex2d_padded')
+
         result = ex2d_padded(image, imageivar,
                              patch.ispec-bspecmin, patch.nspectra_per_patch,
                              patch.iwave, patch.nwavestep,
                              spots, corners,
                              wavepad=patch.wavepad,
                              bundlesize=bundlesize)
+        if gpu:
+            cp.cuda.nvtx.RangePop()
+
         results.append( (patch, result) )
+
+    timer.split('extracted patches')
 
     if comm is not None:
         rankresults = comm.gather(results, root=0)
     else:
         rankresults = [results,]
 
+    timer.split('gathered patches')
+
     bundle = None
     if rank == 0:
+        if gpu:
+            cp.cuda.nvtx.RangePush('assemble patches on device')
         bundle = assemble_bundle_patches(rankresults)
+        if gpu:
+            cp.cuda.nvtx.RangePop()
+        timer.split('assembled patches')
+        timer.log_splits(log)
+
+    if gpu:
+        cp.cuda.nvtx.RangePush('copy bundle results to host')
+        bundle = list(cp.asnumpy(x) for x in bundle)
+        cp.cuda.nvtx.RangePop()
+        cp.cuda.nvtx.RangePop()
 
     return bundle
 
@@ -218,6 +262,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
     """
+
+    timer = Timer()
 
     log = get_logger(loglevel)
 
@@ -257,12 +303,15 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
 
+    timer.split('init')
+
     #- Work bundle by bundle
     for bspecmin in range(specmin, specmin+nspec, bundlesize):
         if rank == 0:
             log.info(f'Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
             sys.stdout.flush()
 
+        timer.split(f'starting bundle {bspecmin}')
         bundle = extract_bundle(
             img['image'], img['ivar'], psf,
             wave, fullwave, bspecmin,
@@ -270,6 +319,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             nwavestep=nwavestep, wavepad=wavepad,
             comm=comm, rank=rank, size=size, gpu=gpu
         )
+        timer.split(f'extracted bundle {bspecmin}')
 
         #- for good measure, have other ranks wait for rank 0
         if comm is not None:
@@ -283,9 +333,13 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             specivar[specslice, :] = ivar
             Rdiags[specslice, :, :] = R
 
+        timer.split(f'saved bundle {bspecmin}')
+
     #- Finalize and write output
     frame = None
     if rank == 0:
+
+        timer.split(f'finished all bundles')
 
         #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
@@ -307,6 +361,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             fibermaphdr = img['fibermaphdr'],
             chi2pix = np.ones(specflux.shape),
         )
+
+        timer.split(f'finished frame')
+        timer.log_splits(log)
 
     return frame
 
