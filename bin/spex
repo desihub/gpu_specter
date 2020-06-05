@@ -105,6 +105,10 @@ def main(args=None):
         comm = None
         rank, size = 0, 1
 
+    if args.gpu:
+        import cupy as cp
+        cp.cuda.nvtx.RangePush('extract frame')
+
     #- For debugging convenience, default input image and psf
     if args.input is None:
         args.input = resource_filename('gpu_specter',
@@ -121,23 +125,33 @@ def main(args=None):
     timer.split('init')
 
     #- Load inputs
-    img = psf = None
+    img = psf = imgpixels = imgivar = None
     if rank == 0:
         log.info('Loading inputs')
         img = read_img(args.input)
+        imgpixels = img['image']
+        imgivar = img['ivar']
         psf = read_psf(args.psf)
         
     if comm is not None:
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
-        img = comm.bcast(img, root=0)
+        imgpixels = comm.bcast(imgpixels, root=0)
+        imgivar = comm.bcast(imgivar, root=0)
         psf = comm.bcast(psf, root=0)
+
+    if args.gpu:
+        cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
+        imgpixels = cp.asarray(img['image'])
+        imgivar = cp.asarray(img['ivar'])
+        cp.cuda.nvtx.RangePop()
 
     timer.split('load')
 
     #- Perform extraction
     frame = extract_frame(
-        img, psf, args.bundlesize,         # input data
+        imgpixels, imgivar, psf,           # input data
+        args.bundlesize,                   #
         args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
         args.wavelength,                   # wavelength range to extract
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
@@ -147,9 +161,16 @@ def main(args=None):
     )
 
     timer.split('extract')
+    if args.gpu:
+        cp.cuda.nvtx.RangePop()
 
     #- Write output
     if rank == 0:
+
+        frame['imagehdr'] = img['imagehdr']
+        frame['fibermap'] = img['fibermap']
+        frame['fibermaphdr'] = img['fibermaphdr']
+
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
