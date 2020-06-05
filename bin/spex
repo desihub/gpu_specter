@@ -110,8 +110,7 @@ def main(args=None):
     if args.gpu:
         import cupy as cp
         device_count = cp.cuda.runtime.getDeviceCount()
-        assert size <= device_count
-        cp.cuda.Device(rank).use()
+        cp.cuda.Device(rank % device_count).use()
 
     #- For debugging convenience, default input image and psf
     if args.input is None:
