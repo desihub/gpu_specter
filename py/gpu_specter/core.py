@@ -227,7 +227,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     if gpu:
         cp.cuda.nvtx.RangePush('copy bundle results to host')
-        bundle = list(cp.asnumpy(x) for x in bundle)
+        bundle = tuple(cp.asnumpy(x) for x in bundle)
         cp.cuda.nvtx.RangePop()
 
     return bundle
@@ -294,10 +294,10 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     #- Allocate output arrays to fill
     #- TODO: with multiprocessing, use shared memory?
     ndiag = psf['PSF'].meta['HSIZEY']
-    if rank == 0:
-        specflux = np.zeros((nspec, nwave))
-        specivar = np.zeros((nspec, nwave))
-        Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
+    #if rank == 0:
+    #    specflux = np.zeros((nspec, nwave))
+    #    specivar = np.zeros((nspec, nwave))
+    #    Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
 
     timer.split('init')
 
@@ -307,13 +307,13 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     bundles = list()
     for bspecmin in bspecmins[rank::size]:
         #if rank == 0:
-        log.info(f'Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
+        log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         sys.stdout.flush()
 
         timer.split(f'starting bundle {bspecmin}')
         if gpu:
             cp.cuda.nvtx.RangePush('extract_bundle')
-        bundle = extract_bundle(
+        flux, ivar, R = extract_bundle(
             imgpixels, imgivar, psf,
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
@@ -325,7 +325,7 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             cp.cuda.nvtx.RangePop()
         timer.split(f'extracted bundle {bspecmin}')
 
-        bundles.append((bspecmin, ) + bundle)
+        bundles.append((bspecmin, flux, ivar, R))
 
         #- for good measure, have other ranks wait for rank 0
         # if comm is not None:

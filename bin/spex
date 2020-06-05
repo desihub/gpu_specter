@@ -99,6 +99,8 @@ def main(args=None):
     #- Load MPI only if requested
     if args.mpi:
         from mpi4py import MPI
+        import dill
+        MPI.pickle.__init__(dill.dumps, dill.loads)
         comm = MPI.COMM_WORLD
         rank, size = comm.rank, comm.size
     else:
@@ -142,8 +144,8 @@ def main(args=None):
 
     if args.gpu:
         cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
-        imgpixels = cp.asarray(img['image'])
-        imgivar = cp.asarray(img['ivar'])
+        imgpixels = cp.asarray(imgpixels)
+        imgivar = cp.asarray(imgivar)
         cp.cuda.nvtx.RangePop()
 
     timer.split('load')
