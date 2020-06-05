@@ -109,7 +109,9 @@ def main(args=None):
 
     if args.gpu:
         import cupy as cp
-        cp.cuda.nvtx.RangePush('extract frame')
+        device_count = cp.cuda.runtime.getDeviceCount()
+        assert size <= device_count
+        cp.cuda.Device(rank).use()
 
     #- For debugging convenience, default input image and psf
     if args.input is None:
@@ -131,9 +133,10 @@ def main(args=None):
     if rank == 0:
         log.info('Loading inputs')
         img = read_img(args.input)
+        psf = read_psf(args.psf)
+
         imgpixels = img['image']
         imgivar = img['ivar']
-        psf = read_psf(args.psf)
         
     if comm is not None:
         if rank == 0:
@@ -141,12 +144,6 @@ def main(args=None):
         imgpixels = comm.bcast(imgpixels, root=0)
         imgivar = comm.bcast(imgivar, root=0)
         psf = comm.bcast(psf, root=0)
-
-    if args.gpu:
-        cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
-        imgpixels = cp.asarray(imgpixels)
-        imgivar = cp.asarray(imgivar)
-        cp.cuda.nvtx.RangePop()
 
     timer.split('load')
 
@@ -163,8 +160,6 @@ def main(args=None):
     )
 
     timer.split('extract')
-    if args.gpu:
-        cp.cuda.nvtx.RangePop()
 
     #- Write output
     if rank == 0:

@@ -219,6 +219,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if rank == 0:
         if gpu:
             cp.cuda.nvtx.RangePush('assemble patches on device')
+            device_id = cp.cuda.runtime.getDevice()
+            log.info(f'Rank {rank}: Assembling bundle {bspecmin} patches on device {device_id}')
+
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
             cp.cuda.nvtx.RangePop()
@@ -227,6 +230,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     if gpu:
         cp.cuda.nvtx.RangePush('copy bundle results to host')
+        device_id = cp.cuda.runtime.getDevice()
+        log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
         bundle = tuple(cp.asnumpy(x) for x in bundle)
         cp.cuda.nvtx.RangePop()
 
@@ -298,6 +303,14 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     #    specflux = np.zeros((nspec, nwave))
     #    specivar = np.zeros((nspec, nwave))
     #    Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
+
+    if gpu:
+        cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
+        device_id = cp.cuda.runtime.getDevice()
+        log.info(f'Rank {rank}: Moving image data to device {device_id}')
+        imgpixels = cp.asarray(imgpixels)
+        imgivar = cp.asarray(imgivar)
+        cp.cuda.nvtx.RangePop()
 
     timer.split('init')
 
