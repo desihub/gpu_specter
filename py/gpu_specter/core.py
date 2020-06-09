@@ -87,7 +87,7 @@ def assemble_bundle_patches(rankresults):
     bundlesize = patch.bundlesize
     ndiag = patch.ndiag
 
-    xp = get_array_module(allresults[0][1]['flux'])
+    xp = get_array_module(allresults[0][1][0])
 
     #- Allocate output arrays to fill
     specflux = xp.zeros((bundlesize, nwave))
@@ -96,9 +96,9 @@ def assemble_bundle_patches(rankresults):
 
     #- Now put these into the final arrays
     for patch, result in allresults:
-        fx = result['flux']
-        fxivar = result['ivar']
-        xRdiags = result['Rdiags']
+        fx = result[0]
+        fxivar = result[1]
+        xRdiags = result[2]
 
         #- put the extracted patch into the output arrays
         specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
@@ -202,11 +202,40 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     timer.split('extracted patches')
 
-    # log.info(rank, size, len(results))
-    # sys.stdout.flush()
+    patches = []
+    flux = []
+    fluxivar = []
+    resolution = []
+    for patch, results in results:
+        patches.append(patch)
+        flux.append(results['flux'])
+        fluxivar.append(results['ivar'])
+        resolution.append(results['Rdiags'])
+
+    def gather_ndarray(sendbuf, comm, rank, root=0):
+        sendbuf = np.array(sendbuf)
+        shape = sendbuf.shape
+        sendbuf = sendbuf.ravel()
+        # Collect local array sizes using the high-level mpi4py gather
+        sendcounts = np.array(comm.gather(len(sendbuf), root))
+        if rank == root:
+            recvbuf = np.empty(sum(sendcounts), dtype=sendbuf.dtype)
+        else:
+            recvbuf = None
+        comm.Gatherv(sendbuf=sendbuf, recvbuf=(recvbuf, sendcounts), root=root)
+        if rank == root:
+            recvbuf = recvbuf.reshape((-1,) + shape[1:])
+        return recvbuf
 
     if comm is not None:
-        rankresults = comm.gather(results, root=0)
+        patches = comm.gather(patches, root=0)
+        flux = gather_ndarray(flux, comm, rank)
+        fluxivar = gather_ndarray(fluxivar, comm, rank)
+        resolution = gather_ndarray(resolution, comm, rank)
+
+        if rank == 0:
+            patches = [patch for rankpatches in patches for patch in rankpatches]
+            rankresults = [zip(patches, zip(flux, fluxivar, resolution)), ]
     else:
         rankresults = [results,]
 
@@ -225,12 +254,12 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         timer.split('assembled patches')
         timer.log_splits(log)
 
-    if gpu:
-        cp.cuda.nvtx.RangePush('copy bundle results to host')
-        device_id = cp.cuda.runtime.getDevice()
-        log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
-        bundle = tuple(cp.asnumpy(x) for x in bundle)
-        cp.cuda.nvtx.RangePop()
+        if gpu:
+            cp.cuda.nvtx.RangePush('copy bundle results to host')
+            device_id = cp.cuda.runtime.getDevice()
+            log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
+            bundle = tuple(cp.asnumpy(x) for x in bundle)
+            cp.cuda.nvtx.RangePop()
 
     return bundle
 
