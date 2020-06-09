@@ -154,17 +154,11 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     timer.split('init')
 
     #- Cache PSF spots for all wavelengths for spectra in this bundle
-    spots = corners = None
-    if rank == 0:
-        if gpu:
-            cp.cuda.nvtx.RangePush('get_spots')
-        spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
-        if gpu:
-            cp.cuda.nvtx.RangePop()
-    #- TODO: it might be faster for all ranks to calculate instead of bcast
-    if comm is not None:
-        spots = comm.bcast(spots, root=0)
-        corners = comm.bcast(corners, root=0)
+    if gpu:
+        cp.cuda.nvtx.RangePush('get_spots')
+    spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
+    if gpu:
+        cp.cuda.nvtx.RangePop()
 
     timer.split('spots/corners')
 
@@ -208,6 +202,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     timer.split('extracted patches')
 
+    # log.info(rank, size, len(results))
+    # sys.stdout.flush()
+
     if comm is not None:
         rankresults = comm.gather(results, root=0)
     else:
@@ -239,7 +236,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    comm=None, rank=0, size=1, group_comm=None, group=0, gpu=None, loglevel=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -299,10 +296,6 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     #- Allocate output arrays to fill
     #- TODO: with multiprocessing, use shared memory?
     ndiag = psf['PSF'].meta['HSIZEY']
-    #if rank == 0:
-    #    specflux = np.zeros((nspec, nwave))
-    #    specivar = np.zeros((nspec, nwave))
-    #    Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
 
     if gpu:
         cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
@@ -318,43 +311,39 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     #- TODO: fix for gpu/cpu
     bundles = list()
-    for bspecmin in bspecmins[rank::size]:
-        #if rank == 0:
+
+    ngroups = size // group_comm.size
+    for bspecmin in bspecmins[group::ngroups]:
         log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         sys.stdout.flush()
 
         timer.split(f'starting bundle {bspecmin}')
         if gpu:
             cp.cuda.nvtx.RangePush('extract_bundle')
-        flux, ivar, R = extract_bundle(
+        bundle = extract_bundle(
             imgpixels, imgivar, psf,
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             nwavestep=nwavestep, wavepad=wavepad,
-            comm=None, rank=0, size=1, gpu=gpu
-            # comm=comm, rank=rank, size=size, gpu=gpu
+            comm=group_comm, rank=group_comm.rank, size=group_comm.size,
+            gpu=gpu
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
         timer.split(f'extracted bundle {bspecmin}')
 
-        bundles.append((bspecmin, flux, ivar, R))
+        bundles.append((bspecmin, bundle))
 
         #- for good measure, have other ranks wait for rank 0
-        # if comm is not None:
-        #     comm.barrier()
+        if group_comm is not None:
+            group_comm.barrier()
 
-        # if rank == 0:
-        #     #- TODO: use vstack instead of preallocation and slicing?
-        #     specslice = np.s_[bspecmin:bspecmin+bundlesize]
-        #     flux, ivar, R = bundle
-        #     specflux[specslice, :] = flux
-        #     specivar[specslice, :] = ivar
-        #     Rdiags[specslice, :, :] = R
-
-        # timer.split(f'saved bundle {bspecmin}')
-
-    rankbundles = comm.gather(bundles, root=0)
+    if comm is not None:
+        comm_roots = comm.Split(color=group_comm.rank, key=group)
+        if group_comm.rank == 0:
+            rankbundles = comm_roots.gather(bundles, root=0)
+    else:
+        rankbundles = [bundles,]
 
     #- Finalize and write output
     frame = None
@@ -367,9 +356,9 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
 
         allbundles.sort(key=lambda x: x[0])
 
-        specflux = np.vstack([b[1] for b in allbundles])
-        specivar = np.vstack([b[2] for b in allbundles])
-        Rdiags = np.vstack([b[3] for b in allbundles])
+        specflux = np.vstack([b[1][0] for b in allbundles])
+        specivar = np.vstack([b[1][1] for b in allbundles])
+        Rdiags = np.vstack([b[1][2] for b in allbundles])
 
         timer.split(f'finished all bundles')
 
