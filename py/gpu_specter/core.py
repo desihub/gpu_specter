@@ -212,6 +212,11 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         fluxivar.append(results['ivar'])
         resolution.append(results['Rdiags'])
 
+    if gpu:
+        flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
+        fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
+        resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
+
     def gather_ndarray(sendbuf, comm, rank, root=0):
         sendbuf = np.array(sendbuf)
         shape = sendbuf.shape
