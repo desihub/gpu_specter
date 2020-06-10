@@ -124,7 +124,7 @@ def assemble_bundle_patches(rankresults):
 
 
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
-    nwavestep=50, wavepad=10, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -152,6 +152,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     """
     timer = Timer()
+
+    if comm is None:
+        rank = 0
+        size = 1
+    else:
+        rank = comm.rank
+        size = comm.size
 
     log = get_logger(loglevel)
 
@@ -363,12 +370,11 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
 
     if group_comm is not None:
         ngroups = size // group_comm.size
-        group_rank = group_comm.rank
-        group_size = group_comm.size
+        bundle_comm = group_comm
     else:
+        assert group == 0
         ngroups = 1
-        group_rank = 0
-        group_size = 1
+        bundle_comm = comm
 
     for bspecmin in bspecmins[group::ngroups]:
         log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
@@ -382,7 +388,7 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             nwavestep=nwavestep, wavepad=wavepad,
-            comm=group_comm, rank=group_rank, size=group_size,
+            comm=bundle_comm,
             gpu=gpu
         )
         if gpu:
@@ -395,15 +401,11 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
         if group_comm is not None:
             group_comm.barrier()
 
-    if comm is not None:
-        if group_comm is not None:
-            # multiple ranks per bundle
-            comm_roots = comm.Split(color=group_comm.rank, key=group)
-            if group_comm.rank == 0:
-                rankbundles = comm_roots.gather(bundles, root=0)
-        else:
-            # single rank per bundle
-            rankbundles = comm.gather(bundles, root=0)
+    if comm is not None and ngroups > 1:
+        # multiple ranks per bundle
+        comm_roots = comm.Split(color=group_comm.rank, key=group)
+        if group_comm.rank == 0:
+            rankbundles = comm_roots.gather(bundles, root=0)
     else:
         # no mpi
         rankbundles = [bundles,]

@@ -44,8 +44,6 @@ def parse(options=None):
     parser.add_argument("--loglevel", default='info', help='log print level (debug,info,warn,error)')
     parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
     parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
-    parser.add_argument("--ranks-per-bundle", type=int, required=False, default=None,
-                        help="Number of mpi ranks per bundle")
     # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
     # parser.add_argument("--no-scores", action="store_true", help="Do not compute scores")
     # parser.add_argument("--psferr", type=float, default=None, required=False,
@@ -101,6 +99,8 @@ def main(args=None):
     #- Load MPI only if requested
     if args.mpi:
         from mpi4py import MPI
+        import dill
+        MPI.pickle.__init__(dill.dumps, dill.loads)
         comm = MPI.COMM_WORLD
         rank, size = comm.rank, comm.size
     else:
@@ -114,25 +114,18 @@ def main(args=None):
         cp.cuda.Device(rank % device_count).use()
 
     #- Determine number of ranks per bundle
-    if args.ranks_per_bundle is not None:
-        # use argument if specified
-        group_size = args.ranks_per_bundle
-    elif args.gpu:
+    if args.gpu:
         # divide evenly among gpus
         group_size = size // device_count
     else:
         # default to one group with all MPI ranks
         group_size = size
 
-    assert size % group_size == 0, 'Number of MPI ranks must be divisible by --ranks-per-bundle'
+    assert size % group_size == 0, 'Number of MPI ranks must be divisible by number of GPUs'
 
     num_groups = size // group_size
 
-    if args.gpu:
-        assert num_groups == device_count, 'Number of MPI groups must match number of GPU devices'
-
-    group = rank % num_groups
-    group_rank = rank // num_groups
+    group_rank, group = divmod(rank, num_groups)
 
     if comm is not None and num_groups > 1:
         group_comm = comm.Split(color=group, key=group_rank)
