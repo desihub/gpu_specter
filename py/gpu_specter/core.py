@@ -405,7 +405,15 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
         # multiple ranks per bundle
         comm_roots = comm.Split(color=group_comm.rank, key=group)
         if group_comm.rank == 0:
-            rankbundles = comm_roots.gather(bundles, root=0)
+            bspecmins, bundles = zip(*bundles)
+            flux, ivar, resolution = zip(*bundles)
+            bspecmins = comm_roots.gather(bspecmins, root=0)
+            flux = gather_ndarray(flux, comm_roots, group)
+            ivar = gather_ndarray(ivar, comm_roots, group)
+            resolution = gather_ndarray(resolution, comm_roots, group)
+            if rank == 0:
+                bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
+                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution))), ]
     else:
         # no mpi
         rankbundles = [bundles,]
