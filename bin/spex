@@ -99,8 +99,6 @@ def main(args=None):
     #- Load MPI only if requested
     if args.mpi:
         from mpi4py import MPI
-        import dill
-        MPI.pickle.__init__(dill.dumps, dill.loads)
         comm = MPI.COMM_WORLD
         rank, size = comm.rank, comm.size
     else:
