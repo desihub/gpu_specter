@@ -15,6 +15,21 @@ from gpu_specter.util import get_logger
 from gpu_specter.util import get_array_module
 from gpu_specter.util import Timer
 
+def gather_ndarray(sendbuf, comm, rank, root=0):
+    sendbuf = np.array(sendbuf)
+    shape = sendbuf.shape
+    sendbuf = sendbuf.ravel()
+    # Collect local array sizes using the high-level mpi4py gather
+    sendcounts = np.array(comm.gather(len(sendbuf), root))
+    if rank == root:
+        recvbuf = np.empty(sum(sendcounts), dtype=sendbuf.dtype)
+    else:
+        recvbuf = None
+    comm.Gatherv(sendbuf=sendbuf, recvbuf=(recvbuf, sendcounts), root=root)
+    if rank == root:
+        recvbuf = recvbuf.reshape((-1,) + shape[1:])
+    return recvbuf
+
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
         bundlesize, ndiag):
@@ -87,7 +102,7 @@ def assemble_bundle_patches(rankresults):
     bundlesize = patch.bundlesize
     ndiag = patch.ndiag
 
-    xp = get_array_module(allresults[0][1][0])
+    xp = get_array_module(allresults[0][1]['flux'])
 
     #- Allocate output arrays to fill
     specflux = xp.zeros((bundlesize, nwave))
@@ -96,9 +111,9 @@ def assemble_bundle_patches(rankresults):
 
     #- Now put these into the final arrays
     for patch, result in allresults:
-        fx = result[0]
-        fxivar = result[1]
-        xRdiags = result[2]
+        fx = result['flux']
+        fxivar = result['ivar']
+        xRdiags = result['Rdiags']
 
         #- put the extracted patch into the output arrays
         specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
@@ -202,45 +217,40 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     timer.split('extracted patches')
 
-    patches = []
-    flux = []
-    fluxivar = []
-    resolution = []
-    for patch, results in results:
-        patches.append(patch)
-        flux.append(results['flux'])
-        fluxivar.append(results['ivar'])
-        resolution.append(results['Rdiags'])
-
-    if gpu:
-        flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
-        fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
-        resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
-
-    def gather_ndarray(sendbuf, comm, rank, root=0):
-        sendbuf = np.array(sendbuf)
-        shape = sendbuf.shape
-        sendbuf = sendbuf.ravel()
-        # Collect local array sizes using the high-level mpi4py gather
-        sendcounts = np.array(comm.gather(len(sendbuf), root))
-        if rank == root:
-            recvbuf = np.empty(sum(sendcounts), dtype=sendbuf.dtype)
-        else:
-            recvbuf = None
-        comm.Gatherv(sendbuf=sendbuf, recvbuf=(recvbuf, sendcounts), root=root)
-        if rank == root:
-            recvbuf = recvbuf.reshape((-1,) + shape[1:])
-        return recvbuf
-
     if comm is not None:
-        patches = comm.gather(patches, root=0)
-        flux = gather_ndarray(flux, comm, rank)
-        fluxivar = gather_ndarray(fluxivar, comm, rank)
-        resolution = gather_ndarray(resolution, comm, rank)
+        if gpu:
+            # if we have gpu and comm for this bundle
+            # transfer data back to host before assembling the patches
+            patches = []
+            flux = []
+            fluxivar = []
+            resolution = []
+            for patch, results in results:
+                patches.append(patch)
+                flux.append(results['flux'])
+                fluxivar.append(results['ivar'])
+                resolution.append(results['Rdiags'])
 
-        if rank == 0:
-            patches = [patch for rankpatches in patches for patch in rankpatches]
-            rankresults = [zip(patches, zip(flux, fluxivar, resolution)), ]
+            flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
+            fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
+            resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
+
+            patches = comm.gather(patches, root=0)
+            flux = gather_ndarray(flux, comm, rank)
+            fluxivar = gather_ndarray(fluxivar, comm, rank)
+            resolution = gather_ndarray(resolution, comm, rank)
+
+            if rank == 0:
+                patches = [patch for rankpatches in patches for patch in rankpatches]
+                rankresults = [
+                    zip(patches, 
+                        map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2]), 
+                            zip(flux, fluxivar, resolution)
+                        )
+                    )
+                ]
+        else:
+            rankresults = comm.gather(results, root=0)
     else:
         rankresults = [results,]
 
