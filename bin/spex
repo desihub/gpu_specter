@@ -80,7 +80,7 @@ def check_input_options(args):
     if args.specmin % args.bundlesize != 0:
         msg = 'specmin ({}) must begin at a bundle boundary'.format(args.specmin)
         return False, msg
-    
+
     return True, 'OK'
 
 def main(args=None):
@@ -101,8 +101,6 @@ def main(args=None):
     #- Load MPI only if requested
     if args.mpi:
         from mpi4py import MPI
-        import dill
-        MPI.pickle.__init__(dill.dumps, dill.loads)
         comm = MPI.COMM_WORLD
         rank, size = comm.rank, comm.size
     else:
@@ -136,7 +134,7 @@ def main(args=None):
     group = rank % num_groups
     group_rank = rank // num_groups
 
-    if comm is not None:
+    if comm is not None and num_groups > 1:
         group_comm = comm.Split(color=group, key=group_rank)
         assert group_comm.rank == group_rank
     else:

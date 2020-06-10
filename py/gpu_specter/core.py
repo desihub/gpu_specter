@@ -219,8 +219,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     if comm is not None:
         if gpu:
-            # if we have gpu and comm for this bundle
-            # transfer data back to host before assembling the patches
+            # If we have gpu and an MPI comm for this bundle, transfer data
+            # back to host before assembling the patches
             patches = []
             flux = []
             fluxivar = []
@@ -231,17 +231,21 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 fluxivar.append(results['ivar'])
                 resolution.append(results['Rdiags'])
 
+            # transfer to host in 3 chunks
             flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
             fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
             resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
 
+            # gather to root MPI rank
             patches = comm.gather(patches, root=0)
             flux = gather_ndarray(flux, comm, rank)
             fluxivar = gather_ndarray(fluxivar, comm, rank)
             resolution = gather_ndarray(resolution, comm, rank)
 
             if rank == 0:
+                # unpack patches
                 patches = [patch for rankpatches in patches for patch in rankpatches]
+                # repack everything
                 rankresults = [
                     zip(patches, 
                         map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2]), 
@@ -252,6 +256,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         else:
             rankresults = comm.gather(results, root=0)
     else:
+        # this is fine for GPU w/out MPI comm
         rankresults = [results,]
 
     timer.split('gathered patches')
@@ -356,7 +361,15 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     #- TODO: fix for gpu/cpu
     bundles = list()
 
-    ngroups = size // group_comm.size
+    if group_comm is not None:
+        ngroups = size // group_comm.size
+        group_rank = group_comm.rank
+        group_size = group_comm.size
+    else:
+        ngroups = 1
+        group_rank = 0
+        group_size = 1
+
     for bspecmin in bspecmins[group::ngroups]:
         log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         sys.stdout.flush()
@@ -369,7 +382,7 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             nwavestep=nwavestep, wavepad=wavepad,
-            comm=group_comm, rank=group_comm.rank, size=group_comm.size,
+            comm=group_comm, rank=group_rank, size=group_size,
             gpu=gpu
         )
         if gpu:
@@ -383,10 +396,16 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             group_comm.barrier()
 
     if comm is not None:
-        comm_roots = comm.Split(color=group_comm.rank, key=group)
-        if group_comm.rank == 0:
-            rankbundles = comm_roots.gather(bundles, root=0)
+        if group_comm is not None:
+            # multiple ranks per bundle
+            comm_roots = comm.Split(color=group_comm.rank, key=group)
+            if group_comm.rank == 0:
+                rankbundles = comm_roots.gather(bundles, root=0)
+        else:
+            # single rank per bundle
+            rankbundles = comm.gather(bundles, root=0)
     else:
+        # no mpi
         rankbundles = [bundles,]
 
     #- Finalize and write output
