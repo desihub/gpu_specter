@@ -211,6 +211,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                           nwave, bundlesize, ndiag)
             patches.append(patch)
 
+    if rank == 0:
+        log.info(f'Dividing {len(patches)} between {size} ranks')
+
     timer.split('organize patches')
 
     #- place to keep extraction patch results before assembling in rank 0
@@ -263,9 +266,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
             # gather to root MPI rank
             patches = comm.gather(patches, root=0)
-            flux = gather_ndarray(flux, comm, rank)
-            fluxivar = gather_ndarray(fluxivar, comm, rank)
-            resolution = gather_ndarray(resolution, comm, rank)
+            flux = gather_ndarray(flux, comm)
+            fluxivar = gather_ndarray(fluxivar, comm)
+            resolution = gather_ndarray(resolution, comm)
 
             if rank == 0:
                 # unpack patches
@@ -340,24 +343,27 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         import cupy as cp
         # TODO: specify number of gpus to use?
         device_count = cp.cuda.runtime.getDeviceCount()
-        cp.cuda.Device(rank % device_count).use()
+        assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
+        device_id = rank % device_count
+        cp.cuda.Device(device_id).use()
+
         # Divide mpi ranks evenly among gpus
-        group_size = size // device_count
+        device_size = size // device_count
+        bundle_rank = rank // device_count
+
+        if device_count > 1:
+            frame_comm = comm.Split(color=bundle_rank, key=device_id)
+            if device_size > 1:
+                bundle_comm = comm.Split(color=device_id, key=bundle_rank)
+            else:
+                bundle_comm = None
+        else:
+            frame_comm = None
+            bundle_comm = None
     else:
         # Default to one group with all MPI ranks
-        group_size = size
-
-    assert size % group_size == 0, 'Number of MPI ranks must be divisible by number of GPUs'
-
-    num_groups = size // group_size
-
-    group_rank, group = divmod(rank, num_groups)
-
-    if comm is not None and num_groups > 1:
-        group_comm = comm.Split(color=group, key=group_rank)
-        assert group_comm.rank == group_rank
-    else:
-        group_comm = None
+        frame_comm = None
+        bundle_comm = comm
 
     timer.split('init')
 
@@ -412,10 +418,15 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     #- TODO: barycentric wavelength corrections
 
     #- Work bundle by bundle
-    bundle_comm = comm if group_comm is None else group_comm
+    if frame_comm is None:
+        bundle_start = 0
+        bundle_step = 1
+    else:
+        bundle_start = device_id
+        bundle_step = device_count
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
-    for bspecmin in bspecmins[group::num_groups]:
+    for bspecmin in bspecmins[bundle_start::bundle_step]:
         log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         sys.stdout.flush()
         if gpu:
@@ -433,21 +444,20 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         bundles.append((bspecmin, bundle))
 
         #- for good measure, have other ranks wait for rank 0
-        if group_comm is not None:
-            group_comm.barrier()
+        if bundle_comm is not None:
+            bundle_comm.barrier()
 
     timer.split('extracted bundles')
 
-    if group_comm is not None:
+    if frame_comm is not None:
         # gather results from multiple mpi groups
-        comm_roots = comm.Split(color=group_comm.rank, key=group)
-        if group_comm.rank == 0:
+        if bundle_rank == 0:
             bspecmins, bundles = zip(*bundles)
             flux, ivar, resolution = zip(*bundles)
-            bspecmins = comm_roots.gather(bspecmins, root=0)
-            flux = gather_ndarray(flux, comm_roots, group)
-            ivar = gather_ndarray(ivar, comm_roots, group)
-            resolution = gather_ndarray(resolution, comm_roots, group)
+            bspecmins = frame_comm.gather(bspecmins, root=0)
+            flux = gather_ndarray(flux, frame_comm)
+            ivar = gather_ndarray(ivar, frame_comm)
+            resolution = gather_ndarray(resolution, frame_comm)
             if rank == 0:
                 bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
                 rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution))), ]
