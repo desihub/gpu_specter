@@ -105,32 +105,6 @@ def main(args=None):
         comm = None
         rank, size = 0, 1
 
-    if args.gpu:
-        import cupy as cp
-        # TODO: specify number of gpus on command line?
-        device_count = cp.cuda.runtime.getDeviceCount()
-        cp.cuda.Device(rank % device_count).use()
-
-    #- Determine number of ranks per bundle
-    if args.gpu:
-        # divide evenly among gpus
-        group_size = size // device_count
-    else:
-        # default to one group with all MPI ranks
-        group_size = size
-
-    assert size % group_size == 0, 'Number of MPI ranks must be divisible by number of GPUs'
-
-    num_groups = size // group_size
-
-    group_rank, group = divmod(rank, num_groups)
-
-    if comm is not None and num_groups > 1:
-        group_comm = comm.Split(color=group, key=group_rank)
-        assert group_comm.rank == group_rank
-    else:
-        group_comm = None
-
     #- For debugging convenience, default input image and psf
     if args.input is None:
         args.input = resource_filename('gpu_specter',
@@ -153,27 +127,15 @@ def main(args=None):
         img = read_img(args.input)
         psf = read_psf(args.psf)
 
-        imgpixels = img['image']
-        imgivar = img['ivar']
-        
-    if comm is not None:
-        if rank == 0:
-            log.info('Broadcasting inputs to other MPI ranks')
-        imgpixels = comm.bcast(imgpixels, root=0)
-        imgivar = comm.bcast(imgivar, root=0)
-        psf = comm.bcast(psf, root=0)
-
     timer.split('load')
 
     #- Perform extraction
     frame = extract_frame(
-        imgpixels, imgivar, psf,           # input data
-        args.bundlesize,                   #
+        img, psf, args.bundlesize,         # input data
         args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
         args.wavelength,                   # wavelength range to extract
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
         comm, rank, size,                  # mpi parameters
-        group_comm, group,
         args.gpu,                          # gpu parameters
         args.loglevel,                     # log
     )
@@ -182,10 +144,6 @@ def main(args=None):
 
     #- Write output
     if rank == 0:
-
-        frame['imagehdr'] = img['imagehdr']
-        frame['fibermap'] = img['fibermap']
-        frame['fibermaphdr'] = img['fibermaphdr']
 
         if args.output is not None:
             log.info(f'Writing {args.output}')

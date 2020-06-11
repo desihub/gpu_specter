@@ -15,7 +15,20 @@ from gpu_specter.util import get_logger
 from gpu_specter.util import get_array_module
 from gpu_specter.util import Timer
 
-def gather_ndarray(sendbuf, comm, rank, root=0):
+def gather_ndarray(sendbuf, comm, root=0):
+    """Gather multidimensional ndarray objects to one process from
+    all other processes in a group.
+
+    Args:
+        sendbuf: multidimensional ndarray
+        comm: mpi communicator
+        root: rank of receiving process
+    Returns:
+        recvbuf: A stacked multidemsional ndarray if comm.rank == root, otherwise None.
+
+    """
+    rank = comm.rank
+    # Save shape and flatten input array
     sendbuf = np.array(sendbuf)
     shape = sendbuf.shape
     sendbuf = sendbuf.ravel()
@@ -27,6 +40,7 @@ def gather_ndarray(sendbuf, comm, rank, root=0):
         recvbuf = None
     comm.Gatherv(sendbuf=sendbuf, recvbuf=(recvbuf, sendcounts), root=root)
     if rank == root:
+        # Reshape output before returning
         recvbuf = recvbuf.reshape((-1,) + shape[1:])
     return recvbuf
 
@@ -291,8 +305,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     return bundle
 
 
-def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    comm=None, rank=0, size=1, group_comm=None, group=0, gpu=None, loglevel=None):
+def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
+    comm=None, rank=0, size=1, gpu=None, loglevel=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -320,6 +334,41 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
     timer = Timer()
 
     log = get_logger(loglevel)
+
+    if gpu:
+        import cupy as cp
+        # TODO: specify number of gpus to use?
+        device_count = cp.cuda.runtime.getDeviceCount()
+        cp.cuda.Device(rank % device_count).use()
+        # Divide mpi ranks evenly among gpus
+        group_size = size // device_count
+    else:
+        # Default to one group with all MPI ranks
+        group_size = size
+
+    assert size % group_size == 0, 'Number of MPI ranks must be divisible by number of GPUs'
+
+    num_groups = size // group_size
+
+    group_rank, group = divmod(rank, num_groups)
+
+    if comm is not None and num_groups > 1:
+        group_comm = comm.Split(color=group, key=group_rank)
+        assert group_comm.rank == group_rank
+    else:
+        group_comm = None
+
+    imgpixels = imgivar = None
+    if rank == 0:
+        imgpixels = img['image']
+        imgivar = img['ivar']
+
+    if comm is not None:
+        if rank == 0:
+            log.info('Broadcasting inputs to other MPI ranks')
+        imgpixels = comm.bcast(imgpixels, root=0)
+        imgivar = comm.bcast(imgivar, root=0)
+        psf = comm.bcast(psf, root=0)
 
     if wavelength is not None:
         wmin, wmax, dw = map(float, wavelength.split(','))
@@ -402,7 +451,7 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             group_comm.barrier()
 
     if comm is not None and ngroups > 1:
-        # multiple ranks per bundle
+        # gather results from multiple mpi groups
         comm_roots = comm.Split(color=group_comm.rank, key=group)
         if group_comm.rank == 0:
             bspecmins, bundles = zip(*bundles)
@@ -415,7 +464,7 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
                 bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
                 rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution))), ]
     else:
-        # no mpi
+        # no mpi or single group with all ranks
         rankbundles = [bundles,]
 
     #- Finalize and write output
@@ -451,6 +500,9 @@ def extract_frame(imgpixels, imgivar, psf, bundlesize, specmin, nspec, wavelengt
             wave = wave,
             Rdiags = Rdiags,
             chi2pix = np.ones(specflux.shape),
+            imagehdr = img['imagehdr'],
+            fibermap = img['fibermap'],
+            fibermaphdr =  img['fibermaphdr'],
         )
 
         timer.split(f'finished frame')
