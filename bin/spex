@@ -121,7 +121,7 @@ def main(args=None):
     timer.split('init')
 
     #- Load inputs
-    img = psf = imgpixels = imgivar = None
+    img = psf = None
     if rank == 0:
         log.info('Loading inputs')
         img = read_img(args.input)
@@ -144,7 +144,6 @@ def main(args=None):
 
     #- Write output
     if rank == 0:
-
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
