@@ -14,35 +14,7 @@ except ImportError:
 from gpu_specter.util import get_logger
 from gpu_specter.util import get_array_module
 from gpu_specter.util import Timer
-
-def gather_ndarray(sendbuf, comm, root=0):
-    """Gather multidimensional ndarray objects to one process from
-    all other processes in a group.
-
-    Args:
-        sendbuf: multidimensional ndarray
-        comm: mpi communicator
-        root: rank of receiving process
-    Returns:
-        recvbuf: A stacked multidemsional ndarray if comm.rank == root, otherwise None.
-
-    """
-    rank = comm.rank
-    # Save shape and flatten input array
-    sendbuf = np.array(sendbuf)
-    shape = sendbuf.shape
-    sendbuf = sendbuf.ravel()
-    # Collect local array sizes using the high-level mpi4py gather
-    sendcounts = np.array(comm.gather(len(sendbuf), root))
-    if rank == root:
-        recvbuf = np.empty(sum(sendcounts), dtype=sendbuf.dtype)
-    else:
-        recvbuf = None
-    comm.Gatherv(sendbuf=sendbuf, recvbuf=(recvbuf, sendcounts), root=root)
-    if rank == root:
-        # Reshape output before returning
-        recvbuf = recvbuf.reshape((-1,) + shape[1:])
-    return recvbuf
+from gpu_specter.util import gather_ndarray
 
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
