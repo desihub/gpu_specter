@@ -79,6 +79,16 @@ def check_input_options(args):
         msg = 'specmin ({}) must begin at a bundle boundary'.format(args.specmin)
         return False, msg
 
+    if args.gpu:
+        try:
+            import cupy as cp
+        except ImportError:
+            return False, 'cannot import module cupy'
+        if not cp.is_available():
+            return False, 'gpu is not available'
+        if cp.cuda.runtime.getDeviceCount() > 1 and not args.mpi:
+            return False, 'mpi is required to run with multiple gpu devices'
+
     return True, 'OK'
 
 def main(args=None):

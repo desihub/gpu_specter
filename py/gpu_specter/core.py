@@ -238,9 +238,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
             # gather to root MPI rank
             patches = comm.gather(patches, root=0)
-            flux = gather_ndarray(flux, comm)
-            fluxivar = gather_ndarray(fluxivar, comm)
-            resolution = gather_ndarray(resolution, comm)
+            flux = gather_ndarray(flux, comm, root=0)
+            fluxivar = gather_ndarray(fluxivar, comm, root=0)
+            resolution = gather_ndarray(resolution, comm, root=0)
 
             if rank == 0:
                 # unpack patches
