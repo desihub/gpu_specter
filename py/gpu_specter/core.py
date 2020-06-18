@@ -311,29 +311,34 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
+    #- Determine MPI communication strategy based on number of gpu devices and MPI ranks
     if gpu:
         import cupy as cp
-        # TODO: specify number of gpus to use?
+        #- TODO: specify number of gpus to use?
         device_count = cp.cuda.runtime.getDeviceCount()
         assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
         device_id = rank % device_count
         cp.cuda.Device(device_id).use()
 
-        # Divide mpi ranks evenly among gpus
+        #- Divide mpi ranks evenly among gpus
         device_size = size // device_count
         bundle_rank = rank // device_count
 
         if device_count > 1:
+            #- Multi gpu, MPI communication needs to happen at frame level
             frame_comm = comm.Split(color=bundle_rank, key=device_id)
             if device_size > 1:
+                #- If multiple ranks per gpu, also need to communicate at bundle level
                 bundle_comm = comm.Split(color=device_id, key=bundle_rank)
             else:
+                #- If only one rank per gpu, don't need bundle level communication
                 bundle_comm = None
         else:
+            #- Single gpu, only do MPI communication at bundle level
             frame_comm = None
-            bundle_comm = None
+            bundle_comm = comm
     else:
-        # Default to one group with all MPI ranks
+        #- No gpu, do MPI communication at bundle level
         frame_comm = None
         bundle_comm = comm
 
@@ -344,6 +349,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         imgpixels = img['image']
         imgivar = img['ivar']
 
+    #- If using MPI, broadcast image, ivar, and psf to all ranks
     if comm is not None:
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
@@ -351,6 +357,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         imgivar = comm.bcast(imgivar, root=0)
         psf = comm.bcast(psf, root=0)
 
+    #- If using GPU, move image and ivar to device
+    #- TODO: is there a way for ranks to share a pointer to device memory?
     if gpu:
         cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
         device_id = cp.cuda.runtime.getDevice()
@@ -461,7 +469,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         specflux /= dwave
         specivar *= dwave**2
 
-         #- TODO: specmask and chi2pix
+        #- TODO: specmask and chi2pix
         specmask = (specivar == 0).astype(np.int)
         chi2pix = np.ones(specflux.shape)
 
