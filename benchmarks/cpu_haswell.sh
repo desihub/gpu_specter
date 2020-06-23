@@ -47,7 +47,7 @@ basedir="/global/cfs/cdirs/desi/spectro/redux/andes"
 input="$basedir/preproc/20200219/00051060/preproc-r0-00051060.fits"
 psf="$basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
 output="$SCRATCH/frame-r0-00051060.fits"
-cmd="spex --mpi -w 5761.0,7620.0,0.8 -i $input -p $psf -o $output"
+cmd="spex --mpi -w 5760.0,7620.0,0.8 -i $input -p $psf -o $output"
 
 # Perform benchmark
 start_time=$(_time)

@@ -17,7 +17,7 @@ def safe_range_pop(xp):
     if xp.__name__ == 'cupy':
         xp.cuda.nvtx.RangePop()
 
-def xp_deconvolve(pixel_values, pixel_ivar, A):
+def xp_deconvolve(pixel_values, pixel_ivar, A, debug=False):
     """Calculate the weighted linear least-squares flux solution for an observed trace.
 
     Args:
@@ -31,11 +31,11 @@ def xp_deconvolve(pixel_values, pixel_ivar, A):
 
     """
     xp = get_array_module(A)
-    assert xp == get_array_module(pixel_values)
-    assert xp == get_array_module(pixel_ivar)
+    assert not debug or xp == get_array_module(pixel_values)
+    assert not debug or xp == get_array_module(pixel_ivar)
     #- Set up the equation to solve (B&S eq 4)
     safe_range_push(xp, 'BS Eq 4 Setup')
-    ATNinv = A.T.dot(xp.diag(pixel_ivar))
+    ATNinv = A.T * pixel_ivar
     iCov = ATNinv.dot(A)
     iCov += 1e-12*xp.eye(iCov.shape[0])
     safe_range_pop(xp)
@@ -51,7 +51,7 @@ def xp_deconvolve(pixel_values, pixel_ivar, A):
     safe_range_pop(xp)
     return deconvolved, iCov
 
-def xp_decorrelate(iCov):
+def xp_decorrelate(iCov, debug=False):
     """Calculate the decorrelated errors and resolution matrix via BS Eq 10-13
 
     Args:
@@ -65,22 +65,22 @@ def xp_decorrelate(iCov):
     # Calculate the matrix square root of iCov to diagonalize the flux errors.
     u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
     # Check that all eigenvalues are positive.
-    assert xp.all(u > 0), 'Found some negative iCov eigenvalues.'
+    assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
     # Check that the eigenvectors are orthonormal so that vt.v = 1
-    assert xp.allclose(xp.eye(len(u)), v.T.dot(v))
+    assert not debug or xp.allclose(xp.eye(len(u)), v.T.dot(v))
     Q = v.dot(xp.diag(xp.sqrt(u)).dot(v.T))
     # Check BS eqn.10
-    assert xp.allclose(iCov, Q.dot(Q))
+    assert not debug or xp.allclose(iCov, Q.dot(Q))
     #- Calculate the corresponding resolution matrix and diagonal flux errors. (BS Eq 11-13)
     s = xp.sum(Q, axis=1)
     R = Q/s[:, xp.newaxis]
     ivar = s**2
     # Check BS eqn.14
-    assert xp.allclose(iCov, R.T.dot(xp.diag(ivar).dot(R)))
+    assert not debug or xp.allclose(iCov, R.T.dot(xp.diag(ivar).dot(R)))
     return ivar, R
 
 
-def xp_decorrelate_blocks(iCov, block_size):
+def xp_decorrelate_blocks(iCov, block_size, debug=False):
     """Calculate the decorrelated errors and resolution matrix via BS Eq 19
 
     Args:
@@ -93,14 +93,14 @@ def xp_decorrelate_blocks(iCov, block_size):
     """
     xp = get_array_module(iCov)
     size = iCov.shape[0]
-    assert size % block_size == 0
+    assert not debug or size % block_size == 0
     #- Invert iCov (B&S eq 17)
     safe_range_push(xp, 'eigh iCov')
     u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
     safe_range_pop(xp)
-    assert xp.all(u > 0), 'Found some negative iCov eigenvalues.'
+    assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
     # Check that the eigenvectors are orthonormal so that vt.v = 1
-    assert xp.allclose(xp.eye(len(u)), v.T.dot(v))
+    assert not debug or xp.allclose(xp.eye(len(u)), v.T.dot(v))
     safe_range_push(xp, 'compose C')
     C = (v * (1.0/u)).dot(v.T)
     safe_range_pop(xp)
@@ -114,9 +114,9 @@ def xp_decorrelate_blocks(iCov, block_size):
         safe_range_push(xp, 'eigh block')
         bu, bv = xp.linalg.eigh(C[s])
         safe_range_pop(xp)
-        assert xp.all(bu > 0), 'Found some negative iCov eigenvalues.'
+        assert not debug or xp.all(bu > 0), 'Found some negative iCov eigenvalues.'
         # Check that the eigenvectors are orthonormal so that vt.v = 1
-        assert xp.allclose(xp.eye(len(bu)), bv.T.dot(bv))
+        assert not debug or xp.allclose(xp.eye(len(bu)), bv.T.dot(bv))
         safe_range_push(xp, 'compose block')
         bQ = (bv * xp.sqrt(1.0/bu)).dot(bv.T)
         safe_range_pop(xp)
@@ -129,10 +129,10 @@ def xp_decorrelate_blocks(iCov, block_size):
     ivar = s**2
     safe_range_pop(xp)
     #- Check BS eqn.14
-    assert xp.allclose(Q.dot(Q), R.T.dot(xp.diag(ivar).dot(R)))
+    assert not debug or xp.allclose(Q.dot(Q), R.T.dot(xp.diag(ivar).dot(R)))
     return ivar, R
 
-def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
+def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', debug=False):
     """Perform spectroperfectionism extractions returning flux, ivar, and resolution matrix
 
     Args:
@@ -148,9 +148,9 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     # timer = Timer()
     xp = get_array_module(A4)
     safe_range_push(xp, 'xp_ex2d_patch')
-    assert decorrelate in ('signal', 'noise')
+    assert not debug or decorrelate in ('signal', 'noise')
     ny, nx, nspec, nwave = A4.shape
-    assert img.shape == (ny, nx)
+    assert not debug or img.shape == (ny, nx)
     # Flatten arrays
     pixel_values = img.ravel()
     pixel_ivar = ivar.ravel()
@@ -158,15 +158,15 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal'):
     # timer.split('init')
     # Deconvole fiber traces
     safe_range_push(xp, 'deconvolve')
-    deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A)
+    deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A, debug=debug)
     safe_range_pop(xp)
     # timer.split('deconvolve')
     # Calculate the decorrelated errors and resolution matrix.
     safe_range_push(xp, 'decorrelate')
     if decorrelate == 'signal':
-        fluxivar, resolution = xp_decorrelate_blocks(iCov, nwave)
+        fluxivar, resolution = xp_decorrelate_blocks(iCov, nwave, debug=debug)
     elif decorrelate == 'noise':
-        fluxivar, resolution = xp_decorrelate(iCov)
+        fluxivar, resolution = xp_decorrelate(iCov, debug=debug)
     else:
         raise ValueError(f'{decorrelate} is not a valid value for decorrelate')
     safe_range_pop(xp)

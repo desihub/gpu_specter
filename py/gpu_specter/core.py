@@ -6,9 +6,15 @@ import sys
 
 import numpy as np
 
+try:
+    import cupy as cp
+except ImportError:
+    pass
+
 from gpu_specter.util import get_logger
 from gpu_specter.util import get_array_module
 from gpu_specter.util import Timer
+from gpu_specter.util import gather_ndarray
 
 class Patch(object):
     def __init__(self, ispec, iwave, bspecmin, nspectra_per_patch, nwavestep, wavepad, nwave,
@@ -104,7 +110,7 @@ def assemble_bundle_patches(rankresults):
 
 
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
-    nwavestep=50, wavepad=10, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -133,23 +139,22 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     """
     timer = Timer()
 
+    if comm is None:
+        rank = 0
+        size = 1
+    else:
+        rank = comm.rank
+        size = comm.size
+
     log = get_logger(loglevel)
 
     #- Extracting on CPU or GPU?
     if gpu:
         from gpu_specter.extract.gpu import \
-                get_spots, projection_matrix, ex2d_padded
-        # move image to device
-        # TODO: don't do this for every bundle!
-        import cupy as cp
-        cp.cuda.nvtx.RangePush(f'bundle {bspecmin}')
-        cp.cuda.nvtx.RangePush('copy image, imageivar to device')
-        image = cp.asarray(image)
-        imageivar = cp.asarray(imageivar)
-        cp.cuda.nvtx.RangePop()
+                get_spots, ex2d_padded
     else:
         from gpu_specter.extract.cpu import \
-                get_spots, projection_matrix, ex2d_padded
+                get_spots, ex2d_padded
 
     nwave = len(wave)
     ndiag = psf['PSF'].meta['HSIZEY']
@@ -157,17 +162,11 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     timer.split('init')
 
     #- Cache PSF spots for all wavelengths for spectra in this bundle
-    spots = corners = None
-    if rank == 0:
-        if gpu:
-            cp.cuda.nvtx.RangePush('get_spots')
-        spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
-        if gpu:
-            cp.cuda.nvtx.RangePop()
-    #- TODO: it might be faster for all ranks to calculate instead of bcast
-    if comm is not None:
-        spots = comm.bcast(spots, root=0)
-        corners = comm.bcast(corners, root=0)
+    if gpu:
+        cp.cuda.nvtx.RangePush('get_spots')
+    spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
+    if gpu:
+        cp.cuda.nvtx.RangePop()
 
     timer.split('spots/corners')
 
@@ -183,6 +182,9 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                           nspectra_per_patch, nwavestep, wavepad,
                           nwave, bundlesize, ndiag)
             patches.append(patch)
+
+    if rank == 0:
+        log.info(f'Dividing {len(patches)} patches between {size} ranks')
 
     timer.split('organize patches')
 
@@ -212,8 +214,49 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     timer.split('extracted patches')
 
     if comm is not None:
-        rankresults = comm.gather(results, root=0)
+        if gpu:
+            # If we have gpu and an MPI comm for this bundle, transfer data
+            # back to host before assembling the patches
+            patches = []
+            flux = []
+            fluxivar = []
+            resolution = []
+            for patch, results in results:
+                patches.append(patch)
+                flux.append(results['flux'])
+                fluxivar.append(results['ivar'])
+                resolution.append(results['Rdiags'])
+
+            # transfer to host in 3 chunks
+            cp.cuda.nvtx.RangePush('copy bundle results to host')
+            device_id = cp.cuda.runtime.getDevice()
+            log.info(f'Rank {rank}: Moving bundle {bspecmin} patches to host from device {device_id}')
+            flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
+            fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
+            resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
+            cp.cuda.nvtx.RangePop()
+
+            # gather to root MPI rank
+            patches = comm.gather(patches, root=0)
+            flux = gather_ndarray(flux, comm, root=0)
+            fluxivar = gather_ndarray(fluxivar, comm, root=0)
+            resolution = gather_ndarray(resolution, comm, root=0)
+
+            if rank == 0:
+                # unpack patches
+                patches = [patch for rankpatches in patches for patch in rankpatches]
+                # repack everything
+                rankresults = [
+                    zip(patches, 
+                        map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2]), 
+                            zip(flux, fluxivar, resolution)
+                        )
+                    )
+                ]
+        else:
+            rankresults = comm.gather(results, root=0)
     else:
+        # this is fine for GPU w/out MPI comm
         rankresults = [results,]
 
     timer.split('gathered patches')
@@ -222,18 +265,19 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     if rank == 0:
         if gpu:
             cp.cuda.nvtx.RangePush('assemble patches on device')
+            device_id = cp.cuda.runtime.getDevice()
+            log.info(f'Rank {rank}: Assembling bundle {bspecmin} patches on device {device_id}')
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
             cp.cuda.nvtx.RangePop()
+            if comm is None:
+                cp.cuda.nvtx.RangePush('copy bundle results to host')
+                device_id = cp.cuda.runtime.getDevice()
+                log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
+                bundle = tuple(cp.asnumpy(x) for x in bundle)
+                cp.cuda.nvtx.RangePop()
         timer.split('assembled patches')
         timer.log_splits(log)
-
-    if gpu:
-        cp.cuda.nvtx.RangePush('copy bundle results to host')
-        bundle = list(cp.asnumpy(x) for x in bundle)
-        cp.cuda.nvtx.RangePop()
-        cp.cuda.nvtx.RangePop()
-
     return bundle
 
 
@@ -267,6 +311,64 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
+    #- Determine MPI communication strategy based on number of gpu devices and MPI ranks
+    if gpu:
+        import cupy as cp
+        #- TODO: specify number of gpus to use?
+        device_count = cp.cuda.runtime.getDeviceCount()
+        assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
+        device_id = rank % device_count
+        cp.cuda.Device(device_id).use()
+
+        #- Divide mpi ranks evenly among gpus
+        device_size = size // device_count
+        bundle_rank = rank // device_count
+
+        if device_count > 1:
+            #- Multi gpu, MPI communication needs to happen at frame level
+            frame_comm = comm.Split(color=bundle_rank, key=device_id)
+            if device_size > 1:
+                #- If multiple ranks per gpu, also need to communicate at bundle level
+                bundle_comm = comm.Split(color=device_id, key=bundle_rank)
+            else:
+                #- If only one rank per gpu, don't need bundle level communication
+                bundle_comm = None
+        else:
+            #- Single gpu, only do MPI communication at bundle level
+            frame_comm = None
+            bundle_comm = comm
+    else:
+        #- No gpu, do MPI communication at bundle level
+        frame_comm = None
+        bundle_comm = comm
+
+    timer.split('init')
+
+    imgpixels = imgivar = None
+    if rank == 0:
+        imgpixels = img['image']
+        imgivar = img['ivar']
+
+    #- If using MPI, broadcast image, ivar, and psf to all ranks
+    if comm is not None:
+        if rank == 0:
+            log.info('Broadcasting inputs to other MPI ranks')
+        imgpixels = comm.bcast(imgpixels, root=0)
+        imgivar = comm.bcast(imgivar, root=0)
+        psf = comm.bcast(psf, root=0)
+
+    #- If using GPU, move image and ivar to device
+    #- TODO: is there a way for ranks to share a pointer to device memory?
+    if gpu:
+        cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
+        device_id = cp.cuda.runtime.getDevice()
+        log.info(f'Rank {rank}: Moving image data to device {device_id}')
+        imgpixels = cp.asarray(imgpixels)
+        imgivar = cp.asarray(imgivar)
+        cp.cuda.nvtx.RangePop()
+
+    timer.split('distributed data')
+
     if wavelength is not None:
         wmin, wmax, dw = map(float, wavelength.split(','))
     else:
@@ -295,75 +397,95 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     
     #- TODO: barycentric wavelength corrections
 
-    #- Allocate output arrays to fill
-    #- TODO: with multiprocessing, use shared memory?
-    ndiag = psf['PSF'].meta['HSIZEY']
-    if rank == 0:
-        specflux = np.zeros((nspec, nwave))
-        specivar = np.zeros((nspec, nwave))
-        Rdiags = np.zeros((nspec, 2*ndiag+1, nwave))
-
-    timer.split('init')
-
     #- Work bundle by bundle
-    for bspecmin in range(specmin, specmin+nspec, bundlesize):
-        if rank == 0:
-            log.info(f'Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
-            sys.stdout.flush()
-
-        timer.split(f'starting bundle {bspecmin}')
+    if frame_comm is None:
+        bundle_start = 0
+        bundle_step = 1
+    else:
+        bundle_start = device_id
+        bundle_step = device_count
+    bspecmins = list(range(specmin, specmin+nspec, bundlesize))
+    bundles = list()
+    for bspecmin in bspecmins[bundle_start::bundle_step]:
+        log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
+        sys.stdout.flush()
+        if gpu:
+            cp.cuda.nvtx.RangePush('extract_bundle')
         bundle = extract_bundle(
-            img['image'], img['ivar'], psf,
+            imgpixels, imgivar, psf,
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             nwavestep=nwavestep, wavepad=wavepad,
-            comm=comm, rank=rank, size=size, gpu=gpu
+            comm=bundle_comm,
+            gpu=gpu
         )
-        timer.split(f'extracted bundle {bspecmin}')
+        if gpu:
+            cp.cuda.nvtx.RangePop()
+        bundles.append((bspecmin, bundle))
 
         #- for good measure, have other ranks wait for rank 0
-        if comm is not None:
-            comm.barrier()
+        if bundle_comm is not None:
+            bundle_comm.barrier()
 
-        if rank == 0:
-            #- TODO: use vstack instead of preallocation and slicing?
-            specslice = np.s_[bspecmin:bspecmin+bundlesize]
-            flux, ivar, R = bundle
-            specflux[specslice, :] = flux
-            specivar[specslice, :] = ivar
-            Rdiags[specslice, :, :] = R
+    timer.split('extracted bundles')
 
-        timer.split(f'saved bundle {bspecmin}')
+    if frame_comm is not None:
+        # gather results from multiple mpi groups
+        if bundle_rank == 0:
+            bspecmins, bundles = zip(*bundles)
+            flux, ivar, resolution = zip(*bundles)
+            bspecmins = frame_comm.gather(bspecmins, root=0)
+            flux = gather_ndarray(flux, frame_comm)
+            ivar = gather_ndarray(ivar, frame_comm)
+            resolution = gather_ndarray(resolution, frame_comm)
+            if rank == 0:
+                bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
+                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution))), ]
+    else:
+        # no mpi or single group with all ranks
+        rankbundles = [bundles,]
+
+    timer.split('collected data')
 
     #- Finalize and write output
     frame = None
     if rank == 0:
 
-        timer.split(f'finished all bundles')
+        #- flatten list of lists into single list
+        allbundles = list()
+        for rb in rankbundles:
+            allbundles.extend(rb)
+
+        allbundles.sort(key=lambda x: x[0])
+
+        specflux = np.vstack([b[1][0] for b in allbundles])
+        specivar = np.vstack([b[1][1] for b in allbundles])
+        Rdiags = np.vstack([b[1][2] for b in allbundles])
+
+        timer.split(f'combined data')
 
         #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
         specflux /= dwave
         specivar *= dwave**2
 
-         #- TODO: specmask and chi2pix
-        specmask = (specivar > 0).astype(np.int)
+        #- TODO: specmask and chi2pix
+        specmask = (specivar == 0).astype(np.int)
         chi2pix = np.ones(specflux.shape)
 
         frame = dict(
-            imagehdr = img['imagehdr'],
             specflux = specflux,
             specivar = specivar,
             specmask = specmask,
             wave = wave,
             Rdiags = Rdiags,
-            fibermap = img['fibermap'],
-            fibermaphdr = img['fibermaphdr'],
             chi2pix = np.ones(specflux.shape),
+            imagehdr = img['imagehdr'],
+            fibermap = img['fibermap'],
+            fibermaphdr =  img['fibermaphdr'],
         )
 
         timer.split(f'finished frame')
         timer.log_splits(log)
 
     return frame
-
