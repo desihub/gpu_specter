@@ -96,7 +96,8 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     assert not debug or size % block_size == 0
     #- Invert iCov (B&S eq 17)
     safe_range_push(xp, 'eigh iCov')
-    u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
+    # u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
+    u, v = xp.cusolver.syevj((iCov + iCov.T)/2.)
     safe_range_pop(xp)
     assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
     # Check that the eigenvectors are orthonormal so that vt.v = 1
@@ -106,13 +107,19 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     safe_range_pop(xp)
     #- Calculate C^-1 = QQ (B&S eq 17-19)
     safe_range_push(xp, 'C^-1 = QQ')
+    A = xp.empty((size // block_size, block_size, block_size), dtype=iCov.dtype)
+    for k, i in enumerate(range(0, size, block_size)):
+        s = np.s_[i:i+block_size, i:i+block_size]
+        A[k] = C[s]
+    w, v = xp.linalg.eigh(A)
     Q = xp.zeros_like(iCov)
     #- Proceed one block at a time
-    for i in range(0, size, block_size):
+    for k, i in enumerate(range(0, size, block_size)):
         s = np.s_[i:i+block_size, i:i+block_size]
         #- Invert this block
         safe_range_push(xp, 'eigh block')
-        bu, bv = xp.linalg.eigh(C[s])
+        # bu, bv = xp.linalg.eigh(C[s])
+        bu, bv = w[k], v[k]
         safe_range_pop(xp)
         assert not debug or xp.all(bu > 0), 'Found some negative iCov eigenvalues.'
         # Check that the eigenvectors are orthonormal so that vt.v = 1
