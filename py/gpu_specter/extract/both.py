@@ -98,7 +98,7 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     # u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
     u, v = xp.cusolver.syevj((iCov + iCov.T)/2.)
     assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
-    # Check that the eigenvectors are orthonormal so that vt.v = 1
+    #- Check that the eigenvectors are orthonormal so that vt.v = 1
     assert not debug or xp.allclose(xp.eye(len(u)), v.T.dot(v))
     safe_range_pop(xp) # eigh icov
     safe_range_push(xp, 'compose cov', id_color=1)
@@ -114,8 +114,15 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     w, v = xp.linalg.eigh(A)
     safe_range_pop(xp) # batch eigh
     safe_range_push(xp, 'batch compose q', id_color=1)
-    # v.dot(diag(w)).dot(v.T)
-    q = xp.einsum('lij,ljk->lik', (v * xp.sqrt(1.0/w)[:, xp.newaxis, :]), v.transpose(0, 2, 1))
+    #- Compose diagonal blocks
+    #- v.dot(diag(w)).dot(v.T)
+    vsqrtwinv = v * np.sqrt(1.0/w)[:, np.newaxis, :]
+    vt = v.transpose(0, 2, 1)
+    q = xp.einsum('lij,ljk->lik', vsqrtwinv, vt)
+    #- note that the following method faster on the cpu
+    # q = np.zeros_like(vsqrtwinv)
+    # for i in range(q.shape[0]):
+    #     q[i,...] += np.dot(vsqrtwinv[i,...], vt[i,...])
     safe_range_pop(xp) # batch compose q
     safe_range_push(xp, 'expand q', id_color=1)
     Q = xp.zeros_like(iCov)
