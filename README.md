@@ -92,9 +92,9 @@ export OMP_PROC_BIND=spread
 basedir=/global/cfs/cdirs/desi/spectro/redux/andes
 args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-00051060.fits -p $basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
 
-### 2 GPU + MPI
+# 2 GPU + MPI
 srun -n 2 -c 2 --cpu-bind=cores bin/spex --mpi --gpu -o $SCRATCH/spex_skylake_mpi2_gpu2.fits $args
 
-### 2 GPU + MPI + MPS
+# 2 GPU + MPI + MPS
 srun -n 4 -c 2 --cpu-bind=cores bin/mps-wrapper bin/spex --mpi --gpu -o $SCRATCH/spex_skylake_mpi4_gpu2_mps.fits $args
 ```
