@@ -116,13 +116,13 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     safe_range_push(xp, 'batch compose q', id_color=1)
     #- Compose diagonal blocks
     #- v.dot(diag(w)).dot(v.T)
-    vsqrtwinv = v * np.sqrt(1.0/w)[:, np.newaxis, :]
+    vsqrtwinv = v * xp.sqrt(1.0/w)[:, xp.newaxis, :]
     vt = v.transpose(0, 2, 1)
     q = xp.einsum('lij,ljk->lik', vsqrtwinv, vt)
     #- note that the following method faster on the cpu
-    # q = np.zeros_like(vsqrtwinv)
+    # q = xp.zeros_like(vsqrtwinv)
     # for i in range(q.shape[0]):
-    #     q[i,...] += np.dot(vsqrtwinv[i,...], vt[i,...])
+    #     q[i,...] += xp.dot(vsqrtwinv[i,...], vt[i,...])
     safe_range_pop(xp) # batch compose q
     safe_range_push(xp, 'expand q', id_color=1)
     Q = xp.zeros_like(iCov)
