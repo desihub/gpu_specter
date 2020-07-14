@@ -37,7 +37,7 @@ Use the [these instructions](doc/how-to-build-gpu-conda-env.md) for building a g
 
 ```
 cd gpu_specter
-module load python esslurm cuda
+module load python esslurm cuda/10.2.89
 salloc -C gpu -N 1 -G 1 -c 10 -t 60 -A m1759
 
 source activate desi-gpu
@@ -73,7 +73,7 @@ srun -n 2 -c 2 --cpu-bind=cores bin/mps-wrapper bin/spex --mpi --gpu -o $SCRATCH
 
 ```
 cd gpu_specter
-module load python esslurm cuda
+module load python esslurm cuda/10.2.89
 salloc -C gpu -N 1 -G 2 -c 20 -t 60 -A m1759
 
 source activate desi-gpu
