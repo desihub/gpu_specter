@@ -417,7 +417,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             nwavestep=nwavestep, wavepad=wavepad,
             comm=bundle_comm,
-            gpu=gpu
+            gpu=gpu,
+            loglevel=loglevel,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
