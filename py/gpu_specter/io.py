@@ -83,14 +83,20 @@ def read_frame(filename):
     Returns a dictionary of numpy arrays
     """
     with fitsio.FITS(filename) as fx:
-        flux = fx['FLUX'].read().astype('f8')
-        ivar = fx['IVAR'].read().astype('f8')
-        wave = fx['WAVELENGTH'].read().astype('f8')
-        resolution = fx['RESOLUTION'].read().astype('f8')
+        flux = fx['FLUX'].read()
+        ivar = fx['IVAR'].read()
+        wave = fx['WAVELENGTH'].read()
+        mask = fx['MASK'].read()
+        resolution = fx['RESOLUTION'].read()
+        fibermap = fx['FIBERMAP'].read()
+        chi2pix = fx['CHI2PIX'].read()
     frame = dict(
         flux=flux,
         ivar=ivar,
         wave=wave,
+        mask=mask,
         resolution=resolution,
+        fibermap=fibermap,
+        chi2pix=chi2pix,
     )
     return frame
