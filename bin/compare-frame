@@ -77,6 +77,7 @@ def main():
     assert a['wave'].shape == b['wave'].shape
     assert a['flux'].shape == b['flux'].shape
     assert a['ivar'].shape == b['ivar'].shape
+    assert a['resolution'].shape == b['resolution'].shape
 
     # compare wave
     assert np.all(a['wave'] == b['wave'])
@@ -120,6 +121,11 @@ def main():
     for threshold in thresholds:
         fraction = np.average(np.abs(diff).ravel() < threshold)
         print(template.format(label=threshold, fraction=fraction))
+
+    # compare resolution
+    print('(resolution_a, resolution_b):')
+    isclose = np.average(np.isclose(a['resolution'], b['resolution']))
+    print(template.format(label='isclose', fraction=isclose))
 
 
 if __name__ == "__main__":

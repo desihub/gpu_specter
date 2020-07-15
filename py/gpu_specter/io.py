@@ -86,9 +86,11 @@ def read_frame(filename):
         flux = fx['FLUX'].read().astype('f8')
         ivar = fx['IVAR'].read().astype('f8')
         wave = fx['WAVELENGTH'].read().astype('f8')
+        resolution = fx['RESOLUTION'].read().astype('f8')
     frame = dict(
         flux=flux,
         ivar=ivar,
         wave=wave,
+        resolution=resolution,
     )
     return frame
