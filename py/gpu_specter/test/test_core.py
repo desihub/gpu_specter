@@ -21,6 +21,15 @@ try:
 except ImportError:
     gpu_available = False
 
+imgfile = pkg_resources.resource_filename('gpu_specter', 'test/data/preproc-r0-00051060.fits')
+try:
+    img = read_img(imgfile)
+    preproc_available = True
+except:
+    preproc_available = False
+
+
+@unittest.skipIf(not preproc_available, f'{imgfile} not available')
 class TestCore(unittest.TestCase):
 
     @classmethod
@@ -29,9 +38,7 @@ class TestCore(unittest.TestCase):
             'gpu_specter', 'test/data/psf-r0-00051060.fits')
         cls.psfdata = read_psf(cls.psffile)
 
-        cls.imgfile = pkg_resources.resource_filename(
-            'gpu_specter', 'test/data/preproc-r0-00051060.fits')
-        cls.imgdata = read_img(cls.imgfile)
+        cls.imgdata = read_img(imgfile)
 
     @classmethod
     def tearDownClass(cls):
