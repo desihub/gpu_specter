@@ -50,7 +50,9 @@ def plot_diff_2d(diff, wave, output):
 def plot_diff_1d(diff, wave, output):
     fig, ax = plt.subplots(figsize=(8, 6))
     # pick some arbitrary spectra
-    for ispec in (np.arange(20)*25 + 7):
+    size = len(diff)
+    step = size // 5
+    for ispec in np.arange(0, size, step):
         ax.plot(wave, 1e2*diff[ispec] + ispec, marker='.', markersize=1, lw=0)
 
     ax.set_ylabel('1e2*diff (offset by spectrum index)')
@@ -80,7 +82,7 @@ def main():
     assert a['resolution'].shape == b['resolution'].shape
 
     # compare wave
-    assert np.all(a['wave'] == b['wave'])
+    print('wave (allclose):', np.allclose(a['wave'], b['wave']))
 
     nspec = a['flux'].shape[0]
     wave = a['wave']
