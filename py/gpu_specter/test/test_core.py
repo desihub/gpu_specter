@@ -120,7 +120,7 @@ class TestCore(unittest.TestCase):
 
         self.assertGreaterEqual(pull_fraction, 0.95)
 
-    @unittest.skipIf(not cupy_available, 'cupy not available')
+    @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
         bundlesize = 10
         wavelength = '5760.0,7620.0,0.8'
