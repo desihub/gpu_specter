@@ -115,10 +115,51 @@ class TestCore(unittest.TestCase):
         diff = frame_spex['specflux'] - frame_specter['flux']
         norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
         pull = diff/norm
-        isclose_threshold = 0.01
-        isclose_fraction = np.average(np.abs(pull).ravel() < isclose_threshold)
+        pull_threshold = 0.01
+        pull_fraction = np.average(np.abs(pull).ravel() < pull_threshold)
 
-        self.assertGreaterEqual(isclose_fraction, 0.95)
+        self.assertGreaterEqual(pull_fraction, 0.95)
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_gpu(self):
+        bundlesize = 10
+        wavelength = '5760.0,7620.0,0.8'
+
+        specmin = 0
+        nspec = 10
+        nwavestep = 50
+        nsubbundles = 2
+
+        frame_cpu = extract_frame(
+            self.imgdata, self.psfdata, bundlesize,
+            specmin, nspec,
+            wavelength=wavelength,
+            nwavestep=nwavestep, nsubbundles=nsubbundles,
+            comm=None, rank=0, size=1,
+            gpu=None,
+            loglevel='WARN',
+        )
+
+        frame_gpu = specter.extract.ex2d(
+            self.imgdata, self.psfdata, bundlesize,
+            specmin, nspec,
+            wavelength=wavelength,
+            nwavestep=nwavestep, nsubbundles=nsubbundles,
+            comm=None, rank=0, size=1,
+            gpu=True,
+            loglevel='WARN',
+        )
+
+        self.assertEqual(frame_cpu['specflux'].shape, frame_gpu['specflux'].shape)
+
+        diff = frame_cpu['specflux'] - frame_gpu['specflux']
+        norm = np.sqrt(1.0/frame_cpu['specivar'] + 1.0/frame_gpu['specivar'])
+        pull = diff/norm
+        pull_threshold = 0.01
+        pull_fraction = np.average(np.abs(pull).ravel() < pull_threshold)
+
+        self.assertGreaterEqual(pull_fraction, 0.99)
+
 
 if __name__ == '__main__':
     unittest.main()
