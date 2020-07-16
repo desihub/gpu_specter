@@ -140,7 +140,7 @@ class TestCore(unittest.TestCase):
             loglevel='WARN',
         )
 
-        frame_gpu = specter.extract.ex2d(
+        frame_gpu = extract_frame(
             self.imgdata, self.psfdata, bundlesize,
             specmin, nspec,
             wavelength=wavelength,
