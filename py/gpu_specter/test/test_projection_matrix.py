@@ -80,7 +80,7 @@ class TestProjectionMatrix(unittest.TestCase):
 
             self.assertEqual(xyrange, xyrange_gpu)
             self.assertEqual(A4.shape, A4_gpu.shape)
-            self.assertTrue(cp.allclose(A4, A4_gpu))
+            self.assertTrue(np.array_equal(A4, cp.asnumpy(A4_gpu)))
 
 
     @unittest.skipIf(not specter_available, 'specter not available')

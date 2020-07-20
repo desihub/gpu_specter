@@ -352,6 +352,31 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 from .cpu import get_spec_padding
 from .both import xp_ex2d_patch
 
+def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
+    """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+
+    Args:
+        R: dense resolution matrix
+        ndiag: number of diagonal elements to keep in the resolution matrix
+        ispec: starting spectrum index relative to padding
+        nspec: number of spectra to extract (not including padding)
+        nwave: number of wavelengths to extract (not including padding)
+        wavepad: number of extra wave bins to extract (and discard) on each end
+
+    Returns:
+        Rdiags (nspec,  2*ndiag+1, nwave): resolution matrix diagonals
+    """
+    nwavetot = 2*wavepad + nwave
+    Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
+    mask = (
+        ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
+        cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
+    )
+    for i in range(ispec, ispec+nspec):
+        ii = slice(nwavetot*i, nwavetot*(i+1))
+        Rdiags[i-ispec] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+    return Rdiags
+
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
                 wavepad, bundlesize=25):
     """
@@ -432,14 +457,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         cp.cuda.nvtx.RangePop()
 
         cp.cuda.nvtx.RangePush('slice R')
-        mask = (
-            ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
-            cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
-        )
-        i0 = ispec-specmin
-        for i in range(i0, i0+nspec):
-            ii = slice(nwavetot*i, nwavetot*(i+1))
-            Rdiags[i-i0] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+        Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
         # timer.split('saved Rdiags')
         cp.cuda.nvtx.RangePop()
         cp.cuda.nvtx.RangePop()
@@ -449,6 +467,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         #- of the image; we can do better than that
         specflux = cp.zeros((nspec, nwave))
         specivar = cp.zeros((nspec, nwave))
+        Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     cp.cuda.nvtx.RangePush('prepare result')

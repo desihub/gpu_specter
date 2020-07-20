@@ -83,21 +83,25 @@ class TestPSFCoeff(unittest.TestCase):
 
         psfparams_gpu = gpu_evalcoeffs(psfdata, wavelengths)
 
-        self.assertTrue(np.allclose(psfparams['X'], psfparams_gpu['X']))
-        self.assertTrue(np.allclose(psfparams['Y'], psfparams_gpu['Y']))
+        self.assertTrue(np.array_equal(psfparams['X'], cp.asnumpy(psfparams_gpu['X'])))
+        self.assertTrue(np.array_equal(psfparams['Y'], cp.asnumpy(psfparams_gpu['Y'])))
 
         common_keys = set(psfparams.keys() & set(psfparams_gpu.keys()))
         self.assertTrue(len(common_keys) > 0)
 
+        eps_double = np.finfo(np.float64).eps
+
         for key in common_keys:
             # print(f'Comparing {key}')
-            ok = np.allclose(psfparams[key], psfparams_gpu[key])
+            if key == 'GH':
+                continue
+            ok = np.allclose(psfparams[key], cp.asnumpy(psfparams_gpu[key]), rtol=1e2*eps_double, atol=0)
             self.assertTrue(ok, key)
 
         for i in range(psfparams['GH'].shape[0]):
             for j in range(psfparams['GH'].shape[1]):
                 # print(f'Comparing GH-{i}-{j}')
-                ok = np.allclose(psfparams['GH'][i,j], psfparams_gpu['GH'][i,j])
+                ok = np.allclose(psfparams['GH'][i,j], cp.asnumpy(psfparams_gpu['GH'][i,j]), rtol=1e5*eps_double, atol=0)
                 self.assertTrue(ok, f'GH-{i}-{j}')
 
 

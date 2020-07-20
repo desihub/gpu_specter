@@ -89,12 +89,21 @@ def main():
     wmin, wmax = wave[0], wave[-1]
     nwave = len(wave)
 
-    template = '{label:>10}: {fraction:7.2%}'
+    template = '{label:>16}: {fraction:7.2%}'
+
+    eps_single = np.finfo(np.float32).eps
+    eps_double = np.finfo(np.float64).eps
 
     # compare flux
     print('(f_a, f_b):')
     isclose = np.average(np.isclose(a['flux'], b['flux']))
     print(template.format(label='isclose', fraction=isclose))
+
+    isclose_single = np.average(np.isclose(a['flux'], b['flux'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['flux'], b['flux'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
 
     print('(f_a - f_b)/sqrt(var_a + var_b):')
     diff = (a['flux'] - b['flux']) / np.sqrt(1.0/a['ivar'] + 1.0/b['ivar'])
@@ -114,6 +123,12 @@ def main():
     isclose = np.average(np.isclose(a['ivar'], b['ivar']))
     print(template.format(label='isclose', fraction=isclose))
 
+    isclose_single = np.average(np.isclose(a['ivar'], b['ivar'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['ivar'], b['ivar'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
+
     print('(sigma_a - sigma_b)/sqrt(var_a + var_b):')
     avar = 1.0/a['ivar']
     bvar = 1.0/b['ivar']
@@ -128,6 +143,12 @@ def main():
     print('(resolution_a, resolution_b):')
     isclose = np.average(np.isclose(a['resolution'], b['resolution']))
     print(template.format(label='isclose', fraction=isclose))
+
+    isclose_single = np.average(np.isclose(a['resolution'], b['resolution'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['resolution'], b['resolution'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
 
 
 if __name__ == "__main__":

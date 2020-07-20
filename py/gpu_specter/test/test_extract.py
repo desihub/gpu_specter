@@ -4,8 +4,9 @@ from astropy.table import Table
 import numpy as np
 
 from gpu_specter.io import read_psf
-from gpu_specter.extract.cpu import projection_matrix, get_spots, ex2d_patch
+from gpu_specter.extract.cpu import projection_matrix, get_spots, ex2d_patch, get_resolution_diags
 from gpu_specter.extract.both import xp_ex2d_patch
+from gpu_specter.extract.gpu import get_resolution_diags as gpu_get_resolution_diags
 
 try:
     import specter.psf
@@ -103,6 +104,22 @@ class TestEx2dPatch(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_get_Rdiags(self):
+        nspec, ispec, specmin = 5, 5, 4
+        nwave, wavepad, ndiag = 50, 10, 7
+        nwavetot = nwave + 2*wavepad
+        n = nwavetot*(2+nspec)
+        R = np.arange(n*n).reshape(n, n)
+
+        Rdiags0 = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
+
+        R_gpu = cp.asarray(R)
+        Rdiags1_gpu = gpu_get_resolution_diags(R_gpu, ndiag, ispec-specmin, nspec, nwave, wavepad)
+
+        self.assertTrue(np.alltrue(Rdiags0 == cp.asnumpy(Rdiags1_gpu)))
+
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_xp_gpu(self):
         noisyimg_gpu = cp.asarray(self.noisyimg)
         imgivar_gpu = cp.asarray(self.imgivar)
@@ -116,9 +133,11 @@ class TestEx2dPatch(unittest.TestCase):
         ivar1 = cp.asnumpy(ivar1_gpu)
         R1 = cp.asnumpy(R1_gpu)
 
-        self.assertTrue(np.allclose(flux0, flux1))
-        self.assertTrue(np.allclose(ivar0, ivar1))
-        self.assertTrue(np.allclose(R0, R1))
+        eps_double = np.finfo(np.float64).eps
+
+        self.assertTrue(np.allclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
+        self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
+        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=0))
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
         # Compare the "noise" decorrelation method
@@ -129,9 +148,9 @@ class TestEx2dPatch(unittest.TestCase):
         ivar1 = cp.asnumpy(ivar1_gpu)
         R1 = cp.asnumpy(R1_gpu)
 
-        self.assertTrue(np.allclose(flux0, flux1))
-        self.assertTrue(np.allclose(ivar0, ivar1))
-        self.assertTrue(np.allclose(R0, R1))
+        self.assertTrue(np.allclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
+        self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
+        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=0))
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
     @unittest.skipIf(not specter_available, 'specter not available')

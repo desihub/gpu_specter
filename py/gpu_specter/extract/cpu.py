@@ -316,6 +316,33 @@ def get_spec_padding(ispec, nspec, bundlesize):
     
     return specmin, nspecpad
 
+def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
+    """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+
+    Args:
+        R: dense resolution matrix
+        ndiag: number of diagonal elements to keep in the resolution matrix
+        ispec: starting spectrum index relative to padding
+        nspec: number of spectra to extract (not including padding)
+        nwave: number of wavelengths to extract (not including padding)
+        wavepad: number of extra wave bins to extract (and discard) on each end
+
+    Returns:
+        Rdiags (nspec,  2*ndiag+1, nwave): resolution matrix diagonals
+    """
+    nwavetot = 2*wavepad + nwave
+    Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
+    #- TODO: check indexing
+    for i in np.arange(ispec, ispec+nspec):
+        #- subregion of R for this spectrum
+        ii = slice(nwavetot*i, nwavetot*(i+1))
+        Rx = R[ii, ii]
+        #- subregion of non-padded wavelengths for this spectrum
+        for j in range(wavepad,wavepad+nwave):
+            # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
+            Rdiags[i-ispec, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
+    return Rdiags
+
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
                 wavepad, bundlesize=25):
     """
@@ -363,7 +390,6 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
     ndiag = spots.shape[2]//2
-    Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
@@ -374,23 +400,15 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         specflux = fx[specslice]
         specivar = ivarfx[specslice]
 
-        #- TODO: check indexing
-        i0 = ispec-specmin
-        for i in np.arange(i0, i0+nspec):
-            #- subregion of R for this spectrum
-            ii = slice(nwavetot*i, nwavetot*(i+1))
-            Rx = R[ii, ii]
-
-            #- subregion of non-padded wavelengths for this spectrum
-            for j in range(wavepad,wavepad+nwave):
-                # Rdiags dimensions [nspec, 2*ndiag+1, nwave]
-                Rdiags[i-i0, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
+        #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+        Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
 
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
         #- of the image; we can do better than that
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
+        Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     result = dict(
