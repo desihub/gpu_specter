@@ -160,6 +160,10 @@ class TestCore(unittest.TestCase):
 
         self.assertGreaterEqual(pull_fraction, 0.99)
 
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_allclose(frame_cpu['specflux'], frame_gpu['specflux'], rtol=1e-3, atol=0)
+        np.testing.assert_allclose(frame_cpu['specivar'], frame_gpu['specivar'], rtol=1e-4, atol=0)
+        np.testing.assert_allclose(frame_cpu['Rdiags'], frame_gpu['Rdiags'], rtol=1e-3, atol=0)
 
 if __name__ == '__main__':
     unittest.main()

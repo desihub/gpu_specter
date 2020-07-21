@@ -210,7 +210,7 @@ def calc_pgh(ispec, wavelengths, psfparams):
 
 
 @cuda.jit()
-def _multispot(pGHx, pGHy, ghc, mspots):
+def _multispot(pGHx, pGHy, ghc, spots):
     nx = pGHx.shape[-1]
     ny = pGHy.shape[-1]
     nwave = pGHx.shape[1]
@@ -230,7 +230,18 @@ def _multispot(pGHx, pGHy, ghc, mspots):
                 c = ghc[i,j,iwave]
                 for iy in range(len(py)):
                     for ix in range(len(px)):
-                        mspots[iwave, iy, ix] += c * py[iy] * px[ix]
+                        spots[iwave, iy, ix] += c * py[iy] * px[ix]
+
+def multispot(pGHx, pGHy, ghc):
+    nx = pGHx.shape[-1]
+    ny = pGHy.shape[-1]
+    nwave = pGHx.shape[1]
+    blocksize = 256
+    numblocks = (nwave + blocksize - 1) // blocksize
+    spots = cp.zeros((nwave, ny, nx)) #empty every time!
+    _multispot[numblocks, blocksize](pGHx, pGHy, ghc, spots)
+    return spots
+
 
 def get_spots(specmin, nspec, wavelengths, psfdata):
     '''Calculate PSF spots for the specified spectra and wavelengths
@@ -251,15 +262,9 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
     spots = cp.zeros((nspec, nwave, ny, nx))
-    #use mark's numblocks and blocksize method
-    blocksize = 256
-    numblocks = (nwave + blocksize - 1) // blocksize
     for ispec in range(nspec):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
-        ghc = cp.asarray(p['GH'][:,:,ispec,:])
-        mspots = cp.zeros((nwave, ny, nx)) #empty every time!
-        _multispot[numblocks, blocksize](pGHx, pGHy, ghc, mspots)
-        spots[ispec] = mspots
+        spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
 
     #- ensure positivity and normalize
     #- TODO: should this be within multispot itself?
@@ -272,7 +277,9 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     xc = np.floor(p['X'] - p['HSIZEX'] + 0.5).astype(int)
     yc = np.floor(p['Y'] - p['HSIZEY'] + 0.5).astype(int)
 
-    return spots, (xc, yc)
+    corners = (xc, yc)
+
+    return spots, corners
 
 
 @cuda.jit()
