@@ -457,10 +457,99 @@ def dotdot3(A, w):
         for j2 in range(j1+1, m):
             B[j2, j1] = B[j1, j2]
 
-    return B    
+    return B
+
+def deconvolve(pixel_values, pixel_ivar, A, debug=False):
+    """Calculate the weighted linear least-squares flux solution for an observed trace.
+
+    Args:
+        pixel_values (ny*nx,): 1D array of pixel values
+        pixel_ivar (ny*nx,): 1D array of pixel inverse variances to use for weighting
+        A (ny*nx, nspec*nwave): projection matrix that transforms a 1D spectrum into a 2D image
+
+    Returns:
+        deconvolved (nspec*nwave): the best-fit 1D array of flux values
+        iCov (nspec*nwave, nspec*nwave): the correlated inverse covariance matrix of the deconvolved flux
+
+    """
+    #- Set up the equation to solve (B&S eq 4)
+    iCov = dotdot3(A, pixel_ivar)
+    y = (A.T * pixel_ivar).dot(pixel_values)
+    #- Add a weak flux=0 prior to avoid singular matrices
+    #- TODO: review this; compare to specter
+    iCov += 1e-12*np.eye(iCov.shape[0])
+    #- Solve the linear least-squares problem.
+    deconvolved = scipy.linalg.solve(iCov, y)
+    return deconvolved, iCov
+
+def decorrelate_noise(iCov, debug=False):
+    """Calculate the decorrelated errors and resolution matrix via BS Eq 10-13
+
+    Args:
+        iCov (nspec*nwave, nspec*nwave): the inverse covariance matrix
+
+    Returns:
+        ivar (ny*nx,): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): resoultion matrix
+    """
+    # Calculate the matrix square root of iCov to diagonalize the flux errors.
+    u, v = np.linalg.eigh(iCov)
+    # Check that all eigenvalues are positive.
+    assert not debug or np.all(u > 0), 'Found some negative iCov eigenvalues.'
+    # Check that the eigenvectors are orthonormal so that vt.v = 1
+    assert not debug or np.allclose(np.eye(len(u)), v.T.dot(v))
+    Q = (v * np.sqrt(u)).dot(v.T)
+    # Check BS eqn.10
+    assert not debug or np.allclose(iCov, Q.dot(Q))
+    #- Calculate the corresponding resolution matrix and diagonal flux errors. (BS Eq 11-13)
+    s = np.sum(Q, axis=1)
+    R = Q/s[:, np.newaxis]
+    ivar = s**2
+    # Check BS eqn.14
+    assert not debug or np.allclose(iCov, R.T.dot(np.diag(ivar).dot(R)))
+    return ivar, R
+
+def decorrelate_blocks(iCov, block_size, debug=False):
+    """Calculate the decorrelated errors and resolution matrix via BS Eq 19
+
+    Args:
+        iCov (nspec*nwave, nspec*nwave): the inverse covariance matrix
+        block_size (int): size of the block corresponding to a single spectrum (i.e. nwave)
+
+    Returns:
+        ivar (ny*nx,): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): resoultion matrix
+    """
+    size = iCov.shape[0]
+    assert not debug or size % block_size == 0
+    #- Invert iCov (B&S eq 17)
+    u, v = np.linalg.eigh((iCov + iCov.T)/2.)
+    assert not debug or np.all(u > 0), 'Found some negative iCov eigenvalues.'
+    # Check that the eigenvectors are orthonormal so that vt.v = 1
+    assert not debug or np.allclose(np.eye(len(u)), v.T.dot(v))
+    C = (v * (1.0/u)).dot(v.T)
+    #- Calculate C^-1 = QQ (B&S eq 17-19)
+    Q = np.zeros_like(iCov)
+    #- Proceed one block at a time
+    for i in range(0, size, block_size):
+        s = np.s_[i:i+block_size, i:i+block_size]
+        #- Invert this block
+        bu, bv = np.linalg.eigh(C[s])
+        assert not debug or np.all(bu > 0), 'Found some negative iCov eigenvalues.'
+        # Check that the eigenvectors are orthonormal so that vt.v = 1
+        assert not debug or np.allclose(np.eye(len(bu)), bv.T.dot(bv))
+        bQ = (bv * np.sqrt(1.0/bu)).dot(bv.T)
+        Q[s] = bQ
+    #- Calculate the corresponding resolution matrix and diagonal flux errors. (BS Eq 11-13)
+    s = np.sum(Q, axis=1)
+    R = Q/s[:, np.newaxis]
+    ivar = s**2
+    #- Check BS eqn.14
+    assert not debug or np.allclose(Q.dot(Q), R.T.dot(np.diag(ivar).dot(R)))
+    return ivar, R
 
 # @profile
-def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
+def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', debug=False):
     '''
     Perform spectroperfectionism extractions returning flux, varflux, R
 
@@ -470,9 +559,9 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
         A4[ny, nx, nspec, nwave] : projection matrix for p = A f
 
     Returns (f, vf, R) where
-      * f[nspec*nwave] = extracted resolution convolved flux
-      * vf[nspec*nwave] = variance on f (not inverse variance...)
-      * R[nspec*nwave, nspec*nwave] = dense resolution matrix
+        flux (nspec, nwave): extracted resolution convolved flux
+        ivar (nspec, nwave): uncorrelated flux inverse variances
+        R (nspec*nwave, nspec*nwave): dense resolution matrix
     '''
     ny, nx, nspec, nwave = A4.shape
     assert noisyimg.shape == (ny, nx)
@@ -482,52 +571,19 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal'):
 
     A = A4.reshape(ny*nx, nspec*nwave)
 
-    #- Set up the equation to solve (B&S eq 4)
-    w = imgweights.ravel()
-    iCov = dotdot3(A, w)    #- iCov = A.T.dot( Diag(w).dot(A) )
-    y = (A.T * w).dot(noisyimg.ravel())
-    
-    #- Add a weak flux=0 prior to avoid singular matrices
-    #- TODO: review this; compare to specter
-    iCov += 1e-12*np.eye(nspec*nwave)
-
     #- Solve f (B&S eq 4)
-    f = scipy.linalg.solve(iCov, y).reshape(nspec, nwave)
+    deconvolved, iCov = deconvolve(noisyimg.ravel(), imgweights.ravel(), A)
 
-    #- Eigen-decompose iCov to assist in upcoming steps
-    u, v = np.linalg.eigh(iCov)
-    u = np.asarray(u)
-    v = np.asarray(v)
-
-    #- Invert iCov (B&S eq 17, eq 15 prereq)
-    Cov = (v * (1.0/u)).dot(v.T)
-
+    #- Calculate the decorrelated errors and resolution matrix.
     if decorrelate == 'signal':
-        #- Calculate C^-1 = QQ (B&S eq 17-19)
-        Q = np.zeros_like(iCov)
-        #- Proceed one block at a time
-        for i in np.arange(0, Q.shape[0], nwave):
-            s = np.s_[i:i+nwave, i:i+nwave]
-            #- Invert this block
-            bu, bv = np.linalg.eigh(Cov[s])
-            bQ = (bv * np.sqrt(1.0/bu)).dot(bv.T)
-            Q[s] = bQ
+        fluxivar, resolution = decorrelate_blocks(iCov, nwave, debug=debug)
     elif decorrelate == 'noise':
-        #- Calculate C^-1 = QQ (B&S eq 10)
-        Q = (v * np.sqrt(u)).dot(v.T)
+        fluxivar, resolution = decorrelate_noise(iCov, debug=debug)
     else:
         raise ValueError(f'{decorrelate} is not a valid value for decorrelate')
     
-    #- normalization vector (B&S eq 11)
-    norm_vector = np.sum(Q, axis=1)
+    #- Convolve the reduced flux (BS eq 16)
+    flux = resolution.dot(deconvolved).reshape(nspec, nwave)
+    fluxivar = fluxivar.reshape(nspec, nwave)
     
-    #- Resolution matrix (B&S eq 12)
-    R = np.outer(1.0/norm_vector, np.ones(norm_vector.size)) * Q
-
-    #- Decorrelated flux (B&S eq 16)
-    fx = R.dot(f.ravel()).reshape(f.shape)
-    
-    #- Inverse variance on f (B&S eq 13)
-    ivarfx = (norm_vector**2).reshape(fx.shape)
-    
-    return fx, ivarfx, R
+    return flux, fluxivar, resolution
