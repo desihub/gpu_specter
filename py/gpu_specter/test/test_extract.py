@@ -104,6 +104,87 @@ class TestEx2dPatch(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_icov(self):
+        from gpu_specter.extract.cpu import dotdot1, dotdot2, dotdot3
+
+        ny, nx, nspec, nwave = self.A4.shape
+
+        pixel_ivar = self.imgivar.ravel()
+        A = self.A4.reshape(ny*nx, nspec*nwave)
+
+        icov0 = A.T.dot(np.diag(pixel_ivar).dot(A))
+        icov1 = dotdot1(A, pixel_ivar) # array broadcast
+        icov2 = dotdot2(A, pixel_ivar) # scipy sparse
+        icov3 = dotdot3(A, pixel_ivar) # numba
+
+        pixel_ivar_gpu = cp.asarray(pixel_ivar)
+        A_gpu = cp.asarray(A)
+        icov_gpu = (A_gpu.T * pixel_ivar_gpu).dot(A_gpu) # array broadcast
+
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_allclose(icov0, icov1, rtol=2*eps_double, atol=0)
+        np.testing.assert_allclose(icov0, icov2, rtol=10*eps_double, atol=0)
+        np.testing.assert_allclose(icov0, icov3, rtol=10*eps_double, atol=0)
+
+        np.testing.assert_allclose(icov0, cp.asnumpy(icov_gpu), rtol=10*eps_double, atol=0)
+        np.testing.assert_allclose(icov1, cp.asnumpy(icov_gpu), rtol=10*eps_double, atol=0)
+        np.testing.assert_allclose(icov2, cp.asnumpy(icov_gpu), rtol=10*eps_double, atol=0)
+        np.testing.assert_allclose(icov3, cp.asnumpy(icov_gpu), rtol=10*eps_double, atol=0)
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_solve(self):
+        import scipy.linalg
+
+        ny, nx, nspec, nwave = self.A4.shape
+
+        pixel_values = self.noisyimg.ravel()
+        pixel_ivar = self.imgivar.ravel()
+        A = self.A4.reshape(ny*nx, nspec*nwave)
+
+        icov = (A.T * pixel_ivar).dot(A)
+        y = (A.T * pixel_ivar).dot(pixel_values)
+        deconvolved_scipy = scipy.linalg.solve(icov, y)
+        deconvolved_numpy = np.linalg.solve(icov, y)
+
+        icov_gpu = cp.asarray(icov)
+        y_gpu = cp.asarray(y)
+
+        deconvolved_gpu = cp.linalg.solve(icov_gpu, y_gpu)
+
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_allclose(deconvolved_scipy, deconvolved_numpy, rtol=eps_double, atol=0)
+        np.testing.assert_allclose(deconvolved_scipy, cp.asnumpy(deconvolved_gpu), rtol=1e5*eps_double, atol=0)
+        np.testing.assert_allclose(deconvolved_numpy, cp.asnumpy(deconvolved_gpu), rtol=1e5*eps_double, atol=0)
+
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_deconvolve(self):
+
+        from gpu_specter.extract.cpu import deconvolve as cpu_deconvolve
+        from gpu_specter.extract.both import xp_deconvolve as gpu_deconvolve
+
+        ny, nx, nspec, nwave = self.A4.shape
+
+        pixel_values = self.noisyimg.ravel()
+        pixel_ivar = self.imgivar.ravel()
+        A = self.A4.reshape(ny*nx, nspec*nwave)
+
+        pixel_values_gpu = cp.asarray(pixel_values)
+        pixel_ivar_gpu = cp.asarray(pixel_ivar)
+        A_gpu = cp.asarray(A)
+
+        deconvolved0, iCov0 = cpu_deconvolve(pixel_values, pixel_ivar, A)
+        deconvolved_gpu, iCov_gpu = gpu_deconvolve(pixel_values_gpu, pixel_ivar_gpu, A_gpu)
+
+        deconvolved1 = cp.asnumpy(deconvolved_gpu)
+        iCov1 = cp.asnumpy(iCov_gpu)
+
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_allclose(deconvolved0, deconvolved1, rtol=1e5*eps_double, atol=0)
+        np.testing.assert_allclose(iCov0, iCov1, rtol=1e3*eps_double, atol=0)
+
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_get_Rdiags(self):
         nspec, ispec, specmin = 5, 5, 4
         nwave, wavepad, ndiag = 50, 10, 7
