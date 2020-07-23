@@ -95,12 +95,7 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     assert not debug or size % block_size == 0
     #- Invert iCov (B&S eq 17)
     safe_range_push(xp, 'eigh icov', id_color=0)
-    use_syevj_eigh = False
-    try:
-        u, v = xp.cusolver.syevj(iCov)
-        use_syevj_eigh = True
-    except:
-        u, v = xp.linalg.eigh(iCov)
+    u, v = xp.linalg.eigh(iCov)
     assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
     #- Check that the eigenvectors are orthonormal so that vt.v = 1
     assert not debug or xp.allclose(xp.eye(len(u)), v.T.dot(v))
@@ -115,9 +110,9 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
         A[i] = C[s:s + block_size, s:s + block_size]
     safe_range_pop(xp) # batch eigh setup
     safe_range_push(xp, 'batch eigh solve', id_color=0)
-    if use_syevj_eigh:
-        w, v = xp.cusolver.syevj(A)
-    else:
+    try:
+        w, v = xp.linalg.eigh(A)
+    except:
         v = xp.empty_like(A)
         w = xp.empty_like(A[...,0])
         for i in range(len(A)):
