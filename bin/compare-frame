@@ -50,12 +50,54 @@ def plot_diff_2d(diff, wave, output):
 def plot_diff_1d(diff, wave, output):
     fig, ax = plt.subplots(figsize=(8, 6))
     # pick some arbitrary spectra
-    for ispec in (np.arange(20)*25 + 7):
+    size = len(diff)
+    step = size // 5
+    for ispec in np.arange(0, size, step):
         ax.plot(wave, 1e2*diff[ispec] + ispec, marker='.', markersize=1, lw=0)
 
     ax.set_ylabel('1e2*diff (offset by spectrum index)')
     ax.set_xlabel('wavelength')
     plt.savefig(output + '-1D.png', bbox_inches='tight', dpi=100)
+
+
+def compare_array(x, y, atol=0, rtol=1.e-8):
+
+    print(f'Checking tolerance rtol={rtol}, atol={atol}')
+
+    ynonzero = y != 0
+    xnonzero = x != 0
+
+    if not np.array_equal(xnonzero, ynonzero):
+        print(f"Nonzero x: {np.sum(xnonzero)} / {x.size}")
+        print(f"Nonzero y: {np.sum(ynonzero)} / {y.size}")
+    nonzero = xnonzero & ynonzero
+
+    adiff = np.abs(x[nonzero] - y[nonzero])
+    max_adiff = np.max(adiff)
+    print(f'Max absolute difference: {max_adiff}')
+    if atol > 0:
+        amismatch = adiff > atol
+        nmismatch = np.sum(amismatch)
+        mismatch_fraction = nmismatch / x.size
+        if nmismatch:
+            print(f'Mismatched elements: {nmismatch} / {x.size} ({mismatch_fraction:.3g}%)')
+            print('x: ', repr(x[amismatch]))
+            print('y: ', repr(y[amismatch]))
+
+    yrdiff = (adiff / np.abs(y[nonzero]))
+    xrdiff = (adiff / np.abs(x[nonzero]))
+    max_rdiff = max(np.max(xrdiff), np.max(yrdiff))
+    print(f'Max relative difference: {max_rdiff}')
+    if rtol > 0:
+        rmismatch = (xrdiff > rtol) | (yrdiff > rtol)
+        nmismatch = np.sum(rmismatch)
+        mismatch_fraction = nmismatch / x.size
+        if nmismatch > 0:
+            print(f'Mismatched elements: {nmismatch} / {x.size} ({mismatch_fraction:.3g}%)')
+            print('x: ', repr(x[nonzero][rmismatch]))
+            print('y: ', repr(y[nonzero][rmismatch]))
+    print()
+
 
 
 def main():
@@ -77,21 +119,33 @@ def main():
     assert a['wave'].shape == b['wave'].shape
     assert a['flux'].shape == b['flux'].shape
     assert a['ivar'].shape == b['ivar'].shape
+    assert a['resolution'].shape == b['resolution'].shape
 
     # compare wave
-    assert np.all(a['wave'] == b['wave'])
+    print('wave (allclose):', np.allclose(a['wave'], b['wave']))
 
     nspec = a['flux'].shape[0]
     wave = a['wave']
     wmin, wmax = wave[0], wave[-1]
     nwave = len(wave)
 
-    template = '{label:>10}: {fraction:7.2%}'
+    template = '{label:>16}: {fraction:7.2%}'
+
+    eps_single = np.finfo(np.float32).eps
+    eps_double = np.finfo(np.float64).eps
 
     # compare flux
     print('(f_a, f_b):')
     isclose = np.average(np.isclose(a['flux'], b['flux']))
     print(template.format(label='isclose', fraction=isclose))
+
+    isclose_single = np.average(np.isclose(a['flux'], b['flux'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['flux'], b['flux'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
+
+    compare_array(a['flux'], b['flux'], rtol=1e-5)
 
     print('(f_a - f_b)/sqrt(var_a + var_b):')
     diff = (a['flux'] - b['flux']) / np.sqrt(1.0/a['ivar'] + 1.0/b['ivar'])
@@ -100,7 +154,6 @@ def main():
     for threshold in thresholds:
         fraction = np.average(np.abs(diff).ravel() < threshold)
         print(template.format(label=threshold, fraction=fraction))
-
 
     if args.output is not None:
         plot_diff_2d(diff, wave, args.output)
@@ -111,6 +164,12 @@ def main():
     isclose = np.average(np.isclose(a['ivar'], b['ivar']))
     print(template.format(label='isclose', fraction=isclose))
 
+    isclose_single = np.average(np.isclose(a['ivar'], b['ivar'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['ivar'], b['ivar'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
+
     print('(sigma_a - sigma_b)/sqrt(var_a + var_b):')
     avar = 1.0/a['ivar']
     bvar = 1.0/b['ivar']
@@ -120,6 +179,17 @@ def main():
     for threshold in thresholds:
         fraction = np.average(np.abs(diff).ravel() < threshold)
         print(template.format(label=threshold, fraction=fraction))
+
+    # compare resolution
+    print('(resolution_a, resolution_b):')
+    isclose = np.average(np.isclose(a['resolution'], b['resolution']))
+    print(template.format(label='isclose', fraction=isclose))
+
+    isclose_single = np.average(np.isclose(a['resolution'], b['resolution'], atol=0, rtol=eps_single))
+    print(template.format(label='isclose_single', fraction=isclose_single))
+
+    isclose_double = np.average(np.isclose(a['resolution'], b['resolution'], atol=0, rtol=eps_double))
+    print(template.format(label='isclose_double', fraction=isclose_double))
 
 
 if __name__ == "__main__":

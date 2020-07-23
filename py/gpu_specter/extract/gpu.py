@@ -210,7 +210,7 @@ def calc_pgh(ispec, wavelengths, psfparams):
 
 
 @cuda.jit()
-def _multispot(pGHx, pGHy, ghc, mspots):
+def _multispot(pGHx, pGHy, ghc, spots):
     nx = pGHx.shape[-1]
     ny = pGHy.shape[-1]
     nwave = pGHx.shape[1]
@@ -230,7 +230,18 @@ def _multispot(pGHx, pGHy, ghc, mspots):
                 c = ghc[i,j,iwave]
                 for iy in range(len(py)):
                     for ix in range(len(px)):
-                        mspots[iwave, iy, ix] += c * py[iy] * px[ix]
+                        spots[iwave, iy, ix] += c * py[iy] * px[ix]
+
+def multispot(pGHx, pGHy, ghc):
+    nx = pGHx.shape[-1]
+    ny = pGHy.shape[-1]
+    nwave = pGHx.shape[1]
+    blocksize = 256
+    numblocks = (nwave + blocksize - 1) // blocksize
+    spots = cp.zeros((nwave, ny, nx)) #empty every time!
+    _multispot[numblocks, blocksize](pGHx, pGHy, ghc, spots)
+    return spots
+
 
 def get_spots(specmin, nspec, wavelengths, psfdata):
     '''Calculate PSF spots for the specified spectra and wavelengths
@@ -251,15 +262,9 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
     spots = cp.zeros((nspec, nwave, ny, nx))
-    #use mark's numblocks and blocksize method
-    blocksize = 256
-    numblocks = (nwave + blocksize - 1) // blocksize
     for ispec in range(nspec):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
-        ghc = cp.asarray(p['GH'][:,:,ispec,:])
-        mspots = cp.zeros((nwave, ny, nx)) #empty every time!
-        _multispot[numblocks, blocksize](pGHx, pGHy, ghc, mspots)
-        spots[ispec] = mspots
+        spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
 
     #- ensure positivity and normalize
     #- TODO: should this be within multispot itself?
@@ -272,7 +277,9 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     xc = np.floor(p['X'] - p['HSIZEX'] + 0.5).astype(int)
     yc = np.floor(p['Y'] - p['HSIZEY'] + 0.5).astype(int)
 
-    return spots, (xc, yc)
+    corners = (xc, yc)
+
+    return spots, corners
 
 
 @cuda.jit()
@@ -351,6 +358,31 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 
 from .cpu import get_spec_padding
 from .both import xp_ex2d_patch
+
+def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
+    """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+
+    Args:
+        R: dense resolution matrix
+        ndiag: number of diagonal elements to keep in the resolution matrix
+        ispec: starting spectrum index relative to padding
+        nspec: number of spectra to extract (not including padding)
+        nwave: number of wavelengths to extract (not including padding)
+        wavepad: number of extra wave bins to extract (and discard) on each end
+
+    Returns:
+        Rdiags (nspec,  2*ndiag+1, nwave): resolution matrix diagonals
+    """
+    nwavetot = 2*wavepad + nwave
+    Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
+    mask = (
+        ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
+        cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
+    )
+    for i in range(ispec, ispec+nspec):
+        ii = slice(nwavetot*i, nwavetot*(i+1))
+        Rdiags[i-ispec] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+    return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
                 wavepad, bundlesize=25):
@@ -432,14 +464,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         cp.cuda.nvtx.RangePop()
 
         cp.cuda.nvtx.RangePush('slice R')
-        mask = (
-            ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
-            cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
-        )
-        i0 = ispec-specmin
-        for i in range(i0, i0+nspec):
-            ii = slice(nwavetot*i, nwavetot*(i+1))
-            Rdiags[i-i0] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+        Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
         # timer.split('saved Rdiags')
         cp.cuda.nvtx.RangePop()
         cp.cuda.nvtx.RangePop()
@@ -449,6 +474,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         #- of the image; we can do better than that
         specflux = cp.zeros((nspec, nwave))
         specivar = cp.zeros((nspec, nwave))
+        Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     cp.cuda.nvtx.RangePush('prepare result')

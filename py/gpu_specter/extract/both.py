@@ -63,7 +63,7 @@ def xp_decorrelate(iCov, debug=False):
     """
     xp = get_array_module(iCov)
     # Calculate the matrix square root of iCov to diagonalize the flux errors.
-    u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
+    u, v = xp.linalg.eigh(iCov)
     # Check that all eigenvalues are positive.
     assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
     # Check that the eigenvectors are orthonormal so that vt.v = 1

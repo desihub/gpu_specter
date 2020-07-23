@@ -6,6 +6,18 @@ Run unit test suite using:
 python setup.py test
 ```
 
+Note that `python setup.py test` triggers a deprecation warning. An altenative:
+
+```
+python -m unittest --verbose gpu_specter.test.test_suite
+```
+
+On a gpu node:
+
+```
+srun python -m unittest --verbose gpu_specter.test.test_suite
+```
+
 ## Strict regression test
     
 Use to confirm that changes do not affect the output. 
@@ -32,34 +44,33 @@ This test is more nuanced than the strict regression test.
 
 Example comparison between `spex` and `desi_extract_spectra`
 
-Generate output files:
+Use the instructions from the top-level README to generate the output "frame" files:
+ * `$SCRATCH/spex_haswell_mpi32_gpu0.fits` 
+ * `$SCRATCH/desi_haswell_mpi32_gpu0.fits`
+
+Compare the results using `bin/compare-frame`:
 
 ```
-cd gpu_specter
-source /global/cfs/cdirs/desi/software/desi_environment.sh master
-export PATH=$(pwd)/bin:$PATH
-export PYTHONPATH=$(pwd)/py:$PYTHONPATH
-
-salloc -N 1 -C haswell -t 60 -q interactive
-
-basedir=/global/cfs/cdirs/desi/spectro/redux/andes
-args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-00051060.fits -p $basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
-
-srun -n 32 -c 2 desi_extract_spectra --mpi -o $SCRATCH/desi_extract.fits $args
-srun -n 32 -c 2 bin/spex --mpi -o $SCRATCH/spex_extract.fits $args
-```
-
-Example parity test output:
-
-```
-$ python bin/compare-frame -a $SCRATCH/spex_extract.fits -b $SCRATCH/desi_extract.fits
+$ python bin/compare-frame -a $SCRATCH/spex_haswell_mpi32_gpu0.fits -b $SCRATCH/desi_haswell_mpi32_gpu0.fits
+wave (allclose): True
 (f_a, f_b):
-  isclose:   70.17%
+   isclose:  70.17%
 (f_a - f_b)/sqrt(var_a + var_b):
-    1e-05:   60.38%
-   0.0001:   73.73%
-    0.001:   84.80%
-     0.01:   94.74%
-      0.1:   99.88%
-      1.0:  100.00%
+     1e-05:  60.38%
+    0.0001:  73.73%
+     0.001:  84.80%
+      0.01:  94.74%
+       0.1:  99.88%
+       1.0: 100.00%
+(ivar_a, ivar_b):
+   isclose:  81.98%
+(sigma_a - sigma_b)/sqrt(var_a + var_b):
+     1e-05:  84.95%
+    0.0001:  92.98%
+     0.001:  99.14%
+      0.01:  99.99%
+       0.1:  99.99%
+       1.0: 100.00%
+(resolution_a, resolution_b):
+   isclose:  81.34%
 ```

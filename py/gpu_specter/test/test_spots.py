@@ -94,11 +94,14 @@ class TestPSFSpots(unittest.TestCase):
             spots_gpu, corners_gpu = gpu_get_spots(ispec, 1, self.wavelengths, self.psfdata)
             xc_gpu, yc_gpu = corners_gpu
 
-            self.assertTrue(cp.allclose(xc, xc_gpu))
-            self.assertTrue(cp.allclose(yc, yc_gpu))
-            self.assertEqual(spots.shape, spots_gpu.shape)
-            self.assertTrue(cp.allclose(spots, spots_gpu))
+            # compare corners
+            self.assertTrue(np.array_equal(xc, cp.asnumpy(xc_gpu)))
+            self.assertTrue(np.array_equal(yc, cp.asnumpy(yc_gpu)))
 
+            # compare spots
+            self.assertEqual(spots.shape, spots_gpu.shape)
+            eps_double = np.finfo(np.float64).eps
+            self.assertTrue(np.allclose(spots, cp.asnumpy(spots_gpu), rtol=eps_double, atol=eps_double))
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):
