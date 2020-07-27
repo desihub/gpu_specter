@@ -6,7 +6,6 @@ import numpy as np
 from gpu_specter.io import read_psf
 from gpu_specter.extract.cpu import projection_matrix, get_spots, ex2d_patch, get_resolution_diags
 from gpu_specter.extract.both import xp_ex2d_patch
-from gpu_specter.extract.gpu import get_resolution_diags as gpu_get_resolution_diags
 
 try:
     import specter.psf

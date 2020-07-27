@@ -10,7 +10,7 @@ from pkg_resources import resource_filename
 import numpy as np
 
 from gpu_specter.util import get_logger, Timer
-from gpu_specter.io import read_img, read_psf, write_frame
+from gpu_specter.io import read_img, read_psf, write_frame, write_model
 from gpu_specter.core import extract_frame
 
 def parse(options=None):
@@ -24,8 +24,8 @@ def parse(options=None):
                         help="input psf file")
     parser.add_argument("-o", "--output", type=str, required=True,
                         help="output extracted spectra file")
-    # parser.add_argument("-m", "--model", type=str, required=False,
-    #                     help="output 2D pixel model file")
+    parser.add_argument("-m", "--model", type=str, required=False,
+                        help="output 2D pixel model file")
     parser.add_argument("-w", "--wavelength", type=str, required=False,
                         help="wavemin,wavemax,dw")
     parser.add_argument("-s", "--specmin", type=int, required=False, default=0,
@@ -145,6 +145,7 @@ def main(args=None):
         args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
         args.wavelength,                   # wavelength range to extract
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
+        args.model,
         comm, rank, size,                  # mpi parameters
         args.gpu,                          # gpu parameters
         args.loglevel,                     # log
@@ -157,6 +158,10 @@ def main(args=None):
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
+
+        if args.model is not None:
+            log.info(f'Writing model {args.model}')
+            write_model(args.model, frame)
 
     #- Print timing summary
     if rank == 0:

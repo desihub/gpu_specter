@@ -344,7 +344,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25):
+                wavepad, bundlesize=25, model=None):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -409,12 +409,21 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
+        xyslice = None
+
+    if model:
+        A = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave].reshape(ny*nx, nspec*nwave)
+        modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
+    else:
+        modelimage = None
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     result = dict(
         flux = specflux,
         ivar = specivar,
         Rdiags = Rdiags,
+        modelimage = modelimage,
+        xyslice = xyslice,
     )
 
     return result
