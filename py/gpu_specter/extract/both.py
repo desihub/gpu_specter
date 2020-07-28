@@ -17,6 +17,13 @@ def safe_range_pop(xp):
     if xp.__name__ == 'cupy':
         xp.cuda.nvtx.RangePop()
 
+def xp_dotall(pixel_values, pixel_ivar, A):
+    ATNinv = A.T * pixel_ivar
+    iCov = ATNinv.dot(A)
+    y = ATNinv.dot(pixel_values)
+    fluxweight = ATNinv.sum(axis=1)
+    return iCov, y, fluxweight
+
 def xp_deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     """Calculate the weighted linear least-squares flux solution for an observed trace.
 
@@ -35,10 +42,7 @@ def xp_deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     assert not debug or xp == get_array_module(pixel_ivar)
     #- Set up the equation to solve (B&S eq 4)
     safe_range_push(xp, 'BS Eq 4 Setup')
-    ATNinv = A.T * pixel_ivar
-    iCov = ATNinv.dot(A)
-    y = ATNinv.dot(pixel_values)
-    fluxweight = ATNinv.sum(axis=1)
+    iCov, y, fluxweight = xp_dotall(pixel_values, pixel_ivar, A)
     #- Add a weak flux=0 prior to avoid singular matrices
     #- TODO: review this; compare to specter
     Idiag = regularize*xp.ones_like(y)
