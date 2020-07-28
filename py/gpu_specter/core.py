@@ -254,13 +254,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             flux = []
             fluxivar = []
             resolution = []
-            mimage = []
+            modelimage = []
             for patch, results in results:
                 patches.append(patch)
                 flux.append(results['flux'])
                 fluxivar.append(results['ivar'])
                 resolution.append(results['Rdiags'])
-                mimage.append(cp.asnumpy(results['modelimage']))
+                modelimage.append(cp.asnumpy(results['modelimage']))
 
             # transfer to host in 3 chunks
             cp.cuda.nvtx.RangePush('copy bundle results to host')
@@ -269,7 +269,6 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
             fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
             resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
-            # mimage = cp.asnumpy(cp.array(mimage, dtype=np.float64))
             cp.cuda.nvtx.RangePop()
 
             # gather to root MPI rank
@@ -277,19 +276,18 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             flux = gather_ndarray(flux, comm, root=0)
             fluxivar = gather_ndarray(fluxivar, comm, root=0)
             resolution = gather_ndarray(resolution, comm, root=0)
-            # mimage = gather_ndarray(mimage, comm, root=0)
-            mimage = comm.gather(mimage, root=0)
+            modelimage = comm.gather(modelimage, root=0)
 
             if rank == 0:
                 # unpack patches
                 patches = [patch for rankpatches in patches for patch in rankpatches]
-                mimage = [m for rankm in mimage for m in rankm]
+                modelimage = [m for _ in modelimage for m in _]
 
                 # repack everything
                 rankresults = [
                     zip(patches,
                         map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2], modelimage=x[3]),
-                            zip(flux, fluxivar, resolution, mimage)
+                            zip(flux, fluxivar, resolution, modelimage)
                         )
                     )
                 ]
@@ -494,9 +492,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             modelimage = frame_comm.gather(modelimage, root=0)
             if rank == 0:
                 bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
-                mimage = [m for rankmodelimage in modelimage for m in rankmodelimage]
+                modelimage = [m for _ in modelimage for m in _]
                 mxy = [xy for rankxyslice in xyslice for xy in rankxyslice]
-                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution, mimage, mxy))), ]
+                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution, modelimage, mxy))), ]
     else:
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
