@@ -481,7 +481,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         A = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave].reshape(ny*nx, nspec*nwave)
         modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
     else:
-        modelimage = None
+        modelimage = cp.zeros((ny, nx))
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     cp.cuda.nvtx.RangePush('prepare result')
