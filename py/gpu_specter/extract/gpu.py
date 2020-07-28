@@ -385,7 +385,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25, model=None):
+                wavepad, bundlesize=25, model=None, regularize=0):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -449,7 +449,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
         # timer.split('ready for extraction')
         cp.cuda.nvtx.RangePush('extract patch')
-        fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4, regularize=regularize)
         cp.cuda.nvtx.RangePop()
         # timer.split('extracted patch')
 

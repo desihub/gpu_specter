@@ -140,7 +140,7 @@ def assemble_bundle_patches(rankresults):
 
 
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
-    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None):
+    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -236,7 +236,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                              spots, corners,
                              wavepad=patch.wavepad,
                              bundlesize=bundlesize,
-                             model=model)
+                             model=model,
+                             regularize=regularize)
         patch.xyslice = result['xyslice']
         if gpu:
             cp.cuda.nvtx.RangePop()
@@ -329,7 +330,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    model=None, regularize=0, comm=None, rank=0, size=1, gpu=None, loglevel=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -467,6 +468,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             gpu=gpu,
             loglevel=loglevel,
             model=model,
+            regularize=regularize,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()

@@ -32,8 +32,8 @@ def parse(options=None):
                         help="first spectrum to extract")
     parser.add_argument("-n", "--nspec", type=int, required=False, default=500,
                         help="number of spectra to extract")
-    # parser.add_argument("-r", "--regularize", type=float, required=False, default=0.0,
-    #                     help="regularization amount (default %(default)s)")
+    parser.add_argument("-r", "--regularize", type=float, required=False, default=0.0,
+                        help="regularization amount (default %(default)s)")
     parser.add_argument("--bundlesize", type=int, required=False, default=25,
                         help="number of spectra per bundle")
     parser.add_argument("--nsubbundles", type=int, required=False, default=5,
@@ -146,6 +146,7 @@ def main(args=None):
         args.wavelength,                   # wavelength range to extract
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
         args.model,
+        args.regularize,
         comm, rank, size,                  # mpi parameters
         args.gpu,                          # gpu parameters
         args.loglevel,                     # log
