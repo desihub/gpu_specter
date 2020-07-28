@@ -478,7 +478,8 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         xyslice = None
 
     if model:
-        A = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave].reshape(ny*nx, nspec*nwave)
+        A4slice = np.s_[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+        A = A4[A4slice].reshape(ny*nx, nspec*nwave)
         modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
     else:
         modelimage = cp.zeros((ny, nx))
