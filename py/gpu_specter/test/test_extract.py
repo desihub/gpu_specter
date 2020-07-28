@@ -185,6 +185,8 @@ class TestEx2dPatch(unittest.TestCase):
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_get_Rdiags(self):
+        from gpu_specter.extract.gpu import get_resolution_diags as gpu_get_resolution_diags
+
         nspec, ispec, specmin = 5, 5, 4
         nwave, wavepad, ndiag = 50, 10, 7
         nwavetot = nwave + 2*wavepad

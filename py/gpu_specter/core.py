@@ -364,6 +364,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         import cupy as cp
         #- TODO: specify number of gpus to use?
         device_count = cp.cuda.runtime.getDeviceCount()
+        device_count = min(size, device_count)
         assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
         device_id = rank % device_count
         cp.cuda.Device(device_id).use()
