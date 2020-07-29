@@ -45,12 +45,12 @@ def xp_deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     iCov, y, fluxweight = xp_dotall(pixel_values, pixel_ivar, A)
     #- Add a weak flux=0 prior to avoid singular matrices
     #- TODO: review this; compare to specter
-    Idiag = regularize*xp.ones_like(y)
     minweight = 1e-4*xp.max(fluxweight)
     ibad = fluxweight < minweight
-    Idiag[ibad] = minweight - fluxweight[ibad]
-    if xp.any(Idiag):
-        iCov += xp.diag(Idiag*Idiag)
+    lambda_squared = regularize*regularize*xp.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if xp.any(lambda_squared):
+        iCov += xp.diag(lambda_squared)
     safe_range_pop(xp)
 
     #- Solve the linear least-squares problem.

@@ -523,12 +523,12 @@ def deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     iCov, y, fluxweight = dotall(pixel_values, pixel_ivar, A)
     #- Add a weak flux=0 prior to avoid singular matrices
     #- TODO: review this; compare to specter
-    Idiag = regularize*np.ones_like(y)
     minweight = 1e-4*np.max(fluxweight)
     ibad = fluxweight < minweight
-    Idiag[ibad] = minweight - fluxweight[ibad]
-    if np.any(Idiag):
-        iCov += np.diag(Idiag*Idiag)
+    lambda_squared = regularize*regularize*np.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if np.any(lambda_squared):
+        iCov += np.diag(lambda_squared)
     #- Solve the linear least-squares problem.
     deconvolved = scipy.linalg.solve(iCov, y)
     return deconvolved, iCov
