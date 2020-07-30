@@ -343,7 +343,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
             Rdiags[i-ispec, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
     return Rdiags
 
-def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
+def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
                 wavepad, bundlesize=25, model=None, regularize=0):
     """
     Extracted a patch with border padding, but only return results for patch
@@ -411,10 +411,28 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
         xyslice = None
 
+    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
+    Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+    Apatch = Apatch.reshape(ny*nx, nspec*nwave)
+
+    pixmask_fraction = Apatch.T.dot(imageivar[xyslice].ravel() == 0)
+    pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
+
+    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
+    modelivar = (modelpadded*psferr + 1e-32)**-2
+    ii = (modelivar > 0 ) & (imageivar[xyslice] > 0)
+    totpix_ivar = np.zeros((ny, nx))
+    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/imageivar[xyslice][ii])
+    chi = (image[xyslice] - modelpadded)*np.sqrt(totpix_ivar)
+    psfweight = Apatch.T.dot(totpix_ivar.ravel() > 0)
+    bad = psfweight == 0
+
+    #- Compute chi2pix and reshape
+    chi2pix = (Apatch.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
+    chi2pix = chi2pix.reshape(nspec, nwave)
+
     if model:
-        A4slice = np.s_[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
-        A = A4[A4slice].reshape(ny*nx, nspec*nwave)
-        modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
+        modelimage = Apatch.dot(specflux.ravel()).reshape(ny, nx)
     else:
         modelimage = None
 
@@ -425,6 +443,8 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         Rdiags = Rdiags,
         modelimage = modelimage,
         xyslice = xyslice,
+        pixmask_fraction = pixmask_fraction,
+        chi2pix = chi2pix,
     )
 
     return result
