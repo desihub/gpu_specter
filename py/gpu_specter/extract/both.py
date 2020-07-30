@@ -9,9 +9,9 @@ from ..util import Timer
 from ..util import get_array_module
 from .cpu import get_spec_padding
 
-def safe_range_push(xp, name):
+def safe_range_push(xp, message, id_color=-1):
     if xp.__name__ == 'cupy':
-        xp.cuda.nvtx.RangePush(name)
+        xp.cuda.nvtx.RangePush(message, id_color)
 
 def safe_range_pop(xp):
     if xp.__name__ == 'cupy':
@@ -79,7 +79,6 @@ def xp_decorrelate(iCov, debug=False):
     assert not debug or xp.allclose(iCov, R.T.dot(xp.diag(ivar).dot(R)))
     return ivar, R
 
-
 def xp_decorrelate_blocks(iCov, block_size, debug=False):
     """Calculate the decorrelated errors and resolution matrix via BS Eq 19
 
@@ -95,39 +94,54 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     size = iCov.shape[0]
     assert not debug or size % block_size == 0
     #- Invert iCov (B&S eq 17)
-    safe_range_push(xp, 'eigh iCov')
-    u, v = xp.linalg.eigh((iCov + iCov.T)/2.)
-    safe_range_pop(xp)
+    safe_range_push(xp, 'eigh icov', id_color=0)
+    u, v = xp.linalg.eigh(iCov)
     assert not debug or xp.all(u > 0), 'Found some negative iCov eigenvalues.'
-    # Check that the eigenvectors are orthonormal so that vt.v = 1
+    #- Check that the eigenvectors are orthonormal so that vt.v = 1
     assert not debug or xp.allclose(xp.eye(len(u)), v.T.dot(v))
-    safe_range_push(xp, 'compose C')
+    safe_range_pop(xp) # eigh icov
+    safe_range_push(xp, 'compose cov', id_color=1)
     C = (v * (1.0/u)).dot(v.T)
-    safe_range_pop(xp)
+    safe_range_pop(xp) # compose cov
     #- Calculate C^-1 = QQ (B&S eq 17-19)
-    safe_range_push(xp, 'C^-1 = QQ')
+    safe_range_push(xp, 'batch eigh setup', id_color=1)
+    A = xp.empty((size // block_size, block_size, block_size), dtype=iCov.dtype)
+    for i, s in enumerate(range(0, size, block_size)):
+        A[i] = C[s:s + block_size, s:s + block_size]
+    safe_range_pop(xp) # batch eigh setup
+    safe_range_push(xp, 'batch eigh solve', id_color=0)
+    try:
+        w, v = xp.linalg.eigh(A)
+    except:
+        v = xp.empty_like(A)
+        w = xp.empty_like(A[...,0])
+        for i in range(len(A)):
+            wi, vi = xp.linalg.eigh(A[i])
+            w[i] = wi
+            v[i] = vi
+    safe_range_pop(xp) # batch eigh
+    safe_range_push(xp, 'batch compose q', id_color=1)
+    #- Compose diagonal blocks
+    #- v.dot(diag(w)).dot(v.T)
+    vsqrtwinv = v * xp.sqrt(1.0/w)[:, xp.newaxis, :]
+    vt = v.transpose(0, 2, 1)
+    q = xp.einsum('lij,ljk->lik', vsqrtwinv, vt)
+    #- note that the following method faster on the cpu
+    # q = xp.zeros_like(vsqrtwinv)
+    # for i in range(q.shape[0]):
+    #     q[i,...] += xp.dot(vsqrtwinv[i,...], vt[i,...])
+    safe_range_pop(xp) # batch compose q
+    safe_range_push(xp, 'expand q', id_color=1)
     Q = xp.zeros_like(iCov)
-    #- Proceed one block at a time
-    for i in range(0, size, block_size):
-        s = np.s_[i:i+block_size, i:i+block_size]
-        #- Invert this block
-        safe_range_push(xp, 'eigh block')
-        bu, bv = xp.linalg.eigh(C[s])
-        safe_range_pop(xp)
-        assert not debug or xp.all(bu > 0), 'Found some negative iCov eigenvalues.'
-        # Check that the eigenvectors are orthonormal so that vt.v = 1
-        assert not debug or xp.allclose(xp.eye(len(bu)), bv.T.dot(bv))
-        safe_range_push(xp, 'compose block')
-        bQ = (bv * xp.sqrt(1.0/bu)).dot(bv.T)
-        safe_range_pop(xp)
-        Q[s] = bQ
-    safe_range_pop(xp)
+    for i, s in enumerate(range(0, size, block_size)):
+        Q[s:s + block_size, s:s + block_size] = q[i]
+    safe_range_pop(xp) # expand q
     #- Calculate the corresponding resolution matrix and diagonal flux errors. (BS Eq 11-13)
     safe_range_push(xp, 'resolution and ivar')
     s = xp.sum(Q, axis=1)
     R = Q/s[:, xp.newaxis]
     ivar = s**2
-    safe_range_pop(xp)
+    safe_range_pop(xp) # resolution and ivar
     #- Check BS eqn.14
     assert not debug or xp.allclose(Q.dot(Q), R.T.dot(xp.diag(ivar).dot(R)))
     return ivar, R
