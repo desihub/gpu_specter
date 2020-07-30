@@ -6,7 +6,6 @@ import numpy as np
 from gpu_specter.io import read_psf
 from gpu_specter.extract.cpu import projection_matrix, get_spots, ex2d_patch, get_resolution_diags
 from gpu_specter.extract.both import xp_ex2d_patch
-from gpu_specter.extract.gpu import get_resolution_diags as gpu_get_resolution_diags
 
 try:
     import specter.psf
@@ -21,7 +20,7 @@ try:
 except ImportError:
     cupy_available = False
 
-class TestEx2dPatch(unittest.TestCase):
+class TestExtract(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -132,6 +131,32 @@ class TestEx2dPatch(unittest.TestCase):
         np.testing.assert_allclose(icov3, cp.asnumpy(icov_gpu), rtol=10*eps_double, atol=0)
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_dotall(self):
+        from gpu_specter.extract.cpu import dotall, dotdot3
+        from gpu_specter.extract.both import xp_dotall
+
+        ny, nx, nspec, nwave = self.A4.shape
+
+        pixel_values = self.noisyimg.ravel()
+        pixel_ivar = self.imgivar.ravel()
+        A = self.A4.reshape(ny*nx, nspec*nwave)
+
+        icov, y, fluxweight = dotall(pixel_values, pixel_ivar, A)
+        icov3 = dotdot3(A, pixel_ivar)
+
+        pixel_values_gpu = cp.asarray(pixel_values)
+        pixel_ivar_gpu = cp.asarray(pixel_ivar)
+        A_gpu = cp.asarray(A)
+
+        icov_gpu, y_gpu, fluxweight_gpu = xp_dotall(pixel_values_gpu, pixel_ivar_gpu, A_gpu)
+
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_array_equal(icov, icov3)
+        np.testing.assert_allclose(icov, cp.asnumpy(icov_gpu), rtol=1e3*eps_double, atol=0)
+        np.testing.assert_allclose(y, cp.asnumpy(y_gpu), rtol=1e3*eps_double, atol=0)
+        np.testing.assert_allclose(fluxweight, cp.asnumpy(fluxweight_gpu), rtol=1e3*eps_double, atol=0)
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_solve(self):
         import scipy.linalg
 
@@ -186,6 +211,8 @@ class TestEx2dPatch(unittest.TestCase):
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_compare_get_Rdiags(self):
+        from gpu_specter.extract.gpu import get_resolution_diags as gpu_get_resolution_diags
+
         nspec, ispec, specmin = 5, 5, 4
         nwave, wavepad, ndiag = 50, 10, 7
         nwavetot = nwave + 2*wavepad

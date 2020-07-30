@@ -344,7 +344,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25):
+                wavepad, bundlesize=25, model=None, regularize=0):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -393,7 +393,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
 
     if (0 <= ymin) & (ymin+ny < image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        fx, ivarfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        fx, ivarfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4, regularize=regularize)
 
         #- Select the non-padded spectra x wavelength core region
         specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
@@ -409,12 +409,22 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
+        xyslice = None
+
+    if model:
+        A4slice = np.s_[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+        A = A4[A4slice].reshape(ny*nx, nspec*nwave)
+        modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
+    else:
+        modelimage = None
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     result = dict(
         flux = specflux,
         ivar = specivar,
         Rdiags = Rdiags,
+        modelimage = modelimage,
+        xyslice = xyslice,
     )
 
     return result
@@ -459,7 +469,44 @@ def dotdot3(A, w):
 
     return B
 
-def deconvolve(pixel_values, pixel_ivar, A, debug=False):
+@numba.jit(nopython=True)
+def dotall(p, w, A):
+    '''Compute icov, y and fluxweight in the same loop(s)
+
+        icov = A^T W A
+        y = A^T W p
+        fluxweight = (A^T W).sum(axis=1)
+
+    Arguments:
+        pixel_values: pixel values
+        pixel_ivar: pixel weights
+        A: projection matrix
+
+    Returns:
+        icov, y, fluxweight
+    '''
+    n, m = A.shape
+    icov = np.zeros((m,m))
+    y = np.zeros(m)
+    fluxweight = np.zeros(m)
+    for i in range(n):
+        for j1 in range(m):
+            Aw = w[i] * A[i,j1]
+            if Aw != 0.0:
+                for j2 in range(j1, m):
+                    tmp = Aw * A[i,j2]
+                    icov[j1, j2] += tmp
+                fluxweight[j1] += Aw
+                y[j1] += Aw * p[i]
+
+    #- fill in other half
+    for j1 in range(m-1):
+        for j2 in range(j1+1, m):
+            icov[j2, j1] = icov[j1, j2]
+
+    return icov, y, fluxweight
+
+def deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     """Calculate the weighted linear least-squares flux solution for an observed trace.
 
     Args:
@@ -473,11 +520,15 @@ def deconvolve(pixel_values, pixel_ivar, A, debug=False):
 
     """
     #- Set up the equation to solve (B&S eq 4)
-    iCov = dotdot3(A, pixel_ivar)
-    y = (A.T * pixel_ivar).dot(pixel_values)
+    iCov, y, fluxweight = dotall(pixel_values, pixel_ivar, A)
     #- Add a weak flux=0 prior to avoid singular matrices
     #- TODO: review this; compare to specter
-    iCov += 1e-12*np.eye(iCov.shape[0])
+    minweight = 1e-4*np.max(fluxweight)
+    ibad = fluxweight < minweight
+    lambda_squared = regularize*regularize*np.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if np.any(lambda_squared):
+        iCov += np.diag(lambda_squared)
     #- Solve the linear least-squares problem.
     deconvolved = scipy.linalg.solve(iCov, y)
     return deconvolved, iCov
@@ -549,7 +600,7 @@ def decorrelate_blocks(iCov, block_size, debug=False):
     return ivar, R
 
 # @profile
-def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', debug=False):
+def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', regularize=0, debug=False):
     '''
     Perform spectroperfectionism extractions returning flux, varflux, R
 
@@ -572,7 +623,7 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', debug=False):
     A = A4.reshape(ny*nx, nspec*nwave)
 
     #- Solve f (B&S eq 4)
-    deconvolved, iCov = deconvolve(noisyimg.ravel(), imgweights.ravel(), A)
+    deconvolved, iCov = deconvolve(noisyimg.ravel(), imgweights.ravel(), A, regularize=regularize)
 
     #- Calculate the decorrelated errors and resolution matrix.
     if decorrelate == 'signal':

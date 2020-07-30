@@ -385,7 +385,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
-                wavepad, bundlesize=25):
+                wavepad, bundlesize=25, model=None, regularize=0):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -449,7 +449,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
         # timer.split('ready for extraction')
         cp.cuda.nvtx.RangePush('extract patch')
-        fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4)
+        fx, ivarfx, R = xp_ex2d_patch(image[xyslice], imageivar[xyslice], A4, regularize=regularize)
         cp.cuda.nvtx.RangePop()
         # timer.split('extracted patch')
 
@@ -475,6 +475,14 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         specflux = cp.zeros((nspec, nwave))
         specivar = cp.zeros((nspec, nwave))
         Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
+        xyslice = None
+
+    if model:
+        A4slice = np.s_[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+        A = A4[A4slice].reshape(ny*nx, nspec*nwave)
+        modelimage = A.dot(specflux.ravel()).reshape(ny, nx)
+    else:
+        modelimage = cp.zeros((ny, nx))
 
     #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     cp.cuda.nvtx.RangePush('prepare result')
@@ -482,6 +490,8 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
         flux = specflux,
         ivar = specivar,
         Rdiags = Rdiags,
+        modelimage = modelimage,
+        xyslice = xyslice,
     )
     cp.cuda.nvtx.RangePop()
     # timer.split('done')

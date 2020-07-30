@@ -65,6 +65,10 @@ class Patch(object):
         self.bundlesize = bundlesize
         self.ndiag = ndiag
 
+        #- the image slice covered by this patch
+        #- will be set during extaction
+        self.xyslice = None
+
 
 def assemble_bundle_patches(rankresults):
     """
@@ -95,22 +99,48 @@ def assemble_bundle_patches(rankresults):
     specivar = xp.zeros((bundlesize, nwave))
     Rdiags = xp.zeros((bundlesize, 2*ndiag+1, nwave))
 
+    #- Find the global extent of patches in this bundle
+    ystart = xstart = float('inf')
+    ystop = xstop = -float('inf')
+    for patch, result in allresults:
+        if patch.xyslice is None:
+            continue
+        ystart = min(ystart, patch.xyslice[0].start)
+        ystop = max(ystop, patch.xyslice[0].stop)
+        xstart = min(xstart, patch.xyslice[1].start)
+        xstop = max(xstop, patch.xyslice[1].stop)
+    ny, nx = ystop - ystart, xstop - xstart
+    xyslice = np.s_[ystart:ystop, xstart:xstop]
+    modelimage = xp.zeros((ny, nx))
+
     #- Now put these into the final arrays
     for patch, result in allresults:
         fx = result['flux']
         fxivar = result['ivar']
         xRdiags = result['Rdiags']
 
+        if patch.xyslice is None:
+            # print(f'patch {(patch.ispec, patch.iwave)} is off the edge of the image')
+            continue
+
         #- put the extracted patch into the output arrays
         specflux[patch.specslice, patch.waveslice] = fx[:, patch.keepslice]
         specivar[patch.specslice, patch.waveslice] = fxivar[:, patch.keepslice]
         Rdiags[patch.specslice, :, patch.waveslice] = xRdiags[:, :, patch.keepslice]
 
-    return specflux, specivar, Rdiags
+        patchmodel = result['modelimage']
+        if patchmodel is None or ~np.all(np.isfinite(patchmodel)):
+            continue
+        ymin = patch.xyslice[0].start - ystart
+        xmin = patch.xyslice[1].start - xstart
+        patchny, patchnx = patchmodel.shape
+        modelimage[ymin:ymin+patchny, xmin:xmin+patchnx] += patchmodel
+
+    return specflux, specivar, Rdiags, modelimage, xyslice
 
 
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
-    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None):
+    nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -205,7 +235,10 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                              patch.iwave, patch.nwavestep,
                              spots, corners,
                              wavepad=patch.wavepad,
-                             bundlesize=bundlesize)
+                             bundlesize=bundlesize,
+                             model=model,
+                             regularize=regularize)
+        patch.xyslice = result['xyslice']
         if gpu:
             cp.cuda.nvtx.RangePop()
 
@@ -221,11 +254,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             flux = []
             fluxivar = []
             resolution = []
+            modelimage = []
             for patch, results in results:
                 patches.append(patch)
                 flux.append(results['flux'])
                 fluxivar.append(results['ivar'])
                 resolution.append(results['Rdiags'])
+                modelimage.append(cp.asnumpy(results['modelimage']))
 
             # transfer to host in 3 chunks
             cp.cuda.nvtx.RangePush('copy bundle results to host')
@@ -241,15 +276,18 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             flux = gather_ndarray(flux, comm, root=0)
             fluxivar = gather_ndarray(fluxivar, comm, root=0)
             resolution = gather_ndarray(resolution, comm, root=0)
+            modelimage = comm.gather(modelimage, root=0)
 
             if rank == 0:
                 # unpack patches
                 patches = [patch for rankpatches in patches for patch in rankpatches]
+                modelimage = [m for _ in modelimage for m in _]
+
                 # repack everything
                 rankresults = [
-                    zip(patches, 
-                        map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2]), 
-                            zip(flux, fluxivar, resolution)
+                    zip(patches,
+                        map(lambda x: dict(flux=x[0], ivar=x[1], Rdiags=x[2], modelimage=x[3]),
+                            zip(flux, fluxivar, resolution, modelimage)
                         )
                     )
                 ]
@@ -274,7 +312,15 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 cp.cuda.nvtx.RangePush('copy bundle results to host')
                 device_id = cp.cuda.runtime.getDevice()
                 log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
-                bundle = tuple(cp.asnumpy(x) for x in bundle)
+                specflux, specivar, Rdiags, modelimage, xyslice = bundle
+                bundle = (
+                    cp.asnumpy(specflux),
+                    cp.asnumpy(specivar),
+                    cp.asnumpy(Rdiags),
+                    cp.asnumpy(modelimage),
+                    xyslice
+                )
+                # bundle = tuple(cp.asnumpy(x) for x in bundle)
                 cp.cuda.nvtx.RangePop()
         timer.split('assembled patches')
         timer.log_splits(log)
@@ -282,7 +328,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    model=None, regularize=0, comm=None, rank=0, size=1, gpu=None, loglevel=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -316,6 +362,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         import cupy as cp
         #- TODO: specify number of gpus to use?
         device_count = cp.cuda.runtime.getDeviceCount()
+        device_count = min(size, device_count)
         assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
         device_id = rank % device_count
         cp.cuda.Device(device_id).use()
@@ -419,6 +466,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             comm=bundle_comm,
             gpu=gpu,
             loglevel=loglevel,
+            model=model,
+            regularize=regularize,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
@@ -434,14 +483,18 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         # gather results from multiple mpi groups
         if bundle_rank == 0:
             bspecmins, bundles = zip(*bundles)
-            flux, ivar, resolution = zip(*bundles)
+            flux, ivar, resolution, modelimage, xyslice = zip(*bundles)
             bspecmins = frame_comm.gather(bspecmins, root=0)
+            xyslice = frame_comm.gather(xyslice, root=0)
             flux = gather_ndarray(flux, frame_comm)
             ivar = gather_ndarray(ivar, frame_comm)
             resolution = gather_ndarray(resolution, frame_comm)
+            modelimage = frame_comm.gather(modelimage, root=0)
             if rank == 0:
                 bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
-                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution))), ]
+                modelimage = [m for _ in modelimage for m in _]
+                mxy = [xy for rankxyslice in xyslice for xy in rankxyslice]
+                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution, modelimage, mxy))), ]
     else:
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
@@ -462,6 +515,15 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         specflux = np.vstack([b[1][0] for b in allbundles])
         specivar = np.vstack([b[1][1] for b in allbundles])
         Rdiags = np.vstack([b[1][2] for b in allbundles])
+
+        if model:
+            modelimage = np.zeros(imgpixels.shape)
+            for b in allbundles:
+                bundleimage = b[1][3]
+                xyslice = b[1][4]
+                modelimage[xyslice] += bundleimage
+        else:
+            modelimage = None
 
         timer.split(f'combined data')
 
@@ -484,6 +546,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             imagehdr = img['imagehdr'],
             fibermap = img['fibermap'],
             fibermaphdr =  img['fibermaphdr'],
+            modelimage = modelimage,
         )
 
         timer.split(f'finished frame')

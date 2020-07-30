@@ -17,7 +17,14 @@ def safe_range_pop(xp):
     if xp.__name__ == 'cupy':
         xp.cuda.nvtx.RangePop()
 
-def xp_deconvolve(pixel_values, pixel_ivar, A, debug=False):
+def xp_dotall(pixel_values, pixel_ivar, A):
+    ATNinv = A.T * pixel_ivar
+    iCov = ATNinv.dot(A)
+    y = ATNinv.dot(pixel_values)
+    fluxweight = ATNinv.sum(axis=1)
+    return iCov, y, fluxweight
+
+def xp_deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     """Calculate the weighted linear least-squares flux solution for an observed trace.
 
     Args:
@@ -35,10 +42,17 @@ def xp_deconvolve(pixel_values, pixel_ivar, A, debug=False):
     assert not debug or xp == get_array_module(pixel_ivar)
     #- Set up the equation to solve (B&S eq 4)
     safe_range_push(xp, 'BS Eq 4 Setup')
-    ATNinv = A.T * pixel_ivar
-    iCov = ATNinv.dot(A)
-    iCov += 1e-12*xp.eye(iCov.shape[0])
+    iCov, y, fluxweight = xp_dotall(pixel_values, pixel_ivar, A)
+    #- Add a weak flux=0 prior to avoid singular matrices
+    #- TODO: review this; compare to specter
+    minweight = 1e-4*xp.max(fluxweight)
+    ibad = fluxweight < minweight
+    lambda_squared = regularize*regularize*xp.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if xp.any(lambda_squared):
+        iCov += xp.diag(lambda_squared)
     safe_range_pop(xp)
+
     #- Solve the linear least-squares problem.
     #- Force rcond to be the same when using cupy/numpy 
     #- See: https://github.com/numpy/numpy/blob/v1.18.4/numpy/linalg/linalg.py#L2247
@@ -47,7 +61,7 @@ def xp_deconvolve(pixel_values, pixel_ivar, A, debug=False):
     # if rank < len(deconvolved):
     #     print('WARNING: deconvolved inverse-covariance is not positive definite.')
     safe_range_push(xp, 'BS Eq 4 Solve')
-    deconvolved = xp.linalg.solve(iCov, ATNinv.dot(pixel_values))
+    deconvolved = xp.linalg.solve(iCov, y)
     safe_range_pop(xp)
     return deconvolved, iCov
 
@@ -146,7 +160,7 @@ def xp_decorrelate_blocks(iCov, block_size, debug=False):
     assert not debug or xp.allclose(Q.dot(Q), R.T.dot(xp.diag(ivar).dot(R)))
     return ivar, R
 
-def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', debug=False):
+def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', regularize=0, debug=False):
     """Perform spectroperfectionism extractions returning flux, ivar, and resolution matrix
 
     Args:
@@ -172,7 +186,7 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', debug=False):
     # timer.split('init')
     # Deconvole fiber traces
     safe_range_push(xp, 'deconvolve')
-    deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A, debug=debug)
+    deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A, regularize=regularize, debug=debug)
     safe_range_pop(xp)
     # timer.split('deconvolve')
     # Calculate the decorrelated errors and resolution matrix.

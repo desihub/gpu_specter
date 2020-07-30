@@ -76,6 +76,13 @@ def write_frame(filename, frame, dtype=np.float32):
         fx.write(frame['chi2pix'].astype(dtype), extname='CHI2PIX')
     os.rename(tmpfilename, filename)
 
+def write_model(filename, frame):
+    """Write image model to output filename"""
+    tmpfilename = filename + '.tmp'
+    with fitsio.FITS(tmpfilename, 'rw', clobber=True) as fx:
+        fx.write(frame['modelimage'], extname='MODEL', header=frame['imagehdr'])
+    os.rename(tmpfilename, filename)
+
 def read_frame(filename):
     """
     Read frame data (extracted 1D spectra) from input filename
