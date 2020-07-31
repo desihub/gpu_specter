@@ -4,7 +4,10 @@ from astropy.table import Table
 import numpy as np
 
 from gpu_specter.io import read_psf
-from gpu_specter.extract.cpu import projection_matrix, get_spots, ex2d_patch, get_resolution_diags
+from gpu_specter.extract.cpu import (
+    projection_matrix, get_spots, get_resolution_diags,
+    ex2d_padded, ex2d_patch
+)
 from gpu_specter.extract.both import xp_ex2d_patch
 
 try:
@@ -32,8 +35,9 @@ class TestExtract(unittest.TestCase):
         nwave = len(cls.wavelengths)
         nspec = 5
 
-        spots, corners = get_spots(0, nspec, cls.wavelengths, cls.psfdata)
-        cls.A4, cls.xyrange = projection_matrix(0, nspec, 0, nwave, spots, corners)
+        cls.psferr = cls.psfdata['PSF'].meta['PSFERR']
+        cls.spots, cls.corners = get_spots(0, nspec, cls.wavelengths, cls.psfdata)
+        cls.A4, cls.xyrange = projection_matrix(0, nspec, 0, nwave, cls.spots, cls.corners)
 
         phot = np.zeros((nspec, nwave))
         phot[0] = 100
@@ -82,6 +86,51 @@ class TestExtract(unittest.TestCase):
         self.assertEqual(flux.shape, (nspec, nwave))
         self.assertEqual(varflux.shape, (nspec, nwave))
         self.assertEqual(R.shape, (nspec*nwave, nspec*nwave))
+
+    def test_ex2d_padded(self):
+        ny, nx, nspec, nwave = self.A4.shape
+
+        ispec = 0
+        bundlesize = 5
+        wavepad = 5
+        nwavepatch = nwave - 2*wavepad
+        iwave = wavepad
+
+        from gpu_specter.extract.cpu import get_xyrange
+
+        xmin, xmax, ypadmin, ypadmax = get_xyrange(ispec, nspec, iwave-wavepad, nwave, self.spots, self.corners)
+        xlo, xhi, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwavepatch, self.spots, self.corners)
+
+        img = np.zeros((ypadmax, xmax))
+        ivar = np.zeros((ypadmax, xmax))
+
+        ny = ymax - ymin
+
+        patchslice = np.s_[ypadmin:ypadmax, xmin:xmax]
+
+        img[ypadmin:ypadmax, xmin:xmax] = self.noisyimg
+        ivar[ypadmin:ypadmax, xmin:xmax] = self.imgivar
+
+        result = ex2d_padded(
+            img, ivar, ispec, nspec, iwave, nwavepatch,
+            self.spots, self.corners, self.psferr,
+            wavepad, bundlesize=bundlesize,
+            model=True, regularize=1e-8
+        )
+
+        modelimage = np.zeros_like(img)
+        modelimage[result['xyslice']] = result['modelimage']
+
+        # self.assertEqual()
+
+        # img = np.random.randn(ny, nx)
+        # imgivar = np.ones((ny, nx))
+
+        # flux, varflux, R = ex2d_patch(img, imgivar, self.A4)
+
+        # self.assertEqual(flux.shape, (nspec, nwave))
+        # self.assertEqual(varflux.shape, (nspec, nwave))
+        # self.assertEqual(R.shape, (nspec*nwave, nspec*nwave))
 
     def test_compare_xp_cpu(self):
         # Compare the "signal" decorrelation method

@@ -73,8 +73,7 @@ class TestCore(unittest.TestCase):
 
         keys = (
             'wave', 'specflux', 'specivar', 'Rdiags',
-            'pixmask_fraction', 'chi2pix', 'modelimage',
-            'imagehdr', 'fibermap', 'fibermaphdr'
+            'pixmask_fraction', 'chi2pix', 'modelimage'
         )
         for key in keys:
             self.assertTrue(key in frame.keys(), key)
