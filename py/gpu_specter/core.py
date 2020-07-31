@@ -576,9 +576,6 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             Rdiags = Rdiags,
             pixmask_fraction = pixmask_fraction,
             chi2pix = chi2pix,
-            imagehdr = img['imagehdr'],
-            fibermap = img['fibermap'],
-            fibermaphdr =  img['fibermaphdr'],
             modelimage = modelimage,
         )
 
