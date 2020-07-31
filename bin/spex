@@ -158,6 +158,9 @@ def main(args=None):
     #- Write output
     if rank == 0:
         if args.output is not None:
+            frame['imagehdr'] = img['imagehdr']
+            frame['fibermap'] = img['fibermap']
+            frame['fibermaphdr'] = img['fibermaphdr']
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
 
