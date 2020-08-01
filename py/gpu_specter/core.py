@@ -510,18 +510,20 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         # gather results from multiple mpi groups
         if bundle_rank == 0:
             bspecmins, bundles = zip(*bundles)
-            flux, ivar, resolution, modelimage, xyslice = zip(*bundles)
+            flux, ivar, resolution, pixmask_fraction, chi2pix, modelimage, xyslice = zip(*bundles)
             bspecmins = frame_comm.gather(bspecmins, root=0)
             xyslice = frame_comm.gather(xyslice, root=0)
             flux = gather_ndarray(flux, frame_comm)
             ivar = gather_ndarray(ivar, frame_comm)
             resolution = gather_ndarray(resolution, frame_comm)
+            pixmask_fraction = gather_ndarray(pixmask_fraction, frame_comm)
+            chi2pix = gather_ndarray(chi2pix, frame_comm)
             modelimage = frame_comm.gather(modelimage, root=0)
             if rank == 0:
                 bspecmin = [bspecmin for rankbspecmins in bspecmins for bspecmin in rankbspecmins]
                 modelimage = [m for _ in modelimage for m in _]
                 mxy = [xy for rankxyslice in xyslice for xy in rankxyslice]
-                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution, modelimage, mxy))), ]
+                rankbundles = [list(zip(bspecmin, zip(flux, ivar, resolution, pixmask_fraction, chi2pix, modelimage, mxy))), ]
     else:
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
