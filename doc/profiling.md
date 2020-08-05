@@ -2,6 +2,8 @@
 
 ## CPU 
 
+### Python cProfile
+
 ```
 cd gpu_specter
 salloc -N 1 -C haswell -t 60 -q interactive
@@ -15,13 +17,24 @@ args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-0005
 
 export OMP_NUM_THREADS=1
 
-srun -n 1 -c 2 --cpu-bind=cores python -m cProfile -o $SCRATCH/profile-spex-haswell.pstats bin/spex -o $SCRATCH/spex-haswell.fits
+export PROFILEOUT=$SCRATCH/profile-$(date +'%Y%m%d')-$(git rev-parse --short HEAD)
+
+# Full frame (single process, no MPI)
+srun -n 1 -c 2 --cpu-bind=cores python -m cProfile -o $PROFILEOUT.pstats bin/spex -o $SCRATCH/spex-haswell.fits $args
 ```
 
 Convert the profile output to an image:
 
 ```
 gprof2dot -f pstats filename.pstats | dot -Tpng -o filename.png
+```
+
+### ARM Performance Report
+
+```
+module load allinea-forge
+
+perf-report srun -n 32 -c 2 bin/spex --mpi -o $SCRATCH/spex_haswell_mpi32_gpu0.fits $args
 ```
 
 ## GPU
@@ -52,7 +65,7 @@ args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-0005
 # 1 GPU (single process, no MPI)
 cmd_spex="python -O bin/spex --gpu -o $SCRATCH/spex-gpu.fits $args --nspec 100"
 
-export PROFILEOUT=profile-$(date +'%Y%m%d')-$(git rev-parse --short HEAD)
+export PROFILEOUT=$SCRATCH/profile-$(date +'%Y%m%d')-$(git rev-parse --short HEAD)
 cmd_nsys="nsys profile --sample none --trace cuda,nvtx --stats=true --force-overwrite true --output $PROFILEOUT"
 
 time srun -n 1 -c 2 --cpu-bind=cores $cmd_nsys $cmd_spex
