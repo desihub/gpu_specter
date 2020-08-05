@@ -411,7 +411,7 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
         xyslice = None
 
-    if np.any(np.isnan(fx)):
+    if np.any(np.isnan(specflux)):
         raise RuntimeError('Found NaN in extracted flux')
 
     Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
