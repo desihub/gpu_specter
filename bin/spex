@@ -46,8 +46,8 @@ def parse(options=None):
     parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
     # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
     # parser.add_argument("--no-scores", action="store_true", help="Do not compute scores")
-    # parser.add_argument("--psferr", type=float, default=None, required=False,
-    #                     help="fractional PSF model error used to compute chi2 and mask pixels (default = value saved in psf file)")
+    parser.add_argument("--psferr", type=float, default=None, required=False,
+                        help="fractional PSF model error used to compute chi2 and mask pixels (default = value saved in psf file)")
     # parser.add_argument("--fibermap-index", type=int, default=None, required=False,
     #                     help="start at this index in the fibermap table instead of using the spectro id from the camera")
     # parser.add_argument("--barycentric-correction", action="store_true", help="apply barycentric correction to wavelength")
@@ -147,6 +147,7 @@ def main(args=None):
         args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
         args.model,
         args.regularize,
+        args.psferr,
         comm, rank, size,                  # mpi parameters
         args.gpu,                          # gpu parameters
         args.loglevel,                     # log
@@ -157,6 +158,9 @@ def main(args=None):
     #- Write output
     if rank == 0:
         if args.output is not None:
+            frame['imagehdr'] = img['imagehdr']
+            frame['fibermap'] = img['fibermap']
+            frame['fibermaphdr'] = img['fibermaphdr']
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
 

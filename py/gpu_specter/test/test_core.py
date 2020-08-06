@@ -71,7 +71,19 @@ class TestCore(unittest.TestCase):
             loglevel='WARN',
         )
 
+        keys = (
+            'wave', 'specflux', 'specivar', 'Rdiags',
+            'pixmask_fraction', 'chi2pix', 'modelimage'
+        )
+        for key in keys:
+            self.assertTrue(key in frame.keys(), key)
+
+        self.assertEqual(frame['wave'].shape, (nwave, ))
         self.assertEqual(frame['specflux'].shape, (nspec, nwave))
+        self.assertEqual(frame['specivar'].shape, (nspec, nwave))
+        # self.assertEqual(frame['Rdiags'].shape, (nspec, ndiag, nwave))
+        self.assertEqual(frame['pixmask_fraction'].shape, (nspec, nwave))
+        self.assertEqual(frame['chi2pix'].shape, (nspec, nwave))
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):

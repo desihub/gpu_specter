@@ -26,6 +26,11 @@ def read_psf(filename):
     """
     psfdata = dict()
     psfdata['PSF'] = Table.read(filename, 'PSF')
+
+    if 'PSFERR' not in psfdata['PSF'].meta:
+        default_psferr = 0.01
+        print(f'Warning! PSFERR not found in PSF meta. Setting to {default_psferr}')
+        psfdata['PSF'].meta['PSFERR'] = default_psferr
     
     with fitsio.FITS(filename, 'r') as fx:
         for extname in ('XTRACE', 'YTRACE'):
@@ -55,7 +60,10 @@ def read_img(filename):
         mask = fx['MASK'].read()
         imgdata['ivar'][mask != 0] = 0.0
         imgdata['fibermap'] = fx['FIBERMAP'].read()
-        imgdata['fibermaphdr'] = fx['FIBERMAP'].read_header()
+        try:
+            imgdata['fibermaphdr'] = fx['FIBERMAP'].read_header()
+        except:
+            imgdata['fibermaphdr'] = None
 
     return imgdata
 
