@@ -349,7 +349,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 # bundle = tuple(cp.asnumpy(x) for x in bundle)
                 cp.cuda.nvtx.RangePop()
         timer.split('assembled patches')
-        timer.log_splits(log)
+        # timer.log_splits(log)
     return bundle
 
 
@@ -480,8 +480,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
     for bspecmin in bspecmins[bundle_start::bundle_step]:
-        log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
-        sys.stdout.flush()
+        # log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
+        # sys.stdout.flush()
         if gpu:
             cp.cuda.nvtx.RangePush('extract_bundle')
         bundle = extract_bundle(

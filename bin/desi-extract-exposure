@@ -1,0 +1,167 @@
+#!/usr/bin/env python
+
+"""
+DESI spectral extraction code benchmark
+salloc -N 5 -t 2:00:00 -C haswell -q interactive
+srun -n 160 -c 2 --cpu_bind=cores ./desi-extract -i $SCRATCH/desi/benchmark/inputs/ -o $SCRATCH/temp $(date +%s)
+
+
+
+srun -n 20 -c 1 python bin/desi-extract-exposure /global/cfs/cdirs/desi/spectro/redux/andes $SCRATCH/temp $(date +%s)
+"""
+
+import argparse
+import glob 
+import os
+import pprint
+import socket
+import random
+import sys
+import time
+
+from desispec.scripts import extract
+
+random.seed(1)
+
+#- Parse args before initializing MPI so that --help will work anywhere
+
+parser = argparse.ArgumentParser()
+parser.add_argument("indir", help="input data directory")
+parser.add_argument("outdir", help="output directory")
+parser.add_argument("start_time", help="use $(date +%%s)", type=float)
+# parser.add_argument("--night", type=str, help="YEARMMDD to extract", default="*")
+# parser.add_argument("--expid", type=str, help="Exposure ID to extract", default="*")
+parser.add_argument("-v", "--verbose", action="store_true", help="print per-rank detailed timing")
+args = parser.parse_args()
+
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.rank
+size = comm.size
+
+comm.barrier()
+if rank == 0:
+    start_time = args.start_time
+    startup_time = time.time() - start_time
+
+
+# if rank == 0:
+#     assert os.path.exists(args.outdir)
+#     pixfiles = sorted(glob.glob(args.indir + \
+#             "/pix/{}/pix-{}?-{}.fits".format(
+#             args.night, args.camera, args.expid)))
+
+#     random.shuffle(pixfiles)
+#     assert len(pixfiles) > 0
+#     assert nframe <= len(pixfiles)
+#     pixfiles = pixfiles[0:nframe]
+# else:
+#     pixfiles = None
+
+# pixfiles = comm.bcast(pixfiles, root=0)
+# assert nframe == len(pixfiles)
+
+# split comm by host
+host = MPI.Get_processor_name()
+hosts = comm.allgather(host)
+nhosts = len(set(hosts))
+
+host_size = size // nhosts
+host_rank = rank % host_size
+host_index = rank // host_size
+host_comm = comm.Split(color=host_index, key=host_rank)
+
+if rank == 0:
+    print(f'Splitting {size} into {nhosts} communicators')
+    sys.stdout.flush()
+
+# print(f'{rank:3d}/{size}: {host} {host_comm.rank:2d}/{host_comm.size}')
+
+# if rank == 0:
+#     print("{} input frames".format(nframe))
+#     print("Splitting {} ranks into {} communicators".format(size, nframe))
+#     sys.stdout.flush()
+
+# comm.barrier()
+
+# group = rank // bundles_per_frame
+# group_rank =  rank % bundles_per_frame
+
+# comm_group = comm.Split(color=group, key=group_rank)
+# assert comm_group.rank == group_rank
+
+# channels = "brz"
+# spectrographs = tuple(range(10))
+
+night = "20200315"
+expid = "00055672"
+# camera = "r0"
+
+cameras = [f"{color}{spec}" for spec in range(10) for color in "brz"]
+
+finished = []
+
+for camera in cameras[host_index::nhosts]:
+
+    img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
+    psf_filename = f"{args.indir}/exposures/{night}/{expid}/psf-{camera}-{expid}.fits"
+    frame_filename = f"{args.outdir}/frame-{camera}-{expid}.fits"
+
+    cmd = \
+        "desi_extract_spectra --mpi" \
+        f" -i {img_filename}" \
+        f" -p {psf_filename}" \
+        f" -o {frame_filename}"
+
+    #- DEBUG speed
+    # if camera.startswith("b"):
+    #     cmd = cmd + " -w 4000,4200,1"
+    # elif camera.startswith("r"):
+    #     cmd = cmd + " -w 6000,6200,1"
+    # elif camera.startswith("z"):
+    #     cmd = cmd + " -w 9000,9200,1"
+
+    if camera.startswith("b"):
+        cmd = cmd + " -w 3600.0,5800.0,0.8"
+    elif camera.startswith("r"):
+        cmd = cmd + " -w 5760.0,7620.0,0.8"
+    elif camera.startswith("z"):
+        cmd = cmd + " -w 7520.0,9824.0,0.8"
+
+    cmd = cmd + " --gpu-specter --nsubbundles 5"
+
+    # if comm_group.rank == 0:
+    #     print(rank, cmd)
+    #     sys.stdout.flush()
+
+    if host_comm.rank == 0:
+        print(rank, cmd)
+        sys.stdout.flush()
+
+    cmd_args = extract.parse(cmd.split()[1:])
+    timing = dict()
+    # extract.main_mpi(cmd_args, comm=comm_group, timing=timing)
+    extract.main_gpu_specter(cmd_args, comm=host_comm)
+
+    finished.append(camera)
+
+comm.barrier()
+end_time = time.time()
+
+# timings = comm.gather(timing, root=0)
+hostnames = comm.gather(socket.gethostname(), root=0)
+finished = comm.gather(finished, root=0)
+if rank == 0:
+    nframe = len(cameras)
+    num_nodes = len(set(hostnames))
+    node_hours = num_nodes * (end_time - start_time) / (60*60)
+    work_rate = nframe / node_hours
+
+    # if args.verbose:
+    #     pprint.pprint(timings)
+
+    print("desi-extract {} effective frames in {:.1f} min".format(nframe, (end_time - start_time)/60))
+    print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
+    print("desi-extract startup time: {:.1f} sec".format(startup_time))
+    print("desi-extract elapsed time: {:.1f} sec".format(end_time - start_time))
