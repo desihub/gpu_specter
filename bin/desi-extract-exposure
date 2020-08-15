@@ -11,15 +11,10 @@ srun -n 20 -c 1 python bin/desi-extract-exposure /global/cfs/cdirs/desi/spectro/
 import argparse
 import glob 
 import os
-import pprint
-import socket
-import random
 import sys
 import time
 
 from desispec.scripts import extract
-
-random.seed(1)
 
 #- Parse args before initializing MPI so that --help will work anywhere
 
@@ -29,9 +24,13 @@ parser.add_argument("outdir", help="output directory")
 parser.add_argument("start_time", help="use $(date +%%s)", type=float)
 parser.add_argument("--night", type=str, help="YYYYMMDD to extract", default="20200315")
 parser.add_argument("--expid", type=str, help="Exposure ID to extract", default="00055672")
-parser.add_argument("--spectrographs", type=str, help="Comma-separated list of spectrographs to extract", default='0,1,2,3,4,5,6,7,8,9')
-parser.add_argument("--colors", type=str, help="Comma-separated list of colors to extract", default='b,r,z')
-parser.add_argument("--cameras", type=str, help="Comma separated list of cameras to extract. If not provided then the outer product of --spectrographs and --colors will be used to construct.", default=None)
+parser.add_argument("--spectrographs", type=str,
+    help="Comma-separated list of spectrographs to extract", default="0,1,2,3,4,5,6,7,8,9")
+parser.add_argument("--colors", type=str,
+    help="Comma-separated list of colors to extract", default="b,r,z")
+parser.add_argument("--cameras", type=str, default=None,
+    help=("Comma separated list of cameras to extract. If not provided then the outer "
+          "product of --spectrographs and --colors will be used to construct."))
 parser.add_argument("--gpu", action="store_true", help="use GPU")
 parser.add_argument("-v", "--verbose", action="store_true", help="print per-rank detailed timing")
 args = parser.parse_args()
@@ -41,18 +40,20 @@ night = args.night
 expid = args.expid
 
 if args.cameras is None:
-    spectrographs = args.spectrographs.split(',')
-    colors = args.colors.split(',')
+    spectrographs = args.spectrographs.split(",")
+    colors = args.colors.split(",")
     cameras = [
         f"{color}{spec}" for spec in spectrographs for color in colors
     ]
 else:
-    cameras = args.cameras.split(',')
+    cameras = args.cameras.split(",")
 
 for camera in cameras:
     color, spectrograph = camera
-    assert color in 'brz', f'{color} is not a valid color {camera}'
-    assert int(spectrograph) in range(10), f'{spectrograph} is not a valid spectrograph {camera}'
+    assert color in "brz", \
+        f"{color} is not a valid color {camera}"
+    assert int(spectrograph) in range(10), \
+        f"{spectrograph} is not a valid spectrograph {camera}"
 
 # TODO: check for valid cameras
 
@@ -88,7 +89,7 @@ node_index = rank // node_size
 node_comm = comm.Split(color=node_index, key=node_rank)
 
 if rank == 0:
-    print(f'Splitting {size} ranks into {nnodes} groups of {node_size}')
+    print(f"Splitting {size} ranks into {nnodes} groups of {node_size}")
     sys.stdout.flush()
 
 frames_extracted = []
@@ -96,6 +97,7 @@ frames_extracted = []
 node_cameras = cameras[node_index::nnodes]
 if node_rank == 0:
     print(f"{node}: {','.join(node_cameras)}")
+    sys.stdout.flush()
 
 for camera in cameras[node_index::nnodes]:
 
@@ -105,11 +107,13 @@ for camera in cameras[node_index::nnodes]:
 
     if not os.path.isfile(img_filename):
         if node_rank == 0:
-            print('Skipping {camera}, image file does not exist: {img_filename}')
+            print("Skipping {camera}, image file does not exist: {img_filename}")
+            sys.stdout.flush()
         continue
     if not os.path.isfile(psf_filename):
         if node_rank == 0:
-            print('Skipping {camera}, psf file does not exist: {psf_filename}')
+            print("Skipping {camera}, psf file does not exist: {psf_filename}")
+            sys.stdout.flush()
         continue
 
     cmd = \
