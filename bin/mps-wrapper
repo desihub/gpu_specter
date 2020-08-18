@@ -22,6 +22,10 @@ fi
 
 sleep 5
 
+if [ $NODE_RANK -eq 0 ]; then
+    echo "mps ready: $(date --iso-8601=seconds)"
+fi
+
 # run the command
 "$@"
 
