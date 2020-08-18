@@ -3,6 +3,7 @@ Core scaffolding for divide and conquer extraction algorithm
 """
 
 import sys
+import time
 
 import numpy as np
 
@@ -357,7 +358,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -383,6 +384,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     """
 
     timer = Timer()
+    time_start = time.time()
 
     log = get_logger(loglevel)
 
@@ -419,6 +421,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         bundle_comm = comm
 
     timer.split('init-mpi-comm')
+    time_init_mpi_comm = time.time()
 
     imgpixels = imgivar = None
     if rank == 0:
@@ -434,6 +437,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         psf = comm.bcast(psf, root=0)
 
     timer.split('mpi-bcast-raw')
+    time_mpi_bcast_raw = time.time()
 
     #- If using GPU, move image and ivar to device
     #- TODO: is there a way for ranks to share a pointer to device memory?
@@ -446,6 +450,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         cp.cuda.nvtx.RangePop()
 
         timer.split('host-to-device-raw')
+    time_host_to_device_raw = time.time()
 
     if wavelength is not None:
         wmin, wmax, dw = map(float, wavelength.split(','))
@@ -510,6 +515,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             bundle_comm.barrier()
 
     timer.split('extracted-bundles')
+    time_extracted_bundles = time.time()
 
     if frame_comm is not None:
         # gather results from multiple mpi groups
@@ -534,6 +540,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         rankbundles = [bundles,]
 
     timer.split('staged-bundles')
+    time_staged_bundles = time.time()
 
     #- Finalize and write output
     frame = None
@@ -562,6 +569,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             modelimage = None
 
         timer.split(f'merged-bundles')
+        time_merged_bundles = time.time()
 
         #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
@@ -587,6 +595,19 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         )
 
         timer.split(f'assembled-frame')
+        time_assembled_frame = time.time()
         timer.log_splits(log)
+    else:
+        time_merged_bundles = time.time()
+        time_assembled_frame = time.time()
+
+    if isinstance(timing, dict):
+        timing['init-mpi-comm'] = time_init_mpi_comm
+        timing['init-mpi-bcast'] = time_mpi_bcast_raw
+        timing['host-to-device'] = time_host_to_device_raw
+        timing['extracted-bundles'] = time_extracted_bundles
+        timing['staged-bundles'] = time_staged_bundles
+        timing['merged-bundles'] = time_merged_bundles
+        timing['assembled-frame'] = time_assembled_frame
 
     return frame
