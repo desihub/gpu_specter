@@ -8,11 +8,15 @@ srun -n 160 -c 2 --cpu_bind=cores ./desi-extract -i $SCRATCH/desi/benchmark/inpu
 srun -n 20 -c 1 python bin/desi-extract-exposure /global/cfs/cdirs/desi/spectro/redux/andes $SCRATCH/temp $(date +%s)
 """
 
+import time
+
+import_time = time.time()
+
 import argparse
+import csv
 import glob 
 import os
 import sys
-import time
 
 from desispec.scripts import extract
 
@@ -35,6 +39,36 @@ parser.add_argument("--gpu", action="store_true", help="use GPU")
 parser.add_argument("-v", "--verbose", action="store_true", help="print per-rank detailed timing")
 args = parser.parse_args()
 
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.rank
+size = comm.size
+
+comm.barrier()
+start_time = args.start_time
+startup_time = time.time()
+
+# split comm by node
+node = MPI.Get_processor_name()
+nodes = comm.allgather(node)
+nnodes = len(set(nodes))
+node_size = size // nnodes
+
+assert node_size * nnodes == size, \
+    f"Number of ranks {size} not divisible by number of nodes {nnodes}"
+
+node_rank = rank % node_size
+node_index = rank // node_size
+node_comm = comm.Split(color=node_index, key=node_rank)
+
+if rank == 0:
+    print(f"Splitting {size} ranks into {nnodes} groups of {node_size}")
+    sys.stdout.flush()
+
+assert os.path.exists(args.indir)
+assert os.path.exists(args.outdir)
+
 # TODO: validate night/expid
 night = args.night
 expid = args.expid
@@ -55,51 +89,31 @@ for camera in cameras:
     assert int(spectrograph) in range(10), \
         f"{spectrograph} is not a valid spectrograph {camera}"
 
-# TODO: check for valid cameras
-
-assert os.path.exists(args.indir)
-assert os.path.exists(args.outdir)
-
-from mpi4py import MPI
-
-comm = MPI.COMM_WORLD
-rank = comm.rank
-size = comm.size
-
 if rank == 0:
     print(f"Extracting frames from cameras: {','.join(cameras)}")
     sys.stdout.flush()
-
-comm.barrier()
-if rank == 0:
-    start_time = args.start_time
-    startup_time = time.time() - start_time
-
-# split comm by node
-node = MPI.Get_processor_name()
-nodes = comm.allgather(node)
-nnodes = len(set(nodes))
-node_size = size // nnodes
-
-assert node_size * nnodes == size, \
-    f"Number of ranks {size} not divisible by number of nodes {nnodes}"
-
-node_rank = rank % node_size
-node_index = rank // node_size
-node_comm = comm.Split(color=node_index, key=node_rank)
-
-if rank == 0:
-    print(f"Splitting {size} ranks into {nnodes} groups of {node_size}")
-    sys.stdout.flush()
-
-frames_extracted = []
 
 node_cameras = cameras[node_index::nnodes]
 if node_rank == 0:
     print(f"{node}: {','.join(node_cameras)}")
     sys.stdout.flush()
 
-for camera in cameras[node_index::nnodes]:
+ready_time = time.time()
+
+events = []
+events.append(
+    (node, rank, node_rank, None, "exposure-import", import_time - start_time)
+)
+events.append(
+    (node, rank, node_rank, None, "exposure-startup", startup_time - start_time)
+)
+events.append(
+    (node, rank, node_rank, None, "exposure-ready", ready_time - start_time)
+)
+
+frames_extracted = []
+
+for camera in node_cameras:
 
     img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
     psf_filename = f"{args.indir}/exposures/{night}/{expid}/psf-{camera}-{expid}.fits"
@@ -147,21 +161,37 @@ for camera in cameras[node_index::nnodes]:
         sys.stdout.flush()
 
     cmd_args = extract.parse(cmd.split()[1:])
-    extract.main_gpu_specter(cmd_args, comm=node_comm)
+    timing = dict()
+    extract.main_gpu_specter(cmd_args, comm=node_comm, timing=timing)
+
+    for event_name in timing:
+        event_time = timing[event_name]
+        events.append((node, rank, node_rank, camera, event_name, event_time - start_time))
 
     if node_comm.rank == 0:
         frames_extracted.append(camera)
 
 comm.barrier()
 end_time = time.time()
+events.append((node, rank, node_rank, None, "exposure-end", end_time - start_time))
 
 nframes = comm.reduce(len(frames_extracted), root=0)
+events = comm.gather(events, root=0)
 if rank == 0:
+
+    def flatten(l):
+        return [i for s in l for i in s]
+    events = flatten(events)
+    events_filename = f"{args.outdir}/events-{night}-{expid}.csv"
+    with open(events_filename, "w") as f:
+        writer = csv.writer(f)
+        writer.writerows(events)
+
     elapsed_time = end_time - start_time
     node_hours = nnodes * elapsed_time / (60 * 60)
     work_rate = nframes / node_hours
 
     print("desi-extract {} effective frames in {:.1f} min".format(nframes, elapsed_time / 60))
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
-    print("desi-extract startup time: {:.1f} sec".format(startup_time))
+    print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
