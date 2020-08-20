@@ -34,7 +34,7 @@ parser.add_argument("--expid", type=str, default="00055672",
 parser.add_argument("--spectrographs", type=str, default="0,1,2,3,4,5,6,7,8,9",
     help="Comma-separated list of spectrographs to extract")
 parser.add_argument("--colors", type=str,
-    help="Comma-separated list of colors to extract", default="b,r,z")
+    help="Comma-separated list of colors to extract", default="r,b,z")
 parser.add_argument("--cameras", type=str, default=None,
     help=("Comma separated list of cameras to extract. If not provided then the outer "
           "product of --spectrographs and --colors will be used to construct."))
@@ -58,20 +58,26 @@ startup_time = time.time()
 
 #- Divide MPI ranks into per node communication groups
 node = MPI.Get_processor_name()
-nodes = comm.allgather(node)
-nnodes = len(set(nodes))
-node_size = size // nnodes
 
-assert node_size * nnodes == size, \
-    f"Number of ranks {size} not divisible by number of nodes {nnodes}"
+group = node
+if args.gpu:
+    gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    group += ":" + gpus
 
-#- Assumes contiguous blocks of MPI ranks per node
-node_rank = rank % node_size
-node_index = rank // node_size
-node_comm = comm.Split(color=node_index, key=node_rank)
+groups = comm.allgather(group)
+ngroups = len(set(groups))
+group_size = size // ngroups
+
+assert group_size * ngroups == size, \
+    f"Number of ranks {size} not divisible by number of groups {ngroups}"
+
+#- Assumes contiguous blocks of MPI ranks per group
+group_rank = rank % group_size
+group_index = rank // group_size
+group_comm = comm.Split(color=group_index, key=group_rank)
 
 if rank == 0:
-    print(f"Splitting {size} ranks into {nnodes} groups of {node_size}")
+    print(f"Splitting {size} ranks into {ngroups} groups of {group_size}")
     sys.stdout.flush()
 
 #- Make sure input/output directories exist
@@ -104,24 +110,24 @@ if rank == 0:
     print(f"Extracting frames from cameras: {','.join(cameras)}")
     sys.stdout.flush()
 
-#- Divide cameras between nodes
-node_cameras = cameras[node_index::nnodes]
-if node_rank == 0:
-    print(f"{node}: {','.join(node_cameras)}")
+#- Divide cameras between groups
+group_cameras = cameras[group_index::ngroups]
+if group_rank == 0:
+    print(f"{group}: {','.join(group_cameras)}")
     sys.stdout.flush()
 
 ready_time = time.time()
 
 #- Initialize timing event log
 events = []
-events.append((node, rank, node_rank, None, "exposure-import", import_time - start_time))
-events.append((node, rank, node_rank, None, "exposure-startup-waiting", startup_waiting_time - start_time))
-events.append((node, rank, node_rank, None, "exposure-startup", startup_time - start_time))
-events.append((node, rank, node_rank, None, "exposure-ready", ready_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-import", import_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-startup-waiting", startup_waiting_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-startup", startup_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-ready", ready_time - start_time))
 
 #- Extract frames
 frames_extracted = []
-for camera in node_cameras:
+for camera in group_cameras:
 
     #- Build extraction command
     img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
@@ -129,12 +135,12 @@ for camera in node_cameras:
     frame_filename = f"{args.outdir}/frame-{camera}-{expid}.fits"
 
     if not os.path.isfile(img_filename):
-        if node_rank == 0:
+        if group_rank == 0:
             print("Skipping {camera}, image file does not exist: {img_filename}")
             sys.stdout.flush()
         continue
     if not os.path.isfile(psf_filename):
-        if node_rank == 0:
+        if group_rank == 0:
             print("Skipping {camera}, psf file does not exist: {psf_filename}")
             sys.stdout.flush()
         continue
@@ -165,7 +171,7 @@ for camera in node_cameras:
     if args.gpu:
         cmd = cmd + " --gpu"
 
-    if node_comm.rank == 0:
+    if group_comm.rank == 0:
         print(rank, cmd)
         sys.stdout.flush()
 
@@ -173,27 +179,28 @@ for camera in node_cameras:
     timing = dict()
 
     #- Perform extraction
-    extract.main_gpu_specter(cmd_args, comm=node_comm, timing=timing)
+    extract.main_gpu_specter(cmd_args, comm=group_comm, timing=timing)
 
     #- Save timing events from extraction
     for event_name in timing:
         event_time = timing[event_name]
-        events.append((node, rank, node_rank, camera, event_name, event_time - start_time))
+        events.append((group, rank, group_rank, camera, event_name, event_time - start_time))
 
     #- Mark successfully extracted frame
-    if node_comm.rank == 0:
+    if group_comm.rank == 0:
         frames_extracted.append(camera)
 
 #- Wait for all ranks
 end_waiting_time = time.time()
 comm.barrier()
 end_time = time.time()
-events.append((node, rank, node_rank, None, "exposure-end-waiting", end_waiting_time - start_time))
-events.append((node, rank, node_rank, None, "exposure-end", end_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-end-waiting", end_waiting_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-end", end_time - start_time))
 
 #- Collect metrics
 nframes = comm.reduce(len(frames_extracted), root=0)
 events = comm.gather(events, root=0)
+nodes = comm.gather(node, root=0)
 
 if rank == 0:
 
@@ -207,6 +214,7 @@ if rank == 0:
         writer.writerows(events)
 
     #- Print summary
+    nnodes = len(set(nodes))
     elapsed_time = end_time - start_time
     node_hours = nnodes * elapsed_time / (60 * 60)
     work_rate = nframes / node_hours
@@ -215,3 +223,15 @@ if rank == 0:
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
     print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
+
+    if args.gpu:
+        unique_devices = set()
+        for group in set(groups):
+            node, devices = group.split(":")
+            for device in devices.split(","):
+                unique_devices.add(node + ":" + device)
+        ngpus = len(unique_devices)
+
+        gpu_hours = ngpus * elapsed_time / (60 * 60)
+        gpu_work_rate = nframes / gpu_hours
+        print("desi-extract gpu work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
