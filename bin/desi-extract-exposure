@@ -42,6 +42,8 @@ parser.add_argument("--gpu", action="store_true",
     help="use GPU")
 parser.add_argument("-v", "--verbose", action="store_true",
     help="print per-rank detailed timing")
+parser.add_argument("--old-format", action="store_true",
+    help="use old format for benchmark data filenames")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -130,8 +132,12 @@ frames_extracted = []
 for camera in group_cameras:
 
     #- Build extraction command
-    img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
-    psf_filename = f"{args.indir}/exposures/{night}/{expid}/psf-{camera}-{expid}.fits"
+    if args.old_format:
+        img_filename = f"{args.indir}/pix/{night}/pix-{camera}-{expid}.fits"
+        psf_filename = f"{args.indir}/psf/{night}/psfnight-{camera}.fits"
+    else:
+        img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
+        psf_filename = f"{args.indir}/exposures/{night}/{expid}/psf-{camera}-{expid}.fits"
     frame_filename = f"{args.outdir}/frame-{camera}-{expid}.fits"
 
     if not os.path.isfile(img_filename):
