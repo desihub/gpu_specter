@@ -392,9 +392,11 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     ndiag = spots.shape[2]//2
 
     specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
-    if (0 <= ymin) & (ymin+ny < image.shape[0]):
+    if (0 <= ymin) & (ymin+ny <= image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        fx, ivarfx, R = ex2d_patch(image[xyslice], imageivar[xyslice], A4, regularize=regularize)
+        patchpixels = image[xyslice]
+        patchivar = imageivar[xyslice]
+        fx, ivarfx, R = ex2d_patch(patchpixels, patchivar, A4, regularize=regularize)
 
         #- Select the non-padded spectra x wavelength core region
         specflux = fx[specslice]
@@ -406,10 +408,17 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
         #- of the image; we can do better than that
+        fx = np.zeros((nspecpad, nwavetot))
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
+        # xyslice = np.s_[
+        #     max(0, ymin):min(ymin+ny, image.shape[0]),
+        #     max(0, xmin):min(xmin+nx, image.shape[1])
+        # ]
         xyslice = None
+        patchivar = np.zeros((ny, nx))
+        patchpixels = np.zeros((ny, nx))
 
     if np.any(np.isnan(specflux)):
         raise RuntimeError('Found NaN in extracted flux')
@@ -418,18 +427,18 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
     Apatch = Apatch.reshape(ny*nx, nspec*nwave)
 
-    pixmask_fraction = Apatch.T.dot(imageivar[xyslice].ravel() == 0)
+    pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
     pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
 
     modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
     modelivar = (modelpadded*psferr + 1e-32)**-2
-    ii = (modelivar > 0 ) & (imageivar[xyslice] > 0)
+    ii = (modelivar > 0 ) & (patchivar > 0)
     totpix_ivar = np.zeros((ny, nx))
-    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/imageivar[xyslice][ii])
+    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/patchivar[ii])
 
     #- Weighted chi2 of pixels that contribute to each flux bin;
     #- only use unmasked pixels and avoid dividing by 0
-    chi = (image[xyslice] - modelpadded)*np.sqrt(totpix_ivar)
+    chi = (patchpixels - modelpadded)*np.sqrt(totpix_ivar)
     psfweight = Apadded.T.dot(totpix_ivar.ravel() > 0)
     bad = psfweight == 0
 

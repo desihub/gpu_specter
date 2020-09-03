@@ -3,11 +3,15 @@ Core scaffolding for divide and conquer extraction algorithm
 """
 
 import sys
+import time
 
 import numpy as np
 
 try:
+    import numba.cuda
+    numba.cuda.is_available()
     import cupy as cp
+    cp.is_available()
 except ImportError:
     pass
 
@@ -223,7 +227,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             patches.append(patch)
 
     if rank == 0:
-        log.info(f'Dividing {len(patches)} patches between {size} ranks')
+        log.debug(f'Dividing {len(patches)} patches between {size} ranks')
 
     timer.split('organize patches')
 
@@ -279,7 +283,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             # transfer to host in chunks
             cp.cuda.nvtx.RangePush('copy bundle results to host')
             device_id = cp.cuda.runtime.getDevice()
-            log.info(f'Rank {rank}: Moving bundle {bspecmin} patches to host from device {device_id}')
+            log.debug(f'Rank {rank}: Moving bundle {bspecmin} patches to host from device {device_id}')
             flux = cp.asnumpy(cp.array(flux, dtype=cp.float64))
             fluxivar = cp.asnumpy(cp.array(fluxivar, dtype=cp.float64))
             resolution = cp.asnumpy(cp.array(resolution, dtype=cp.float64))
@@ -328,14 +332,14 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         if gpu:
             cp.cuda.nvtx.RangePush('assemble patches on device')
             device_id = cp.cuda.runtime.getDevice()
-            log.info(f'Rank {rank}: Assembling bundle {bspecmin} patches on device {device_id}')
+            log.debug(f'Rank {rank}: Assembling bundle {bspecmin} patches on device {device_id}')
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
             cp.cuda.nvtx.RangePop()
             if comm is None:
                 cp.cuda.nvtx.RangePush('copy bundle results to host')
                 device_id = cp.cuda.runtime.getDevice()
-                log.info(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
+                log.debug(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
                 specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice = bundle
                 bundle = (
                     cp.asnumpy(specflux),
@@ -349,12 +353,12 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 # bundle = tuple(cp.asnumpy(x) for x in bundle)
                 cp.cuda.nvtx.RangePop()
         timer.split('assembled patches')
-        timer.log_splits(log)
+        # timer.log_splits(log)
     return bundle
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None):
+    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -380,6 +384,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     """
 
     timer = Timer()
+    time_start = time.time()
 
     log = get_logger(loglevel)
 
@@ -415,7 +420,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         frame_comm = None
         bundle_comm = comm
 
-    timer.split('init')
+    timer.split('init-mpi-comm')
+    time_init_mpi_comm = time.time()
 
     imgpixels = imgivar = None
     if rank == 0:
@@ -430,17 +436,21 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         imgivar = comm.bcast(imgivar, root=0)
         psf = comm.bcast(psf, root=0)
 
+    timer.split('mpi-bcast-raw')
+    time_mpi_bcast_raw = time.time()
+
     #- If using GPU, move image and ivar to device
     #- TODO: is there a way for ranks to share a pointer to device memory?
     if gpu:
         cp.cuda.nvtx.RangePush('copy imgpixels, imgivar to device')
         device_id = cp.cuda.runtime.getDevice()
-        log.info(f'Rank {rank}: Moving image data to device {device_id}')
+        log.debug(f'Rank {rank}: Moving image data to device {device_id}')
         imgpixels = cp.asarray(imgpixels)
         imgivar = cp.asarray(imgivar)
         cp.cuda.nvtx.RangePop()
 
-    timer.split('distributed data')
+        timer.split('host-to-device-raw')
+    time_host_to_device_raw = time.time()
 
     if wavelength is not None:
         wmin, wmax, dw = map(float, wavelength.split(','))
@@ -480,8 +490,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
     for bspecmin in bspecmins[bundle_start::bundle_step]:
-        log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
-        sys.stdout.flush()
+        # log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
+        # sys.stdout.flush()
         if gpu:
             cp.cuda.nvtx.RangePush('extract_bundle')
         bundle = extract_bundle(
@@ -504,7 +514,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         if bundle_comm is not None:
             bundle_comm.barrier()
 
-    timer.split('extracted bundles')
+    timer.split('extracted-bundles')
+    time_extracted_bundles = time.time()
 
     if frame_comm is not None:
         # gather results from multiple mpi groups
@@ -528,7 +539,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
 
-    timer.split('collected data')
+    timer.split('staged-bundles')
+    time_staged_bundles = time.time()
 
     #- Finalize and write output
     frame = None
@@ -556,7 +568,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         else:
             modelimage = None
 
-        timer.split(f'combined data')
+        timer.split(f'merged-bundles')
+        time_merged_bundles = time.time()
 
         #- Convert flux to photons/A instead of photons/bin
         dwave = np.gradient(wave)
@@ -581,7 +594,20 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             modelimage = modelimage,
         )
 
-        timer.split(f'finished frame')
+        timer.split(f'assembled-frame')
+        time_assembled_frame = time.time()
         timer.log_splits(log)
+    else:
+        time_merged_bundles = time.time()
+        time_assembled_frame = time.time()
+
+    if isinstance(timing, dict):
+        timing['init-mpi-comm'] = time_init_mpi_comm
+        timing['init-mpi-bcast'] = time_mpi_bcast_raw
+        timing['host-to-device'] = time_host_to_device_raw
+        timing['extracted-bundles'] = time_extracted_bundles
+        timing['staged-bundles'] = time_staged_bundles
+        timing['merged-bundles'] = time_merged_bundles
+        timing['assembled-frame'] = time_assembled_frame
 
     return frame

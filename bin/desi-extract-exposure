@@ -1,0 +1,243 @@
+#!/usr/bin/env python
+
+"""
+DESI spectral extraction code benchmark
+salloc -N 5 -t 2:00:00 -C haswell -q interactive
+srun -n 160 -c 2 python bin/desi-extract-exposure /global/cfs/cdirs/desi/spectro/redux/andes $SCRATCH/temp $(date +%s)
+"""
+
+import time
+
+import_time = time.time()
+
+import argparse
+import csv
+import glob 
+import os
+import sys
+
+from desispec.scripts import extract
+
+#- Parse args before initializing MPI so that --help will work anywhere
+
+parser = argparse.ArgumentParser()
+parser.add_argument("indir",
+    help="input data directory")
+parser.add_argument("outdir",
+    help="output directory")
+parser.add_argument("start_time", type=float,
+    help="use $(date +%%s)")
+parser.add_argument("--night", type=str, default="20200315",
+    help="YYYYMMDD to extract")
+parser.add_argument("--expid", type=str, default="00055672",
+    help="Exposure ID to extract")
+parser.add_argument("--spectrographs", type=str, default="0,1,2,3,4,5,6,7,8,9",
+    help="Comma-separated list of spectrographs to extract")
+parser.add_argument("--colors", type=str,
+    help="Comma-separated list of colors to extract", default="r,b,z")
+parser.add_argument("--cameras", type=str, default=None,
+    help=("Comma separated list of cameras to extract. If not provided then the outer "
+          "product of --spectrographs and --colors will be used to construct."))
+parser.add_argument("--gpu", action="store_true",
+    help="use GPU")
+parser.add_argument("-v", "--verbose", action="store_true",
+    help="print per-rank detailed timing")
+parser.add_argument("--old-format", action="store_true",
+    help="use old format for benchmark data filenames")
+args = parser.parse_args()
+
+start_time = args.start_time
+
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.rank
+size = comm.size
+
+startup_waiting_time = time.time()
+comm.barrier()
+startup_time = time.time()
+
+#- Divide MPI ranks into per node communication groups
+node = MPI.Get_processor_name()
+
+group = node
+if args.gpu:
+    gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    group += ":" + gpus
+
+groups = comm.allgather(group)
+ngroups = len(set(groups))
+group_size = size // ngroups
+
+assert group_size * ngroups == size, \
+    f"Number of ranks {size} not divisible by number of groups {ngroups}"
+
+#- Assumes contiguous blocks of MPI ranks per group
+group_rank = rank % group_size
+group_index = rank // group_size
+group_comm = comm.Split(color=group_index, key=group_rank)
+
+if rank == 0:
+    print(f"Splitting {size} ranks into {ngroups} groups of {group_size}")
+    sys.stdout.flush()
+
+#- Make sure input/output directories exist
+assert os.path.exists(args.indir)
+assert os.path.exists(args.outdir)
+
+#- TODO: validate night/expid ?
+night = args.night
+expid = args.expid
+
+#- Construct list of cameras to extract
+if args.cameras is None:
+    spectrographs = args.spectrographs.split(",")
+    colors = args.colors.split(",")
+    cameras = [
+        f"{color}{spec}" for spec in spectrographs for color in colors
+    ]
+else:
+    cameras = args.cameras.split(",")
+
+#- Check for valid DESI cameras
+for camera in cameras:
+    color, spectrograph = camera
+    assert color in "brz", \
+        f"{color} is not a valid color {camera}"
+    assert int(spectrograph) in range(10), \
+        f"{spectrograph} is not a valid spectrograph {camera}"
+
+if rank == 0:
+    print(f"Extracting frames from cameras: {','.join(cameras)}")
+    sys.stdout.flush()
+
+#- Divide cameras between groups
+group_cameras = cameras[group_index::ngroups]
+if group_rank == 0:
+    print(f"{group}: {','.join(group_cameras)}")
+    sys.stdout.flush()
+
+ready_time = time.time()
+
+#- Initialize timing event log
+events = []
+events.append((group, rank, group_rank, None, "exposure-import", import_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-startup-waiting", startup_waiting_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-startup", startup_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-ready", ready_time - start_time))
+
+#- Extract frames
+frames_extracted = []
+for camera in group_cameras:
+
+    #- Build extraction command
+    if args.old_format:
+        img_filename = f"{args.indir}/pix/{night}/pix-{camera}-{expid}.fits"
+        psf_filename = f"{args.indir}/psf/{night}/psfnight-{camera}.fits"
+    else:
+        img_filename = f"{args.indir}/preproc/{night}/{expid}/preproc-{camera}-{expid}.fits"
+        psf_filename = f"{args.indir}/exposures/{night}/{expid}/psf-{camera}-{expid}.fits"
+    frame_filename = f"{args.outdir}/frame-{camera}-{expid}.fits"
+
+    if not os.path.isfile(img_filename):
+        if group_rank == 0:
+            print("Skipping {camera}, image file does not exist: {img_filename}")
+            sys.stdout.flush()
+        continue
+    if not os.path.isfile(psf_filename):
+        if group_rank == 0:
+            print("Skipping {camera}, psf file does not exist: {psf_filename}")
+            sys.stdout.flush()
+        continue
+
+    cmd = \
+        "desi_extract_spectra --mpi" \
+        f" -i {img_filename}" \
+        f" -p {psf_filename}" \
+        f" -o {frame_filename}"
+
+    #- DEBUG speed
+    # if camera.startswith("b"):
+    #     cmd = cmd + " -w 4000,4200,1"
+    # elif camera.startswith("r"):
+    #     cmd = cmd + " -w 6000,6200,1"
+    # elif camera.startswith("z"):
+    #     cmd = cmd + " -w 9000,9200,1"
+
+    if camera.startswith("b"):
+        cmd = cmd + " -w 3600.0,5800.0,0.8"
+    elif camera.startswith("r"):
+        cmd = cmd + " -w 5760.0,7620.0,0.8"
+    elif camera.startswith("z"):
+        cmd = cmd + " -w 7520.0,9824.0,0.8"
+
+    cmd = cmd + " --gpu-specter --nsubbundles 5"
+
+    if args.gpu:
+        cmd = cmd + " --gpu"
+
+    if group_comm.rank == 0:
+        print(rank, cmd)
+        sys.stdout.flush()
+
+    cmd_args = extract.parse(cmd.split()[1:])
+    timing = dict()
+
+    #- Perform extraction
+    extract.main_gpu_specter(cmd_args, comm=group_comm, timing=timing)
+
+    #- Save timing events from extraction
+    for event_name in timing:
+        event_time = timing[event_name]
+        events.append((group, rank, group_rank, camera, event_name, event_time - start_time))
+
+    #- Mark successfully extracted frame
+    if group_comm.rank == 0:
+        frames_extracted.append(camera)
+
+#- Wait for all ranks
+end_waiting_time = time.time()
+comm.barrier()
+end_time = time.time()
+events.append((group, rank, group_rank, None, "exposure-end-waiting", end_waiting_time - start_time))
+events.append((group, rank, group_rank, None, "exposure-end", end_time - start_time))
+
+#- Collect metrics
+nframes = comm.reduce(len(frames_extracted), root=0)
+events = comm.gather(events, root=0)
+nodes = comm.gather(node, root=0)
+
+if rank == 0:
+
+    #- Save event log to csv file
+    def flatten(l):
+        return [i for s in l for i in s]
+    events = flatten(events)
+    events_filename = f"{args.outdir}/events-{night}-{expid}.csv"
+    with open(events_filename, "w") as f:
+        writer = csv.writer(f)
+        writer.writerows(events)
+
+    #- Print summary
+    nnodes = len(set(nodes))
+    elapsed_time = end_time - start_time
+    node_hours = nnodes * elapsed_time / (60 * 60)
+    work_rate = nframes / node_hours
+
+    print("desi-extract {} effective frames in {:.1f} min".format(nframes, elapsed_time / 60))
+    print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
+    print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
+    print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
+
+    if args.gpu:
+        unique_devices = set()
+        for group in set(groups):
+            node, devices = group.split(":")
+            for device in devices.split(","):
+                unique_devices.add(node + ":" + device)
+        ngpus = len(unique_devices)
+
+        gpu_hours = ngpus * elapsed_time / (60 * 60)
+        gpu_work_rate = nframes / gpu_hours
+        print("desi-extract gpu work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
