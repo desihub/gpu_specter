@@ -384,6 +384,151 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
         Rdiags[i-ispec] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
     return Rdiags
 
+def prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, wavepad, bundlesize):
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+    nwavetot = nwave+2*wavepad
+    A4, xyrange = projection_matrix(specmin, nspecpad, iwave-wavepad, nwave+2*wavepad, spots, corners)
+    xmin, xmax, ypadmin, ypadmax = xyrange
+
+    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+
+    ypadlo = ymin - ypadmin
+    ypadhi = ypadmax - ymax
+    A4 = A4[ypadlo:-ypadhi]
+
+    ny, nx = A4.shape[0:2]
+
+    if (0 <= ymin) & (ymin+ny <= image.shape[0]):
+        xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
+        patchpixels = image[xyslice]
+        patchivar = imageivar[xyslice]
+    else:
+        xyslice = None
+        patchivar = cp.zeros((ny, nx))
+        patchpixels = cp.zeros((ny, nx))
+
+    return patchpixels, patchivar, A4, xyslice
+
+def apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
+    ATNinv = A.T * pixel_ivar
+    icov = ATNinv.dot(A)
+    y = ATNinv.dot(pixel_values)
+    fluxweight = ATNinv.sum(axis=1)
+    
+    minweight = weight_scale*cp.max(fluxweight)
+    ibad = fluxweight <= minweight
+    lambda_squared = regularize*regularize*cp.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if np.any(lambda_squared):
+        icov += cp.diag(lambda_squared)
+        
+    return icov, y
+    
+def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=1e-4):
+
+    nbatches = len(batch_pixels)
+
+    _, _, nspecpad, nwavetot = batch_A4[0].shape
+
+    n = nspecpad * nwavetot
+
+    batch_icov = cp.zeros((nbatches, n, n))
+    batch_y = cp.zeros((nbatches, n))
+
+    for i, (pix, ivar, A4) in enumerate(zip(batch_pixels, batch_ivar, batch_A4)):
+        batch_icov[i], batch_y[i] = apply_weights(pix.ravel(), ivar.ravel(), A4.reshape(-1, n), regularize=regularize)
+
+    deconvolved = cp.linalg.solve(batch_icov, batch_y)
+
+    # invert icov
+    w, v = cp.linalg.eigh(batch_icov)
+    w = cp.clip(w, a_min=clip_scale*cp.max(w))
+    vwinv = v * 1.0/w[:, np.newaxis, :]
+    vt = v.transpose(0, 2, 1)
+    cov = cp.einsum('lij,ljk->lik', vwinv, vt)
+
+    # cov = cp.linalg.inv(batch_icov)
+
+    cov_block_diags = cp.empty(
+        (nbatches * nspecpad, nwavetot, nwavetot), 
+        dtype=batch_icov.dtype
+    )
+    for i in range(nbatches):
+        for j, s in enumerate(range(0, n, nwavetot)):
+            cov_block_diags[i*nspecpad + j] = cov[i, s:s + nwavetot, s:s + nwavetot]
+
+    ww, vv = cp.linalg.eigh(cov_block_diags)
+    ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
+    vvsqrtwwinv = vv * cp.sqrt(1.0/ww)[:, cp.newaxis, :]
+    vvt = vv.transpose(0, 2, 1)
+    q = cp.einsum('lij,ljk->lik', vvsqrtwwinv, vvt)
+
+    Q = cp.zeros_like(batch_icov)
+    for i in range(nbatches):
+        for j, s in enumerate(range(0, n, nwavetot)):
+            Q[i, s:s + nwavetot, s:s + nwavetot] = q[i*nspecpad + j]
+            
+    s = cp.sum(Q, axis=-1)
+    batch_resolution = Q/s[:, cp.newaxis]
+    batch_fluxivar = (s**2).reshape(-1, nspecpad, nwavetot)
+    batch_flux = cp.einsum('lij,lj->li', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
+
+    return batch_flux, batch_fluxivar, batch_resolution
+
+def finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R, 
+    ispec, nspec, bundlesize, nwave, wavepad, ndiag, psferr, model=None):
+
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+
+    specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave] 
+    specflux = fx[specslice]
+    specivar = ivarfx[specslice]
+    Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
+
+    ny, nx, nspecpad, nwavetot = A4.shape
+
+    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
+    Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+    Apatch = Apatch.reshape(ny*nx, nspec*nwave)
+
+    pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
+    pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
+
+    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
+    modelivar = (modelpadded*psferr + 1e-32)**-2
+    ii = (modelivar > 0 ) & (patchivar > 0)
+    totpix_ivar = cp.zeros((ny, nx))
+    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/patchivar[ii])
+
+    #- Weighted chi2 of pixels that contribute to each flux bin;
+    #- only use unmasked pixels and avoid dividing by 0
+    chi = (patchpixels - modelpadded)*cp.sqrt(totpix_ivar)
+    psfweight = Apadded.T.dot(totpix_ivar.ravel() > 0)
+    bad = psfweight == 0
+
+    #- Compute chi2pix and reshape
+    chi2pix = (Apadded.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
+    chi2pix = chi2pix.reshape(nspecpad, nwavetot)[specslice]
+
+    if model:
+        modelimage = Apatch.dot(specflux.ravel()).reshape(ny, nx)
+    else:
+        #modelimage = cp.zeros((ny, nx))
+        modelimage = None
+
+    result = dict(
+        flux = specflux,
+        ivar = specivar,
+        Rdiags = Rdiags,
+        modelimage = modelimage,
+        xyslice = xyslice,
+        pixmask_fraction = pixmask_fraction,
+        chi2pix = chi2pix,
+    )
+
+    return result
+
+
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
                 wavepad, bundlesize=25, model=None, regularize=0):
     """

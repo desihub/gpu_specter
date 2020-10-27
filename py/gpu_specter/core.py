@@ -192,7 +192,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- Extracting on CPU or GPU?
     if gpu:
         from gpu_specter.extract.gpu import \
-                get_spots, ex2d_padded
+                get_spots, ex2d_padded, prepare_patch, batch_extraction, finalize_patch
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, ex2d_padded
@@ -217,48 +217,70 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     spot_nx, spot_ny = spots.shape[2:4]
 
     #- Organize what sub-bundle patches to extract
-    patches = list()
+    subbundles = list()
     nspectra_per_patch = bundlesize // nsubbundles
     for ispec in range(bspecmin, bspecmin+bundlesize, nspectra_per_patch):
+        patches = list()
         for iwave in range(wavepad, wavepad+nwave, nwavestep):
             patch = Patch(ispec, iwave, bspecmin,
                           nspectra_per_patch, nwavestep, wavepad,
                           nwave, bundlesize, ndiag)
             patches.append(patch)
+        subbundles.append(patches)
 
-    if rank == 0:
-        log.debug(f'Dividing {len(patches)} patches between {size} ranks')
+    # if rank == 0:
+    #     log.debug(f'Dividing {len(patches)} patches between {size} ranks')
 
     timer.split('organize patches')
 
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
-    for patch in patches[rank::size]:
 
-        log.debug(f'rank={rank}, ispec={patch.ispec}, iwave={patch.iwave}')
+    if gpu:
+        for patches in subbundles[rank::size]:
+            batch_pixels = list()
+            batch_ivar = list()
+            batch_A4 = list()
+            batch_xyslice = list()
+            for patch in patches:
+                patchpixels, patchivar, patchA4, xyslice = prepare_patch(
+                    image, imageivar, patch.ispec-bspecmin, patch.nspectra_per_patch,
+                    patch.iwave, patch.nwavestep, spots, corners, wavepad=patch.wavepad, bundlesize=bundlesize,
+                )
+                patch.xyslice = xyslice
+                batch_pixels.append(patchpixels)
+                batch_ivar.append(patchivar)
+                batch_A4.append(patchA4)
+                batch_xyslice.append(xyslice)
 
-        #- Always extract the same patch size (more efficient for GPU
-        #- memory transfer) then decide post-facto whether to keep it all
+            # perform batch extraction
+            batch_flux, batch_fluxivar, batch_resolution = batch_extraction(
+                batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=1e-4
+            )
 
-        if gpu:
-            cp.cuda.nvtx.RangePush('ex2d_padded')
-
-        result = ex2d_padded(image, imageivar,
-                             patch.ispec-bspecmin, patch.nspectra_per_patch,
-                             patch.iwave, patch.nwavestep,
-                             spots, corners, psferr,
-                             wavepad=patch.wavepad,
-                             bundlesize=bundlesize,
-                             model=model,
-                             regularize=regularize,
-                             )
-        patch.xyslice = result['xyslice']
-        if gpu:
-            cp.cuda.nvtx.RangePop()
-
-        results.append( (patch, result) )
-
-    timer.split('extracted patches')
+            # finalize patch results
+            for i, patch in enumerate(patches):
+                result = finalize_patch(
+                    batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
+                    batch_flux[i], batch_fluxivar[i], batch_resolution[i],
+                    patch.ispec-bspecmin, patch.nspectra_per_patch, bundlesize,
+                    patch.nwavestep, patch.wavepad, patch.ndiag, psferr, model=model
+                )
+                results.append( (patches[i], result) )
+    else:
+        patches = [patch for subbundle in subbundles for patch in subbundle]
+        for patch in patches[rank::size]:
+            result = ex2d_padded(image, imageivar,
+                                patch.ispec-bspecmin, patch.nspectra_per_patch,
+                                patch.iwave, patch.nwavestep,
+                                spots, corners, psferr,
+                                wavepad=patch.wavepad,
+                                bundlesize=bundlesize,
+                                model=model,
+                                regularize=regularize,
+                                )
+            patch.xyslice = result['xyslice']
+            results.append( (patch, result) )
 
     if comm is not None:
         if gpu:
@@ -397,6 +419,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
         device_id = rank % device_count
         cp.cuda.Device(device_id).use()
+
+        log.debug(f'rank {rank} using device {device_id}')
 
         #- Divide mpi ranks evenly among gpus
         device_size = size // device_count
