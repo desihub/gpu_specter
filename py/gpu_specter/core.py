@@ -139,7 +139,13 @@ def assemble_bundle_patches(rankresults):
         chi2pix[patch.specslice, patch.waveslice] = xchi2pix[:, patch.keepslice]
 
         patchmodel = result['modelimage']
-        if patchmodel is None or ~np.all(np.isfinite(patchmodel)):
+        #- Skip if patchmodel is None, an array of None, or contains any nans
+        skip_patchmodel = (
+            (patchmodel is None)
+            or (not patchmodel.any())
+            or (not np.all(np.isfinite(patchmodel)))
+        )
+        if skip_patchmodel:
             continue
         ymin = patch.xyslice[0].start - ystart
         xmin = patch.xyslice[1].start - xstart
@@ -332,7 +338,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                     zip(patches,
                         map(lambda x: dict(
                                 flux=x[0], ivar=x[1], Rdiags=x[2],
-                                pixmask_fraction=x[3], chi2pix=x[4], modelimage=x[3]
+                                pixmask_fraction=x[3], chi2pix=x[4], modelimage=x[5]
                             ),
                             zip(
                                 flux, fluxivar, resolution, 
