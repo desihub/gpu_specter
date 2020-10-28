@@ -435,20 +435,26 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
     batch_icov = cp.zeros((nbatches, n, n))
     batch_y = cp.zeros((nbatches, n))
 
+    cp.cuda.nvtx.RangePush('batch_apply_weights')
     for i, (pix, ivar, A4) in enumerate(zip(batch_pixels, batch_ivar, batch_A4)):
         batch_icov[i], batch_y[i] = apply_weights(pix.ravel(), ivar.ravel(), A4.reshape(-1, n), regularize=regularize)
+    cp.cuda.nvtx.RangePop()
 
+    cp.cuda.nvtx.RangePush('batch_solve')
     deconvolved = cp.linalg.solve(batch_icov, batch_y)
+    cp.cuda.nvtx.RangePop()
 
     # invert icov
+    cp.cuda.nvtx.RangePush('batch_invert_icov')
     w, v = cp.linalg.eigh(batch_icov)
     w = cp.clip(w, a_min=clip_scale*cp.max(w))
     vwinv = v * 1.0/w[:, np.newaxis, :]
     vt = v.transpose(0, 2, 1)
     cov = cp.einsum('lij,ljk->lik', vwinv, vt)
-
     # cov = cp.linalg.inv(batch_icov)
+    cp.cuda.nvtx.RangePop()
 
+    cp.cuda.nvtx.RangePush('batch_decorrelate')
     cov_block_diags = cp.empty(
         (nbatches * nspecpad, nwavetot, nwavetot), 
         dtype=batch_icov.dtype
@@ -467,11 +473,12 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
     for i in range(nbatches):
         for j, s in enumerate(range(0, n, nwavetot)):
             Q[i, s:s + nwavetot, s:s + nwavetot] = q[i*nspecpad + j]
-            
+
     s = cp.sum(Q, axis=-1)
     batch_resolution = Q/s[:, cp.newaxis]
     batch_fluxivar = (s**2).reshape(-1, nspecpad, nwavetot)
     batch_flux = cp.einsum('lij,lj->li', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
+    cp.cuda.nvtx.RangePop()
 
     return batch_flux, batch_fluxivar, batch_resolution
 

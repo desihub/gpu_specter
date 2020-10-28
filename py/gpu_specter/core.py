@@ -248,6 +248,8 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             batch_ivar = list()
             batch_A4 = list()
             batch_xyslice = list()
+
+            cp.cuda.nvtx.RangePush('batch_prepare')
             for patch in patches:
                 patchpixels, patchivar, patchA4, xyslice = prepare_patch(
                     image, imageivar, patch.ispec-bspecmin, patch.nspectra_per_patch,
@@ -258,13 +260,17 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 batch_ivar.append(patchivar)
                 batch_A4.append(patchA4)
                 batch_xyslice.append(xyslice)
+            cp.cuda.nvtx.RangePop()
 
             # perform batch extraction
+            cp.cuda.nvtx.RangePush('batch_extraction')
             batch_flux, batch_fluxivar, batch_resolution = batch_extraction(
                 batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=1e-4
             )
+            cp.cuda.nvtx.RangePop()
 
             # finalize patch results
+            cp.cuda.nvtx.RangePush('batch_finalize')
             for i, patch in enumerate(patches):
                 result = finalize_patch(
                     batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
@@ -273,6 +279,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                     patch.nwavestep, patch.wavepad, patch.ndiag, psferr, model=model
                 )
                 results.append( (patches[i], result) )
+            cp.cuda.nvtx.RangePop()
     else:
         patches = [patch for subbundle in subbundles for patch in subbundle]
         for patch in patches[rank::size]:
