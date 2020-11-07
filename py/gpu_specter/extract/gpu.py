@@ -475,7 +475,7 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
             Q[i, s:s + nwavetot, s:s + nwavetot] = q[i*nspecpad + j]
 
     s = cp.sum(Q, axis=-1)
-    batch_resolution = Q/s[:, cp.newaxis]
+    batch_resolution = Q/s[..., cp.newaxis]
     batch_fluxivar = (s**2).reshape(-1, nspecpad, nwavetot)
     batch_flux = cp.einsum('lij,lj->li', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
     cp.cuda.nvtx.RangePop()
