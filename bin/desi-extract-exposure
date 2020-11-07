@@ -44,6 +44,7 @@ parser.add_argument("-v", "--verbose", action="store_true",
     help="print per-rank detailed timing")
 parser.add_argument("--old-format", action="store_true",
     help="use old format for benchmark data filenames")
+parser.add_argument("--model", action="store_true", required=False, help="output 2D pixel model file")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -173,6 +174,10 @@ for camera in group_cameras:
         cmd = cmd + " -w 7520.0,9824.0,0.8"
 
     cmd = cmd + " --gpu-specter --nsubbundles 5"
+
+    if args.model:
+        model_filename = frame_filename.rstrip(".fits") + "-model.fits"
+        cmd = cmd + f" --model {model_filename}"
 
     if args.gpu:
         cmd = cmd + " --gpu"
