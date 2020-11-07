@@ -444,14 +444,17 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
     deconvolved = cp.linalg.solve(batch_icov, batch_y)
     cp.cuda.nvtx.RangePop()
 
-    # invert icov
     cp.cuda.nvtx.RangePush('batch_invert_icov')
+    # invert icov
+    # cov = cp.linalg.inv(batch_icov)
+    cp.cuda.nvtx.RangePush('eigh')
     w, v = cp.linalg.eigh(batch_icov)
+    cp.cuda.nvtx.RangePop()
+
     w = cp.clip(w, a_min=clip_scale*cp.max(w))
     vwinv = v * 1.0/w[:, np.newaxis, :]
     vt = v.transpose(0, 2, 1)
     cov = cp.einsum('lij,ljk->lik', vwinv, vt)
-    # cov = cp.linalg.inv(batch_icov)
     cp.cuda.nvtx.RangePop()
 
     cp.cuda.nvtx.RangePush('batch_decorrelate')
@@ -463,7 +466,9 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
         for j, s in enumerate(range(0, n, nwavetot)):
             cov_block_diags[i*nspecpad + j] = cov[i, s:s + nwavetot, s:s + nwavetot]
 
+    cp.cuda.nvtx.RangePush('eigh')
     ww, vv = cp.linalg.eigh(cov_block_diags)
+    cp.cuda.nvtx.RangePop()
     ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
     vvsqrtwwinv = vv * cp.sqrt(1.0/ww)[:, cp.newaxis, :]
     vvt = vv.transpose(0, 2, 1)
