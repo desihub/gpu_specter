@@ -157,7 +157,7 @@ def assemble_bundle_patches(rankresults):
 
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
-    psferr=None):
+    psferr=None, clip_scale=0):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -265,7 +265,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             # perform batch extraction
             cp.cuda.nvtx.RangePush('batch_extraction')
             batch_flux, batch_fluxivar, batch_resolution = batch_extraction(
-                batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=1e-4
+                batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
             )
             cp.cuda.nvtx.RangePop()
 
@@ -393,7 +393,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None):
+    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None, clip_scale=0):
     """
     Extract 1D spectra from 2D image.
 
@@ -542,6 +542,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             model=model,
             regularize=regularize,
             psferr=psferr,
+            clip_scale=clip_scale,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()

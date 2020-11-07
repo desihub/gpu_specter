@@ -424,7 +424,7 @@ def apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
         
     return icov, y
     
-def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=1e-4):
+def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=0):
 
     nbatches = len(batch_pixels)
 
