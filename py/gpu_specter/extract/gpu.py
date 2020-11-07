@@ -11,6 +11,13 @@ import cupy as cp
 import cupyx.scipy.special
 from numba import cuda
 
+import cupy
+from cupy.cuda import cublas
+from cupy.cuda import cusolver
+from cupy.cuda import device
+from cupy.cusolver import check_availability
+from cupy.linalg import _util
+
 from ..io import native_endian
 from ..util import Timer
 
@@ -423,6 +430,80 @@ def apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
         icov += cp.diag(lambda_squared)
         
     return icov, y
+
+def batch_cho_solve(a, b):
+    """Solve the linear equations A x = b via Cholesky factorization of A, where A
+    is a real symmetric or complex hermitian positive-definite matrix.
+
+    If matrix ``a[i]`` is not positive definite, Cholesky factorization fails and
+    it raises an error.
+
+    Args:
+        a (cupy.ndarray): Array of real symmetric or complex hermitian
+            matrices with dimension (..., N, N).
+        b (cupy.ndarray): right-hand side (..., N).
+    Returns:
+        x (cupy.ndarray): The array of solutions ``x[i]``.
+    """
+    if not check_availability('potrsBatched'):
+        raise RuntimeError('potrsBatched is not available')
+
+    if a.dtype.char == 'f' or a.dtype.char == 'd':
+        dtype = a.dtype.char
+    else:
+        dtype = numpy.promote_types(a.dtype.char, 'f').char
+
+    if dtype == 'f':
+        potrfBatched = cusolver.spotrfBatched
+        potrsBatched = cusolver.spotrsBatched
+    elif dtype == 'd':
+        potrfBatched = cusolver.dpotrfBatched
+        potrsBatched = cusolver.dpotrsBatched
+    elif dtype == 'F':
+        potrfBatched = cusolver.cpotrfBatched
+        potrsBatched = cusolver.cpotrsBatched
+    elif dtype == 'D':
+        potrfBatched = cusolver.zpotrfBatched
+        potrsBatched = cusolver.zpotrsBatched
+    else:
+        msg = ('dtype must be float32, float64, complex64 or complex128'
+               ' (actual: {})'.format(a.dtype))
+        raise ValueError(msg)
+
+    a = a.astype(dtype, order='C', copy=True)
+    ap = cupy.core._mat_ptrs(a)
+    n = a.shape[-1]
+    lda = a.strides[-2] // a.dtype.itemsize
+    handle = device.get_cusolver_handle()
+    uplo = cublas.CUBLAS_FILL_MODE_LOWER
+    batch_size = int(numpy.prod(a.shape[:-2]))
+    dev_info = cupy.empty(batch_size, dtype=numpy.int32)
+
+    # Cholesky factorization
+    potrfBatched(handle, uplo, n, ap.data.ptr, lda, dev_info.data.ptr,
+                 batch_size)
+    cupy.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrfBatched, dev_info)
+
+    # identity_matrix = cupy.eye(n, dtype=dtype)
+    # b = cupy.empty(a.shape, dtype)
+    # b[...] = identity_matrix
+
+    bx = b.reshape(batch_size, n, 1).copy()
+
+    nrhs = bx.shape[-1]
+    ldb = bx.strides[0] // a.dtype.itemsize
+    bp = cupy.core._mat_ptrs(bx)
+    dev_info = cupy.empty(1, dtype=numpy.int32)
+
+    # NOTE: potrsBatched does not currently support nrhs > 1 (CUDA v10.2)
+    # Solve: A[i] * X[i] = B[i]
+    potrsBatched(handle, uplo, n, nrhs, ap.data.ptr, lda, bp.data.ptr, ldb,
+                 dev_info.data.ptr, batch_size)
+    cupy.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrfBatched, dev_info)
+
+    return bx.reshape(batch_size, n)
     
 def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=0):
 
@@ -441,7 +522,9 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
     cp.cuda.nvtx.RangePop()
 
     cp.cuda.nvtx.RangePush('batch_solve')
-    deconvolved = cp.linalg.solve(batch_icov, batch_y)
+    # deconvolved = cp.linalg.solve(batch_icov, batch_y)
+    # Use batch cholesky decomposition solve
+    deconvolved = batch_cho_solve(batch_icov, batch_y)
     cp.cuda.nvtx.RangePop()
 
     cp.cuda.nvtx.RangePush('batch_invert_icov')
