@@ -448,10 +448,16 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             else:
                 #- If only one rank per gpu, don't need bundle level communication
                 bundle_comm = None
+                bundle_rank = 0
         else:
             #- Single gpu, only do MPI communication at bundle level
             frame_comm = None
             bundle_comm = comm
+
+        frame_comm = comm
+        bundle_comm = None
+        bundle_rank = 0
+
     else:
         #- No gpu, do MPI communication at bundle level
         frame_comm = None
@@ -521,6 +527,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     if frame_comm is None:
         bundle_start = 0
         bundle_step = 1
+    elif bundle_comm is None:
+        bundle_start = rank
+        bundle_step = size
     else:
         bundle_start = device_id
         bundle_step = device_count
