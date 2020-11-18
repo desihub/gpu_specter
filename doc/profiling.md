@@ -41,6 +41,10 @@ perf-report srun -n 32 -c 2 bin/spex --mpi -o $SCRATCH/spex_haswell_mpi32_gpu0.f
 
 ### NVIDA NSight Sys
 
+#### Single GPU (No MPI)
+
+**Note the following instructions are out of date**
+
 ```
 cd gpu_specter
 module load python esslurm cuda/10.2.89
@@ -70,3 +74,47 @@ cmd_nsys="nsys profile --sample none --trace cuda,nvtx --stats=true --force-over
 
 time srun -n 1 -c 2 --cpu-bind=cores $cmd_nsys $cmd_spex
 ```
+
+#### Multiple MPI Ranks with Single GPU
+
+The following instructions assume you have a conda env named `profile-gpu-specter` with:
+ * CUDA 11.1 compatible cupy (cupy-cuda111)
+ * mpi4py built with openmpi
+ * installed gpu_specter (`cd gpu_specter && pip install -e .`)
+
+```
+# Request one GPU node with one GPU
+module purge
+module load cgpu
+salloc -C gpu -N 1 -G 1 -c 10 -t 60
+
+# Setup environment
+module load python cuda/11.1.1 openmpi
+source activate profile-gpu-specter
+export OMP_NUM_THREADS=1
+
+# Setup spex command
+OUTDIR=${SCRATCH}
+INDIR=/global/cfs/cdirs/desi/spectro/redux/andes
+NIGHT=20200315
+EXPID=00055672
+CAM=r0
+IMAGE=${INDIR}/preproc/${NIGHT}/${EXPID}/preproc-${CAM}-${EXPID}.fits
+PSF=${INDIR}/exposures/${NIGHT}/${EXPID}/psf-${CAM}-${EXPID}.fits
+FRAME=${OUTDIR}/frame-${CAM}-${EXPID}.fits
+SPEXCMD="spex -i ${IMAGE} -p ${PSF} -o ${FRAME} -w 5760.0,7620.0,0.8 --nsubbundles 5 --gpu-specter --gpu --mpi --nspec 100"
+
+# Setup srun command and mps-wrapper
+NRANKS=2
+NGPU=1
+SRUNCMD="srun -n ${NRANKS} -c 2 --cpu-bind=cores mps-wrapper"
+
+# Setup profile command
+PROFILE=${OUTDIR}/profile-cgpu-n${NRANKS}-g{NGPU}
+NSYSCMD="nsys profile --sample none --trace cuda,nvtx --stats=true --force-overwrite true --output ${PROFILE}"
+
+# Run everything together
+time ${NSYSCMD} ${SRUNCMD} ${SPEXCMD}
+```
+
+To view the profile timeline, copy the profile output file `$PROFILE.qdrep` to your local environment and open the file with `NVIDIA Nsight Systems`.
