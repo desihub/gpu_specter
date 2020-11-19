@@ -73,7 +73,7 @@ Note that you will have to set these vars each time you load the conda environme
 On a gpu node with environment loaded:
 
 ```
-srun python -m unittest --verbose gpu_specter.test.test_suite
+srun -n 1 -c 2 python -m unittest --verbose gpu_specter.test.test_suite
 ```
 
 Tests requiring `specter` are skipped unless the package is installed (see below).
@@ -206,4 +206,23 @@ Remove jupyter kernel:
 jupyter kernelspec uninstall gpu-specter-dev
 ```
 
+## DGX node environment
+
+Very similar to cori gpu instructions, starting with:
+
+```
+module purge
+module load dgx
+salloc -C dgx -N 1 -G 1 -c 16 -t 60
+module load python cuda/11.0.2 gcc openmpi
+
+conda create -n gpu-specter-dev-dgx python=3.8
+source activate gpu-specter-dev-dgx
+```
+
+Then follow all the rest of the cori gpu steps except change the cupy installation command:
+
+```
+pip install cupy-cuda110
+```
 
