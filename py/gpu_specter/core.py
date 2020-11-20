@@ -234,9 +234,6 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             patches.append(patch)
         subbundles.append(patches)
 
-    # if rank == 0:
-    #     log.debug(f'Dividing {len(patches)} patches between {size} ranks')
-
     timer.split('organize patches')
 
     #- place to keep extraction patch results before assembling in rank 0

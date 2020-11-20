@@ -7,16 +7,15 @@ in this branch.
 import math
 
 import numpy as np
+import numpy.polynomial.legendre
+from numba import cuda
 import cupy as cp
 import cupyx.scipy.special
-from numba import cuda
 
-import cupy
-
+from .cpu import get_spec_padding
+from .both import xp_ex2d_patch
 from ..io import native_endian
 from ..util import Timer
-
-import numpy.polynomial.legendre
 
 @cuda.jit
 def _hermevander(x, deg, output_matrix):
@@ -358,8 +357,6 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 
     return A, (xmin, xmax, ymin, ymax)
 
-from .cpu import get_spec_padding
-from .both import xp_ex2d_patch
 
 def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
@@ -416,14 +413,14 @@ def apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
     icov = ATNinv.dot(A)
     y = ATNinv.dot(pixel_values)
     fluxweight = ATNinv.sum(axis=1)
-    
+
     minweight = weight_scale*cp.max(fluxweight)
     ibad = fluxweight <= minweight
     lambda_squared = regularize*regularize*cp.ones_like(y)
     lambda_squared[ibad] = minweight - fluxweight[ibad]
     if np.any(lambda_squared):
         icov += cp.diag(lambda_squared)
-        
+
     return icov, y
 
 def batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weight_scale=1e-4):
@@ -584,12 +581,12 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
 
     return batch_flux, batch_fluxivar, batch_resolution
 
-def finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R, 
+def finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     ispec, nspec, bundlesize, nwave, wavepad, ndiag, psferr, model=None):
 
     specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
 
-    specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave] 
+    specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
     specflux = fx[specslice]
     specivar = ivarfx[specslice]
     Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
