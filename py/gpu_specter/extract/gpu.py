@@ -426,6 +426,22 @@ def apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
         
     return icov, y
 
+def batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weight_scale=1e-4):
+
+    batch_size = len(batch_A4)
+    ny, nx, nspecpad, nwavetot = batch_A4[0].shape
+    nbin = nspecpad * nwavetot
+
+    batch_icov = cp.zeros((batch_size, nbin, nbin))
+    batch_y = cp.zeros((batch_size, nbin))
+    for i, (pix, ivar, A4) in enumerate(zip(batch_pixels, batch_ivar, batch_A4)):
+        # Note that each patch can have a different number of pixels
+        batch_icov[i], batch_y[i] = apply_weights(
+            pix.ravel(), ivar.ravel(), A4.reshape(-1, nbin),
+            regularize=regularize, weight_scale=weight_scale)
+
+    return batch_icov, batch_y
+
 def batch_cholesky_solve(a, b):
     """Solve the linear equations A x = b via Cholesky factorization of A, where A
     is a real symmetric or complex Hermitian positive-definite matrix.
@@ -491,70 +507,80 @@ def batch_cholesky_solve(a, b):
         potrsBatched, dev_info)
 
     return b.conj().reshape(b_shape)
-    
-def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=0):
 
-    nbatches = len(batch_pixels)
+def batch_decorrelate(batch_icov, block_size, clip_scale=0):
 
-    _, _, nspecpad, nwavetot = batch_A4[0].shape
-
-    n = nspecpad * nwavetot
-
-    batch_icov = cp.zeros((nbatches, n, n))
-    batch_y = cp.zeros((nbatches, n))
-
-    cp.cuda.nvtx.RangePush('batch_apply_weights')
-    for i, (pix, ivar, A4) in enumerate(zip(batch_pixels, batch_ivar, batch_A4)):
-        batch_icov[i], batch_y[i] = apply_weights(pix.ravel(), ivar.ravel(), A4.reshape(-1, n), regularize=regularize)
-    cp.cuda.nvtx.RangePop()
-
-    cp.cuda.nvtx.RangePush('batch_solve')
-    # deconvolved = cp.linalg.solve(batch_icov, batch_y)
-    # Use batch cholesky decomposition solve
-    deconvolved = batch_cholesky_solve(batch_icov, batch_y)
-    cp.cuda.nvtx.RangePop()
+    batch_size, n, m = batch_icov.shape
+    nblocks, remainder = divmod(n, block_size)
+    assert n == m
+    assert remainder == 0
 
     cp.cuda.nvtx.RangePush('batch_invert_icov')
     # invert icov
     # cov = cp.linalg.inv(batch_icov)
     cp.cuda.nvtx.RangePush('eigh')
     w, v = cp.linalg.eigh(batch_icov)
-    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePop() # eigh
 
-    w = cp.clip(w, a_min=clip_scale*cp.max(w))
-    vwinv = v * 1.0/w[:, np.newaxis, :]
-    vt = v.transpose(0, 2, 1)
-    cov = cp.einsum('lij,ljk->lik', vwinv, vt)
-    # cov = cp.einsum('...ik,...k,...jk->...ij', v, 1.0/w, v)
-    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePush('compose')
+    if clip_scale > 0:
+        w = cp.clip(w, a_min=clip_scale*cp.max(w))
+    cov = cp.einsum('...ik,...k,...jk->...ij', v, 1.0/w, v)
+    cp.cuda.nvtx.RangePop() # compose
+    cp.cuda.nvtx.RangePop() # batch_invert_icov
 
-    cp.cuda.nvtx.RangePush('batch_decorrelate')
+    cp.cuda.nvtx.RangePush('extract_blocks')
     cov_block_diags = cp.empty(
-        (nbatches * nspecpad, nwavetot, nwavetot), 
+        (batch_size * nblocks, block_size, block_size),
         dtype=batch_icov.dtype
     )
-    for i in range(nbatches):
-        for j, s in enumerate(range(0, n, nwavetot)):
-            cov_block_diags[i*nspecpad + j] = cov[i, s:s + nwavetot, s:s + nwavetot]
+    for i in range(batch_size):
+        for j, s in enumerate(range(0, n, block_size)):
+            cov_block_diags[i*nblocks + j] = cov[i, s:s + block_size, s:s + block_size]
+    cp.cuda.nvtx.RangePop() # extract_blocks
 
     cp.cuda.nvtx.RangePush('eigh')
     ww, vv = cp.linalg.eigh(cov_block_diags)
-    cp.cuda.nvtx.RangePop()
-    ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
-    vvsqrtwwinv = vv * cp.sqrt(1.0/ww)[:, cp.newaxis, :]
-    vvt = vv.transpose(0, 2, 1)
-    q = cp.einsum('lij,ljk->lik', vvsqrtwwinv, vvt)
+    cp.cuda.nvtx.RangePop() # eigh
+    cp.cuda.nvtx.RangePush('compose')
+    if clip_scale > 0:
+        ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
+    q = cp.einsum('...ik,...k,...jk->...ij', vv, cp.sqrt(1.0/ww), vv)
+    cp.cuda.nvtx.RangePop() # compose
 
+    cp.cuda.nvtx.RangePush('replace_blocks')
     Q = cp.zeros_like(batch_icov)
-    for i in range(nbatches):
-        for j, s in enumerate(range(0, n, nwavetot)):
-            Q[i, s:s + nwavetot, s:s + nwavetot] = q[i*nspecpad + j]
+    for i in range(batch_size):
+        for j, s in enumerate(range(0, n, block_size)):
+            Q[i, s:s + block_size, s:s + block_size] = q[i*nblocks + j]
+    cp.cuda.nvtx.RangePop() # replace_blocks
 
-    s = cp.sum(Q, axis=-1)
-    batch_resolution = Q/s[..., cp.newaxis]
+    return Q
+
+def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scale=0):
+
+    batch_size = len(batch_A4)
+    ny, nx, nspecpad, nwavetot = batch_A4[0].shape
+
+    cp.cuda.nvtx.RangePush('apply_weights')
+    batch_icov, batch_y = batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=regularize)
+    cp.cuda.nvtx.RangePop() # apply_weights
+
+    cp.cuda.nvtx.RangePush('deconvolve')
+    deconvolved = batch_cholesky_solve(batch_icov, batch_y)
+    cp.cuda.nvtx.RangePop() # deconvolve
+
+    cp.cuda.nvtx.RangePush('decorrelate')
+    batch_Q = batch_decorrelate(batch_icov, nwavetot, clip_scale=clip_scale)
+
+    cp.cuda.nvtx.RangePush('apply_resolution')
+    s = cp.sum(batch_Q, axis=-1)
+    batch_resolution = batch_Q/s[..., cp.newaxis]
     batch_fluxivar = (s**2).reshape(-1, nspecpad, nwavetot)
     batch_flux = cp.einsum('lij,lj->li', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
-    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePop() # apply_resolution
+
+    cp.cuda.nvtx.RangePop() # decorrelate
 
     return batch_flux, batch_fluxivar, batch_resolution
 
