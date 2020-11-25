@@ -505,6 +505,8 @@ def batch_cholesky_solve(a, b):
 
     return b.conj().reshape(b_shape)
 
+import cupyx
+
 def batch_decorrelate(batch_icov, block_size, clip_scale=0):
 
     batch_size, n, m = batch_icov.shape
@@ -518,6 +520,7 @@ def batch_decorrelate(batch_icov, block_size, clip_scale=0):
     cp.cuda.nvtx.RangePush('eigh')
     w, v = cp.linalg.eigh(batch_icov)
     cp.cuda.nvtx.RangePop() # eigh
+
 
     cp.cuda.nvtx.RangePush('compose')
     if clip_scale > 0:
@@ -542,7 +545,7 @@ def batch_decorrelate(batch_icov, block_size, clip_scale=0):
     cp.cuda.nvtx.RangePush('compose')
     if clip_scale > 0:
         ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
-    q = cp.einsum('...ik,...k,...jk->...ij', vv, cp.sqrt(1.0/ww), vv)
+    q = cp.einsum('...ik,...k,...jk->...ij', vv, cupyx.rsqrt(ww), vv)
     cp.cuda.nvtx.RangePop() # compose
 
     cp.cuda.nvtx.RangePush('replace_blocks')
@@ -571,10 +574,10 @@ def batch_extraction(batch_pixels, batch_ivar, batch_A4, regularize=0, clip_scal
     batch_Q = batch_decorrelate(batch_icov, nwavetot, clip_scale=clip_scale)
 
     cp.cuda.nvtx.RangePush('apply_resolution')
-    s = cp.sum(batch_Q, axis=-1)
+    s = cp.einsum('...ij->...i', batch_Q)
     batch_resolution = batch_Q/s[..., cp.newaxis]
-    batch_fluxivar = (s**2).reshape(-1, nspecpad, nwavetot)
-    batch_flux = cp.einsum('lij,lj->li', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
+    batch_fluxivar = (s*s).reshape(-1, nspecpad, nwavetot)
+    batch_flux = cp.einsum('...ij,...j->...i', batch_resolution, deconvolved).reshape(-1, nspecpad, nwavetot)
     cp.cuda.nvtx.RangePop() # apply_resolution
 
     cp.cuda.nvtx.RangePop() # decorrelate
