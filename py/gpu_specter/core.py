@@ -155,7 +155,7 @@ def assemble_bundle_patches(rankresults):
     return specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice
 
 
-def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
+def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1, batch_subbundle=False,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
     psferr=None, clip_scale=0):
     """
@@ -239,7 +239,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
 
-    if gpu:
+    if gpu and batch_subbundle:
         for patches in subbundles[rank::size]:
             batch_pixels = list()
             batch_ivar = list()
@@ -389,6 +389,62 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     return bundle
 
 
+def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
+
+    if comm is None:
+        rank, size = 0, 1
+    else:
+        rank, size = comm.rank, comm.size
+
+    #- Determine MPI communication strategy based on number of GPU devices and MPI ranks
+    if gpu:
+        import cupy as cp
+        #- Map MPI ranks to GPU devices
+        device_count = cp.cuda.runtime.getDeviceCount()
+        #- Ignore excess GPU devices
+        device_count = min(size, device_count)
+        device_size, remainder = divmod(size, device_count)
+        assert remainder == 0, 'Number of MPI ranks must be divisible by number of GPUs'
+
+        device_id = rank // device_size
+        cp.cuda.Device(device_id).use()
+
+        #- Map ranks to bundles
+        if ranks_per_bundle is None:
+            bundle_size = device_size
+        else:
+            bundle_size = ranks_per_bundle
+
+        bundle_start, bundle_rank = divmod(rank, bundle_size)
+        bundle_step = (size - 1) // bundle_size + 1
+
+        if bundle_step > 1:
+            #- MPI communication needs to happen at frame level to process bundles in parallel.
+            if bundle_size > 1:
+                #- Also need to communicate at bundle level
+                frame_comm = comm.Split(color=bundle_rank, key=bundle_start)
+                bundle_comm = comm.Split(color=bundle_start, key=bundle_rank)
+            else:
+                #- Don't need bundle level communication
+                frame_comm = comm
+                bundle_comm = None
+        else:
+            #- Single gpu, only do MPI communication at bundle level
+            frame_comm = None
+            bundle_comm = comm
+
+    else:
+        #- No gpu, do MPI communication at bundle level
+        frame_comm = None
+        bundle_comm = comm
+        bundle_start = 0
+        bundle_rank = 0
+        bundle_step = 1
+        device_id = None
+
+    return frame_comm, bundle_comm, bundle_start, bundle_step
+
+
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None, clip_scale=0):
     """
@@ -420,45 +476,13 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
-    #- Determine MPI communication strategy based on number of gpu devices and MPI ranks
     if gpu:
-        import cupy as cp
-        #- TODO: specify number of gpus to use?
-        device_count = cp.cuda.runtime.getDeviceCount()
-        device_count = min(size, device_count)
-        assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
-        device_id = rank % device_count
-        cp.cuda.Device(device_id).use()
-
-        log.debug(f'rank {rank} using device {device_id}')
-
-        #- Divide mpi ranks evenly among gpus
-        device_size = size // device_count
-        bundle_rank = rank // device_count
-
-        if device_count > 1:
-            #- Multi gpu, MPI communication needs to happen at frame level
-            frame_comm = comm.Split(color=bundle_rank, key=device_id)
-            if device_size > 1:
-                #- If multiple ranks per gpu, also need to communicate at bundle level
-                bundle_comm = comm.Split(color=device_id, key=bundle_rank)
-            else:
-                #- If only one rank per gpu, don't need bundle level communication
-                bundle_comm = None
-                bundle_rank = 0
-        else:
-            #- Single gpu, only do MPI communication at bundle level
-            frame_comm = None
-            bundle_comm = comm
-
-        frame_comm = comm
-        bundle_comm = None
-        bundle_rank = 0
-
+        ranks_per_bundle = 1
+        batch_subbundle = True
     else:
-        #- No gpu, do MPI communication at bundle level
-        frame_comm = None
-        bundle_comm = comm
+        ranks_per_bundle = None
+        batch_subbundle = False
+    frame_comm, bundle_comm, bundle_start, bundle_step = decompose_comm(comm, gpu, ranks_per_bundle)
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
@@ -520,16 +544,6 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     
     #- TODO: barycentric wavelength corrections
 
-    #- Work bundle by bundle
-    if frame_comm is None:
-        bundle_start = 0
-        bundle_step = 1
-    elif bundle_comm is None:
-        bundle_start = rank
-        bundle_step = size
-    else:
-        bundle_start = device_id
-        bundle_step = device_count
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
     for bspecmin in bspecmins[bundle_start::bundle_step]:
@@ -541,6 +555,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             imgpixels, imgivar, psf,
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
+            batch_subbundle=batch_subbundle,
             nwavestep=nwavestep, wavepad=wavepad,
             comm=bundle_comm,
             gpu=gpu,
@@ -563,7 +578,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     if frame_comm is not None:
         # gather results from multiple mpi groups
-        if bundle_rank == 0:
+        if bundle_comm is None or bundle_comm.rank == 0:
             bspecmins, bundles = zip(*bundles)
             flux, ivar, resolution, pixmask_fraction, chi2pix, modelimage, xyslice = zip(*bundles)
             bspecmins = frame_comm.gather(bspecmins, root=0)
