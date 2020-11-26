@@ -390,6 +390,22 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
 
 def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
+    """Decomposes MPI communicator into frame and bundle communicators depending on
+    size of communicator, number of GPU devices (if requested), and (optionally) the
+    specified number of ranks per bundle.
+
+    Options:
+        comm (None, mpi4py.MPI.Intracomm): mpi communicator
+        gpu (bool): whether or not to assign ranks to GPUs
+        ranks_per_bundle (None, int): number of mpi ranks per bundle
+
+    Returns:
+        bundle_comm (None, mpi4py.MPI.Intracomm): bundle-level mpi communicator
+        frame_comm (None, mpi4py.MPI.Intracomm): frame-level mpi communicator
+        frame_rank (int): the rank with the frame-level communicator
+        frame_size (int): the size of root frame-level communicator
+    """
+
 
     if comm is None:
         rank, size = 0, 1
@@ -403,46 +419,43 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
         device_count = cp.cuda.runtime.getDeviceCount()
         #- Ignore excess GPU devices
         device_count = min(size, device_count)
-        device_size, remainder = divmod(size, device_count)
+        ranks_per_device, remainder = divmod(size, device_count)
         assert remainder == 0, 'Number of MPI ranks must be divisible by number of GPUs'
 
-        device_id = rank // device_size
+        device_id = rank // ranks_per_device
         cp.cuda.Device(device_id).use()
 
-        #- Map ranks to bundles
-        if ranks_per_bundle is None:
-            bundle_size = device_size
-        else:
-            bundle_size = ranks_per_bundle
-
-        bundle_start, bundle_rank = divmod(rank, bundle_size)
-        bundle_step = (size - 1) // bundle_size + 1
-
-        if bundle_step > 1:
-            #- MPI communication needs to happen at frame level to process bundles in parallel.
-            if bundle_size > 1:
-                #- Also need to communicate at bundle level
-                frame_comm = comm.Split(color=bundle_rank, key=bundle_start)
-                bundle_comm = comm.Split(color=bundle_start, key=bundle_rank)
-            else:
-                #- Don't need bundle level communication
-                frame_comm = comm
-                bundle_comm = None
-        else:
-            #- Single gpu, only do MPI communication at bundle level
-            frame_comm = None
-            bundle_comm = comm
-
+        default_ranks_per_bundle = ranks_per_device
     else:
-        #- No gpu, do MPI communication at bundle level
+        default_ranks_per_bundle = size
+
+    #- Map ranks to bundles
+    if ranks_per_bundle is None:
+        ranks_per_bundle = default_ranks_per_bundle
+
+    frame_rank, bundle_rank = divmod(rank, ranks_per_bundle)
+    frame_size = (size - 1) // ranks_per_bundle + 1
+
+    if bundle_step > 1:
+        #- MPI communication needs to happen at frame level
+        #- Bundles are processed in parallel
+        if ranks_per_bundle > 1:
+            #- Also need to communicate at bundle level
+            #- Patches/subbundles are processed in parallel
+            frame_comm = comm.Split(color=bundle_rank, key=frame_rank)
+            bundle_comm = comm.Split(color=frame_rank, key=bundle_rank)
+        else:
+            #- Only do MPI communication at frame level
+            #- Patches/subbundles are processed serially within each MPI rank
+            frame_comm = comm
+            bundle_comm = None
+    else:
+        #- MPI communication only happens at bundle level
+        #- Bundles are processed serially
         frame_comm = None
         bundle_comm = comm
-        bundle_start = 0
-        bundle_rank = 0
-        bundle_step = 1
-        device_id = None
 
-    return frame_comm, bundle_comm, bundle_start, bundle_step
+    return bundle_comm, frame_comm, frame_rank, frame_size
 
 
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
@@ -464,7 +477,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         comm: mpi communicator (no mpi: None)
         rank: integer process identifier (no mpi: 0)
         size: number of mpi processes (no mpi: 1)
-        gpu: use GPU for extraction (not yet implemented)
+        gpu: use GPU for extraction
         loglevel: log print level
 
     Returns:
@@ -482,7 +495,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         ranks_per_bundle = None
         batch_subbundle = False
-    frame_comm, bundle_comm, bundle_start, bundle_step = decompose_comm(comm, gpu, ranks_per_bundle)
+    bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
@@ -546,7 +559,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
-    for bspecmin in bspecmins[bundle_start::bundle_step]:
+    for bspecmin in bspecmins[frame_rank::frame_size]:
         # log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         # sys.stdout.flush()
         if gpu:
