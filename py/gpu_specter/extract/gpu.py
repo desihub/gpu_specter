@@ -10,6 +10,7 @@ import numpy as np
 import numpy.polynomial.legendre
 from numba import cuda
 import cupy as cp
+import cupyx
 import cupyx.scipy.special
 
 from .cpu import get_spec_padding
@@ -505,7 +506,6 @@ def batch_cholesky_solve(a, b):
 
     return b.conj().reshape(b_shape)
 
-import cupyx
 
 def batch_decorrelate(batch_icov, block_size, clip_scale=0):
 
@@ -523,6 +523,7 @@ def batch_decorrelate(batch_icov, block_size, clip_scale=0):
 
 
     cp.cuda.nvtx.RangePush('compose')
+    
     if clip_scale > 0:
         w = cp.clip(w, a_min=clip_scale*cp.max(w))
     cov = cp.einsum('...ik,...k,...jk->...ij', v, 1.0/w, v)
