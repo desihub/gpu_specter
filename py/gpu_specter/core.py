@@ -436,7 +436,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
     frame_rank, bundle_rank = divmod(rank, ranks_per_bundle)
     frame_size = (size - 1) // ranks_per_bundle + 1
 
-    if bundle_step > 1:
+    if frame_size > 1:
         #- MPI communication needs to happen at frame level
         #- Bundles are processed in parallel
         if ranks_per_bundle > 1:
@@ -489,12 +489,17 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
+    #- For now, force batch subbundle for GPU extraction and 1 rank per bundle
+    #- Eventually, add options to configure this and figure out desired default behavior
     if gpu:
-        ranks_per_bundle = 1
         batch_subbundle = True
+        ranks_per_bundle = 1
+        assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
+        assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
     else:
-        ranks_per_bundle = None
         batch_subbundle = False
+        ranks_per_bundle = None
+
     bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
 
     timer.split('init-mpi-comm')
