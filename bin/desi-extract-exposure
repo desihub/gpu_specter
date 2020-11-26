@@ -48,6 +48,8 @@ parser.add_argument("--model", action="store_true", required=False,
     help="output 2D pixel model file")
 parser.add_argument("--nwavestep", type=int, default=30,
     help="patch size parameter")
+parser.add_argument("--barycentric-correction", action="store_true",
+    help="apply barycentric correction to wavelength")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -179,6 +181,9 @@ for camera in group_cameras:
     cmd = cmd + " --gpu-specter --nsubbundles 5"
 
     cmd = cmd + f" --nwavestep {args.nwavestep}"
+
+    if args.barycentric_correction:
+        cmd += " --barycentric-correction"
 
     if args.model:
         model_filename = frame_filename.rstrip(".fits") + "-model.fits"
