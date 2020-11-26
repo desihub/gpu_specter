@@ -198,7 +198,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- Extracting on CPU or GPU?
     if gpu:
         from gpu_specter.extract.gpu import \
-                get_spots, ex2d_padded, prepare_patch, batch_extraction, finalize_patch
+                get_spots, ex2d_padded, ex2d_subbundle
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, ex2d_padded
@@ -240,43 +240,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     results = list()
 
     if gpu and batch_subbundle:
-        for patches in subbundles[rank::size]:
-            batch_pixels = list()
-            batch_ivar = list()
-            batch_A4 = list()
-            batch_xyslice = list()
-
-            cp.cuda.nvtx.RangePush('batch_prepare')
-            for patch in patches:
-                patchpixels, patchivar, patchA4, xyslice = prepare_patch(
-                    image, imageivar, patch.ispec-bspecmin, patch.nspectra_per_patch,
-                    patch.iwave, patch.nwavestep, spots, corners, wavepad=patch.wavepad, bundlesize=bundlesize,
-                )
-                patch.xyslice = xyslice
-                batch_pixels.append(patchpixels)
-                batch_ivar.append(patchivar)
-                batch_A4.append(patchA4)
-                batch_xyslice.append(xyslice)
-            cp.cuda.nvtx.RangePop()
-
-            # perform batch extraction
-            cp.cuda.nvtx.RangePush('batch_extraction')
-            batch_flux, batch_fluxivar, batch_resolution = batch_extraction(
-                batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
+        for subbundle in subbundles[rank::size]:
+            result = ex2d_subbundle(
+                image, imageivar, subbundle, spots, corners,
+                bundlesize, regularize, clip_scale,
+                psferr, model
             )
-            cp.cuda.nvtx.RangePop()
-
-            # finalize patch results
-            cp.cuda.nvtx.RangePush('batch_finalize')
-            for i, patch in enumerate(patches):
-                result = finalize_patch(
-                    batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
-                    batch_flux[i], batch_fluxivar[i], batch_resolution[i],
-                    patch.ispec-bspecmin, patch.nspectra_per_patch, bundlesize,
-                    patch.nwavestep, patch.wavepad, patch.ndiag, psferr, model=model
-                )
-                results.append( (patches[i], result) )
-            cp.cuda.nvtx.RangePop()
+            results += result
     else:
         patches = [patch for subbundle in subbundles for patch in subbundle]
         for patch in patches[rank::size]:
@@ -303,14 +273,14 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             pixmask_fraction = []
             chi2pix = []
             modelimage = []
-            for patch, results in results:
+            for patch, result in results:
                 patches.append(patch)
-                flux.append(results['flux'])
-                fluxivar.append(results['ivar'])
-                resolution.append(results['Rdiags'])
-                pixmask_fraction.append(results['pixmask_fraction'])
-                chi2pix.append(results['chi2pix'])
-                modelimage.append(cp.asnumpy(results['modelimage']))
+                flux.append(result['flux'])
+                fluxivar.append(result['ivar'])
+                resolution.append(result['Rdiags'])
+                pixmask_fraction.append(result['pixmask_fraction'])
+                chi2pix.append(result['chi2pix'])
+                modelimage.append(cp.asnumpy(result['modelimage']))
 
             # transfer to host in chunks
             cp.cuda.nvtx.RangePush('copy bundle results to host')

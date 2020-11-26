@@ -638,6 +638,62 @@ def finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
 
     return result
 
+def ex2d_subbundle(image, imageivar, patches, spots, corners, bundlesize, regularize, clip_scale, psferr, model):
+    """Extract an entire subbundle of patches. The patches' output shape (nspec, nwave) must be aligned.
+
+    Args:
+        image: full image (not trimmed to a particular xy range)
+        imageivar: image inverse variance (same dimensions as image)
+        patches: list contain gpu_specter.core.Patch objects for extraction
+        spots: array[nspec, nwave, ny, nx] pre-evaluated PSF spots
+        corners: tuple of arrays xcorners[nspec, nwave], ycorners[nspec, nwave]
+        bundlesize: size of fiber bundles
+        clip_scale: scale factor to use when clipping eigenvalues
+        psferr: value of error to assume in psf model
+        model: compute image pixel model using extracted flux
+
+    Returns:
+        results: list of (patch, result) tuples
+    """
+    batch_pixels = list()
+    batch_ivar = list()
+    batch_A4 = list()
+    batch_xyslice = list()
+
+    cp.cuda.nvtx.RangePush('batch_prepare')
+    for patch in patches:
+        patchpixels, patchivar, patchA4, xyslice = prepare_patch(
+            image, imageivar, patch.ispec-patch.bspecmin, patch.nspectra_per_patch,
+            patch.iwave, patch.nwavestep, spots, corners, wavepad=patch.wavepad, bundlesize=bundlesize,
+        )
+        patch.xyslice = xyslice
+        batch_pixels.append(patchpixels)
+        batch_ivar.append(patchivar)
+        batch_A4.append(patchA4)
+        batch_xyslice.append(xyslice)
+    cp.cuda.nvtx.RangePop()
+
+    # perform batch extraction
+    cp.cuda.nvtx.RangePush('batch_extraction')
+    batch_flux, batch_fluxivar, batch_resolution = batch_extraction(
+        batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
+    )
+    cp.cuda.nvtx.RangePop()
+
+    # finalize patch results
+    cp.cuda.nvtx.RangePush('batch_finalize')
+    results = list()
+    for i, patch in enumerate(patches):
+        result = finalize_patch(
+            batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
+            batch_flux[i], batch_fluxivar[i], batch_resolution[i],
+            patch.ispec-patch.bspecmin, patch.nspectra_per_patch, bundlesize,
+            patch.nwavestep, patch.wavepad, patch.ndiag, psferr, model=model
+        )
+        results.append( (patches[i], result) )
+    cp.cuda.nvtx.RangePop()
+
+    return results
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
                 wavepad, bundlesize=25, model=None, regularize=0):
