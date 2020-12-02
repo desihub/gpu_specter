@@ -534,6 +534,8 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
 
 
 def _prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, wavepad, bundlesize):
+    """This is essentially the preamble of gpu_specter.extract.gpu.ex2d_padded
+    """
     specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
     nwavetot = nwave+2*wavepad
     A4, xyrange = projection_matrix(specmin, nspecpad, iwave-wavepad, nwave+2*wavepad, spots, corners)
@@ -559,6 +561,10 @@ def _prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners,
     return patchpixels, patchivar, A4, xyslice
 
 def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
+    """This is essentially the preamble of of gpu_specter.extract.both.xp_deconvolve
+
+    The outputs of this will be uniform shape for a subbundle.
+    """
     ATNinv = A.T * pixel_ivar
     icov = ATNinv.dot(A)
     y = ATNinv.dot(pixel_values)
@@ -574,6 +580,8 @@ def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4)
     return icov, y
 
 def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weight_scale=1e-4):
+    """Turns a list of subbundle patch inputs into batch arrays of unifom shape
+    """
 
     batch_size = len(batch_A4)
     ny, nx, nspecpad, nwavetot = batch_A4[0].shape
@@ -656,6 +664,7 @@ def _batch_cholesky_solve(a, b):
     return b.conj().reshape(b_shape)
 
 def _batch_decorrelate_noise(icov):
+    """Batch version of simple decorrelation method"""
     cp.cuda.nvtx.RangePush('batch_sqrt_icov')
     cp.cuda.nvtx.RangePush('eigh')
     w, v = xp.linalg.eigh(iCov)
@@ -668,6 +677,7 @@ def _batch_decorrelate_noise(icov):
 
 
 def _batch_decorrelate(icov, block_size, clip_scale=0):
+    """Batch version of sophisticated decorrelation method"""
 
     batch_size, n, m = icov.shape
     nblocks, remainder = divmod(n, block_size)
@@ -719,6 +729,7 @@ def _batch_decorrelate(icov, block_size, clip_scale=0):
 
 
 def _batch_apply_resolution(deconvolved, Q):
+    """Compute and apply resolution to deconvolved flux"""
     s = cp.einsum('...ij->...i', Q)
     resolution = Q/s[..., cp.newaxis]
     fluxivar = s*s
@@ -752,6 +763,8 @@ def _batch_extraction(pixel_values, pixel_ivar, A4, regularize=0, clip_scale=0):
 
 def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     ispec, nspec, bundlesize, nwave, wavepad, ndiag, psferr, model=None):
+    """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded.
+    """
 
     specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
 
