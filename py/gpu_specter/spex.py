@@ -1,17 +1,13 @@
-#!/usr/bin/env python
-
-"""
-Experimental rewrite of desi_extract_spectra + specter
-"""
-
 import argparse
-from pkg_resources import resource_filename
 
 import numpy as np
+import cupy as cp
 
 from gpu_specter.util import get_logger, Timer
 from gpu_specter.io import read_img, read_psf, write_frame, write_model
 from gpu_specter.core import extract_frame
+
+__all__ = ["parse", "main_gpu_specter"]
 
 def parse(options=None):
     parser = argparse.ArgumentParser(description="Extract spectra from pre-processed raw data.",
@@ -91,7 +87,7 @@ def check_input_options(args):
 
     return True, 'OK'
 
-def main(args=None):
+def main_gpu_specter(args=None, comm=None, timing=None):
 
     timer = Timer()
 
@@ -107,7 +103,9 @@ def main(args=None):
         raise ValueError(message)
     
     #- Load MPI only if requested
-    if args.mpi:
+    if comm is not None:
+        rank, size = comm.rank, comm.size
+    elif args.mpi:
         from mpi4py import MPI
         comm = MPI.COMM_WORLD
         rank, size = comm.rank, comm.size
@@ -115,63 +113,65 @@ def main(args=None):
         comm = None
         rank, size = 0, 1
 
-    #- For debugging convenience, default input image and psf
-    if args.input is None:
-        args.input = resource_filename('gpu_specter',
-                                       'test/data/preproc-r0-00051060.fits.gz')
-        if rank == 0:
-            log.warning(f'Using default test input image {args.input}')
-
-    if args.psf is None:
-        args.psf = resource_filename('gpu_specter',
-                                     'test/data/psf-r0-00051060.fits')
-        if rank == 0:
-            log.warning(f'Using default test input PSF {args.psf}')
-
     timer.split('init')
 
     #- Load inputs
-    img = psf = None
-    if rank == 0:
+    def read_data():
+        cp.cuda.nvtx.RangePush('read_data')
         log.info('Loading inputs')
-        img = read_img(args.input)
+        img = read_img(args.input, move_to_device=True)
         psf = read_psf(args.psf)
+        cp.cuda.nvtx.RangePop() # read_data
+        return img, psf
+
+    data = comm.read(read_data, (None, None))
+    img, psf = data
 
     timer.split('load')
 
-    #- Perform extraction
-    frame = extract_frame(
-        img, psf, args.bundlesize,         # input data
-        args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
-        args.wavelength,                   # wavelength range to extract
-        args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
-        args.model,
-        args.regularize,
-        args.psferr,
-        comm,                              # mpi parameters
-        args.gpu,                          # gpu parameters
-        args.loglevel,                     # log
-    )
+    frame = None
+    if comm.is_extract_rank():
+
+        #- Perform extraction
+        frame = extract_frame(
+            img, psf, args.bundlesize,         # input data
+            args.specmin, args.nspec,          # spectra to extract (specmin, specmin + nspec)
+            args.wavelength,                   # wavelength range to extract
+            args.nwavestep, args.nsubbundles,  # extraction algorithm parameters
+            args.model,
+            args.regularize,
+            args.psferr,
+            comm.extract_comm,                 # mpi parameters
+            args.gpu,                          # gpu parameters
+            args.loglevel,                     # log
+        )
+
+        if comm.extract_comm.rank == 0:
+            frame['imagehdr'] = img['imagehdr']
+            frame['fibermap'] = img['fibermap']
+            frame['fibermaphdr'] = img['fibermaphdr']
+    else:
+        # READ_RANK / WRITE_RANK
+        pass
 
     timer.split('extract')
 
     #- Write output
-    if rank == 0:
+    def write_data(frame):
+        cp.cuda.nvtx.RangePush('write_data')
         if args.output is not None:
-            frame['imagehdr'] = img['imagehdr']
-            frame['fibermap'] = img['fibermap']
-            frame['fibermaphdr'] = img['fibermaphdr']
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
 
         if args.model is not None:
             log.info(f'Writing model {args.model}')
             write_model(args.model, frame)
+        
+        cp.cuda.nvtx.RangePop() # write_data
+
+    comm.write(write_data, frame)
 
     #- Print timing summary
-    if rank == 0:
-        timer.split('write')
+    timer.split('write')
+    if comm.rank == comm.EXTRACT_ROOT:
         timer.log_splits(log)
-
-if __name__ == '__main__':
-    main()

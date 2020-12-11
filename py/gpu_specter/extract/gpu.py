@@ -10,6 +10,7 @@ import numpy as np
 import numpy.polynomial.legendre
 from numba import cuda
 import cupy as cp
+import cupy.prof
 import cupyx
 import cupyx.scipy.special
 
@@ -30,6 +31,7 @@ def _hermevander(x, deg, output_matrix):
             for k in range(2, deg + 1):
                 output_matrix[i][j][k] = output_matrix[i][j][k-1]*x[i][j] - output_matrix[i][j][k-2]*(k-1)
 
+@cupy.prof.TimeRangeDecorator("hermevander")
 def hermevander(x, deg):
     """Temprorary wrapper that allocates memory and calls hermevander_gpu
     """
@@ -51,6 +53,7 @@ def _legvander(x, deg, output_matrix):
         for j in range(2, deg + 1):
             output_matrix[i][j] = (output_matrix[i][j-1]*x[i]*(2*j - 1) - output_matrix[i][j-2]*(j - 1)) / j
 
+@cupy.prof.TimeRangeDecorator("legvander")
 def legvander(x, deg):
     """Temporary wrapper that allocates memory and defines grid before calling legvander.
     Probably won't be needed once cupy has the correpsponding legvander function.
@@ -64,6 +67,7 @@ def legvander(x, deg):
     _legvander[numblocks, blocksize](x, deg, output)
     return output
 
+@cupy.prof.TimeRangeDecorator("evalcoeffs")
 def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     '''
     evaluate PSF coefficients parameterized as Legendre polynomials
@@ -135,6 +139,7 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
 
     return p
 
+@cupy.prof.TimeRangeDecorator("calc_pgh")
 def calc_pgh(ispec, wavelengths, psfparams):
     '''
     Calculate the pixelated Gauss Hermite for all wavelengths of a single spectrum
@@ -210,7 +215,6 @@ def calc_pgh(ispec, wavelengths, psfparams):
     
     return pGHx, pGHy
 
-
 @cuda.jit()
 def _multispot(pGHx, pGHy, ghc, spots):
     nx = pGHx.shape[-1]
@@ -234,6 +238,7 @@ def _multispot(pGHx, pGHy, ghc, spots):
                     for ix in range(len(px)):
                         spots[iwave, iy, ix] += c * py[iy] * px[ix]
 
+@cupy.prof.TimeRangeDecorator("multispot")
 def multispot(pGHx, pGHy, ghc):
     nx = pGHx.shape[-1]
     ny = pGHy.shape[-1]
@@ -244,7 +249,7 @@ def multispot(pGHx, pGHy, ghc):
     _multispot[numblocks, blocksize](pGHx, pGHy, ghc, spots)
     return spots
 
-
+@cupy.prof.TimeRangeDecorator("get_spots")
 def get_spots(specmin, nspec, wavelengths, psfdata):
     '''Calculate PSF spots for the specified spectra and wavelengths
 
@@ -268,6 +273,11 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
         spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
 
+        # spots[ispec] = cp.einsum('lmk,mkj,lki->kji',
+        #     p['GH'][:,:,ispec,:], pGHy, pGHx, optimize='greedy')
+
+    # spots = cp.einsum('lmnk,mkj,lki->nkji', p['GH'], pGHy, pGHx, optimize='greedy')
+
     #- ensure positivity and normalize
     #- TODO: should this be within multispot itself?
     spots = spots.clip(0.0)
@@ -282,7 +292,6 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     corners = (xc, yc)
 
     return spots, corners
-
 
 @cuda.jit()
 def _cuda_projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, spots):
@@ -301,6 +310,7 @@ def _cuda_projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, s
                 temp_spot = spots[ispec+i, iwave+j][iy, ix]
                 A[y, x, i, j] += temp_spot
 
+@cupy.prof.TimeRangeDecorator("get_xyrange")
 def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     """
     Find xy ranges that these spectra cover
@@ -319,9 +329,8 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     """
     ny, nx = spots.shape[2:4]
 
-    # Note: transfer corners back to host
-    xc = corners[0][ispec:ispec+nspec, iwave:iwave+nwave].get()
-    yc = corners[1][ispec:ispec+nspec, iwave:iwave+nwave].get()
+    xc = corners[0][ispec:ispec+nspec, iwave:iwave+nwave]
+    yc = corners[1][ispec:ispec+nspec, iwave:iwave+nwave]
 
     xmin = np.min(xc)
     xmax = np.max(xc) + nx
@@ -330,7 +339,8 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
 
     return xmin, xmax, ymin, ymax
 
-def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
+@cupy.prof.TimeRangeDecorator("projection_matrix")
+def projection_matrix(ispec, nspec, iwave, nwave, spots, corners, corners_cpu):
     '''
     Create the projection matrix A for p = Af
 
@@ -345,7 +355,7 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     Returns (A[iy, ix, ispec, iwave], (xmin, xmax, ymin, ymax))
     '''
     xc, yc = corners
-    xmin, xmax, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwave, spots, corners)
+    xmin, xmax, ymin, ymax = get_xyrange(ispec, nspec, iwave, nwave, spots, corners_cpu)
     A = cp.zeros((ymax-ymin,xmax-xmin,nspec,nwave), dtype=np.float64)
 
     threads_per_block = (16, 16)
@@ -358,8 +368,19 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 
     return A, (xmin, xmax, ymin, ymax)
 
+@cp.memoize()
+def _rdiags_mask(ndiag, nspecpad, nwave, wavepad):
+    nwavetot = 2*wavepad + nwave
+    n = nspecpad*nwavetot
+    ii = cp.c_[cp.arange(n)]
+    # select elements near diagonal
+    mask = cp.abs(ii + -ii.T) <= ndiag
+    # select elements in core wavelength regions
+    mask &= (cp.abs((2 * (ii % nwavetot) - (nwavetot - 0.5))) <= nwave)
+    return mask
 
-def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
+@cupy.prof.TimeRangeDecorator("get_resolution_diags")
+def get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad):
     """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
 
     Args:
@@ -373,22 +394,15 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     Returns:
         Rdiags (nspec,  2*ndiag+1, nwave): resolution matrix diagonals
     """
-    nwavetot = 2*wavepad + nwave
-    Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
-    mask = (
-        ~cp.tri(nwave, nwavetot, (wavepad-ndiag-1), dtype=bool) &
-        cp.tri(nwave, nwavetot, (wavepad+ndiag), dtype=bool)
-    )
-    for i in range(ispec, ispec+nspec):
-        ii = slice(nwavetot*i, nwavetot*(i+1))
-        Rdiags[i-ispec] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
+    mask = _rdiags_mask(ndiag, nspecpad, nwave, wavepad)
+    Rdiags = R.T[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
     return Rdiags
 
-
+@cupy.prof.TimeRangeDecorator("ex2d_padded")
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
                 wavepad, bundlesize=25, model=None, regularize=0):
     """
-    Extracted a patch with border padding, but only return results for patch
+    Extracts a patch with border padding, but only return results for patch
 
     Args:
         image: full image (not trimmed to a particular xy range)
@@ -404,30 +418,45 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     Options:
         bundlesize: size of fiber bundles; padding not needed on their edges
     """
-    # timer = Timer()
 
-    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+    #- Yikes, pulling this out from get_xyrange
+    corners_cpu = (corners[0].get(), corners[1].get())
+    #- Get patch pixels and projection matrix
+    patchpixels, patchivar, patchA4, xyslice = _prepare_patch(
+        image, imageivar, ispec, nspec, iwave, nwave, spots, corners, corners_cpu, wavepad, bundlesize,
+    )
+    #- Standardize problem size
+    icov, y = _apply_weights(
+        patchpixels.ravel(), patchivar.ravel(), patchA4.reshape(patchpixels.size, -1),
+        regularize=regularize
+    )
+    #- Perform the extraction
+    nwavetot = nwave + 2*wavepad
+    flux, fluxivar, resolution = _batch_extraction(icov, y, nwavetot, clip_scale=0)
+    #- Finalize the output for this patch
+    ndiag = spots.shape[2]//2
+    result = _finalize_patch(
+        patchpixels, patchivar, patchA4, xyslice,
+        flux, fluxivar, resolution,
+        ispec, nspec, bundlesize,
+        nwave, wavepad, ndiag, psferr, model=model
+    )
 
-    #- Total number of wavelengths to be extracted, including padding
-    nwavetot = nwave+2*wavepad
+    return result
 
-    # timer.split('init')
+@cupy.prof.TimeRangeDecorator("_prepare_patch")
+def _prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, corners_cpu, wavepad, bundlesize):
+    """This is essentially the preamble of `gpu_specter.extract.gpu.ex2d_padded`"""
 
     #- Get the projection matrix for the full wavelength range with padding
-    cp.cuda.nvtx.RangePush('projection_matrix')
-    A4, xyrange = projection_matrix(specmin, nspecpad,
-        iwave-wavepad, nwave+2*wavepad, spots, corners)
-    cp.cuda.nvtx.RangePop()
-    # timer.split('projection_matrix')
-
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+    wavemin, nwavepad = iwave-wavepad, nwave+2*wavepad
+    A4, xyrange = projection_matrix(specmin, nspecpad, wavemin, nwavepad, spots, corners, corners_cpu)
     xmin, xmax, ypadmin, ypadmax = xyrange
 
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
-    cp.cuda.nvtx.RangePush('get_xyrange')
-    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
-    cp.cuda.nvtx.RangePop()
-    # timer.split('get_xyrange')
+    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners_cpu)
 
     ypadlo = ymin - ypadmin
     ypadhi = ypadmax - ymax
@@ -438,131 +467,32 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
 
     #- Check dimensions
     assert A4.shape[2] == nspecpad
-    assert A4.shape[3] == nwave + 2*wavepad
+    assert A4.shape[3] == nwavepad
 
-    #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
-    ndiag = spots.shape[2]//2
-    cp.cuda.nvtx.RangePush('Rdiags allocation')
-    Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
-    cp.cuda.nvtx.RangePop()
-
-    specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
     if (0 <= ymin) & (ymin+ny <= image.shape[0]):
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
         patchpixels = image[xyslice]
         patchivar = imageivar[xyslice]
-        # timer.split('ready for extraction')
-        cp.cuda.nvtx.RangePush('extract patch')
-        fx, ivarfx, R = xp_ex2d_patch(patchpixels, patchivar, A4, regularize=regularize)
-        cp.cuda.nvtx.RangePop()
-        # timer.split('extracted patch')
-
-        #- Select the non-padded spectra x wavelength core region
-        cp.cuda.nvtx.RangePush('select slices to keep')
-        cp.cuda.nvtx.RangePush('slice flux')
-        specflux = fx[specslice]
-        cp.cuda.nvtx.RangePop()
-        cp.cuda.nvtx.RangePush('slice ivar')
-        specivar = ivarfx[specslice]
-        cp.cuda.nvtx.RangePop()
-
-        cp.cuda.nvtx.RangePush('slice R')
-        Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
-        # timer.split('saved Rdiags')
-        cp.cuda.nvtx.RangePop()
-        cp.cuda.nvtx.RangePop()
-
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
         #- of the image; we can do better than that
-        fx = cp.zeros((nspecpad, nwavetot))
-        specflux = cp.zeros((nspec, nwave))
-        specivar = cp.zeros((nspec, nwave))
-        Rdiags = cp.zeros( (nspec, 2*ndiag+1, nwave) )
-        xyslice = None
-        patchivar = cp.zeros((ny, nx))
-        patchpixels = cp.zeros((ny, nx))
-
-    if cp.any(cp.isnan(specflux)):
-        raise RuntimeError('Found NaN in extracted flux')
-
-    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
-    Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
-    Apatch = Apatch.reshape(ny*nx, nspec*nwave)
-
-    pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
-    pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
-
-    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
-    modelivar = (modelpadded*psferr + 1e-32)**-2
-    ii = (modelivar > 0 ) & (patchivar > 0)
-    totpix_ivar = cp.zeros((ny, nx))
-    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/patchivar[ii])
-
-    #- Weighted chi2 of pixels that contribute to each flux bin;
-    #- only use unmasked pixels and avoid dividing by 0
-    chi = (patchpixels - modelpadded)*cp.sqrt(totpix_ivar)
-    psfweight = Apadded.T.dot(totpix_ivar.ravel() > 0)
-    bad = psfweight == 0
-
-    #- Compute chi2pix and reshape
-    chi2pix = (Apadded.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
-    chi2pix = chi2pix.reshape(nspecpad, nwavetot)[specslice]
-
-    if model:
-        modelimage = Apatch.dot(specflux.ravel()).reshape(ny, nx)
-    else:
-        #modelimage = cp.zeros((ny, nx))
-        modelimage = None
-
-    #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
-    cp.cuda.nvtx.RangePush('prepare result')
-    result = dict(
-        flux = specflux,
-        ivar = specivar,
-        Rdiags = Rdiags,
-        modelimage = modelimage,
-        xyslice = xyslice,
-        pixmask_fraction = pixmask_fraction,
-        chi2pix = chi2pix,
-    )
-    cp.cuda.nvtx.RangePop()
-    # timer.split('done')
-    # timer.print_splits()
-
-    return result
-
-
-def _prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, wavepad, bundlesize):
-    """This is essentially the preamble of gpu_specter.extract.gpu.ex2d_padded
-    """
-    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
-    nwavetot = nwave+2*wavepad
-    A4, xyrange = projection_matrix(specmin, nspecpad, iwave-wavepad, nwave+2*wavepad, spots, corners)
-    xmin, xmax, ypadmin, ypadmax = xyrange
-
-    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
-
-    ypadlo = ymin - ypadmin
-    ypadhi = ypadmax - ymax
-    A4 = A4[ypadlo:-ypadhi]
-
-    ny, nx = A4.shape[0:2]
-
-    if (0 <= ymin) & (ymin+ny <= image.shape[0]):
-        xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
-        patchpixels = image[xyslice]
-        patchivar = imageivar[xyslice]
-    else:
         xyslice = None
         patchivar = cp.zeros((ny, nx))
         patchpixels = cp.zeros((ny, nx))
 
     return patchpixels, patchivar, A4, xyslice
 
-def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
-    """This is essentially the preamble of of gpu_specter.extract.both.xp_deconvolve
+@cupy.fuse()
+def _regularize(ATNinv, regularize, weight_scale):
+    fluxweight = ATNinv.sum(axis=1)
+    minweight = weight_scale*cp.max(fluxweight)
+    ii = fluxweight > minweight
+    lambda_squared = ~ii*(minweight - fluxweight) + ii*regularize*regularize
+    return lambda_squared
 
+@cupy.prof.TimeRangeDecorator("_apply_weights")
+def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
+    """This is essentially the preamble of of `gpu_specter.extract.both.xp_deconvolve`
     The outputs of this will be uniform shape for a subbundle.
     """
     ATNinv = A.T * pixel_ivar
@@ -574,11 +504,14 @@ def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4)
     ibad = fluxweight <= minweight
     lambda_squared = regularize*regularize*cp.ones_like(y)
     lambda_squared[ibad] = minweight - fluxweight[ibad]
-    if np.any(lambda_squared):
-        icov += cp.diag(lambda_squared)
+    # if np.any(lambda_squared):
+    icov += cp.diag(lambda_squared)
+
+    # icov += cp.diag(_regularize(ATNinv, regularize, weight_scale))
 
     return icov, y
 
+@cupy.prof.TimeRangeDecorator("_batch_apply_weights")
 def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weight_scale=1e-4):
     """Turns a list of subbundle patch inputs into batch arrays of unifom shape
     """
@@ -597,6 +530,7 @@ def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weigh
 
     return batch_icov, batch_y
 
+@cupy.prof.TimeRangeDecorator("_batch_cholesky_solve")
 def _batch_cholesky_solve(a, b):
     """Solve the linear equations A x = b via Cholesky factorization of A, where A
     is a real symmetric or complex Hermitian positive-definite matrix.
@@ -663,8 +597,85 @@ def _batch_cholesky_solve(a, b):
 
     return b.conj().reshape(b_shape)
 
+@cupy.prof.TimeRangeDecorator("cholesky_solve")
+def cholesky_solve(a, b):
+    """Solve the linear equations A x = b via Cholesky factorization of A,
+    where A is a real symmetric or complex Hermitian positive-definite matrix.
+
+    If matrix ``A`` is not positive definite, Cholesky factorization fails
+    and it raises an error.
+
+    Note: For batch input, NRHS > 1 is not currently supported.
+
+    Args:
+        a (cupy.ndarray): Array of real symmetric or complex hermitian
+            matrices with dimension (..., N, N).
+        b (cupy.ndarray): right-hand side (..., N) or (..., N, NRHS).
+    Returns:
+        x (cupy.ndarray): The solution (shape matches b).
+    """
+
+    cp.linalg._util._assert_cupy_array(a, b)
+    cp.linalg._util._assert_nd_squareness(a)
+
+    if a.ndim > 2:
+        return _batch_cholesky_solve(a, b)
+
+    dtype = np.promote_types(a.dtype, b.dtype)
+    dtype = np.promote_types(dtype, 'f')
+
+    if dtype == 'f':
+        potrf = cp.cuda.cusolver.spotrf
+        potrf_bufferSize = cp.cuda.cusolver.spotrf_bufferSize
+        potrs = cp.cuda.cusolver.spotrs
+    elif dtype == 'd':
+        potrf = cp.cuda.cusolver.dpotrf
+        potrf_bufferSize = cp.cuda.cusolver.dpotrf_bufferSize
+        potrs = cp.cuda.cusolver.dpotrs
+    elif dtype == 'F':
+        potrf = cp.cuda.cusolver.cpotrf
+        potrf_bufferSize = cp.cuda.cusolver.cpotrf_bufferSize
+        potrs = cp.cuda.cusolver.cpotrs
+    elif dtype == 'D':
+        potrf = cp.cuda.cusolver.zpotrf
+        potrf_bufferSize = cp.cuda.cusolver.zpotrf_bufferSize
+        potrs = cp.cuda.cusolver.zpotrs
+    else:
+        msg = ('dtype must be float32, float64, complex64 or complex128'
+               ' (actual: {})'.format(a.dtype))
+        raise ValueError(msg)
+
+    a = a.astype(dtype, order='F', copy=True)
+    lda, n = a.shape
+
+    handle = cp.cuda.device.get_cusolver_handle()
+    uplo = cp.cuda.cublas.CUBLAS_FILL_MODE_LOWER
+    dev_info = cp.empty(1, dtype=np.int32)
+
+    worksize = potrf_bufferSize(handle, uplo, n, a.data.ptr, lda)
+    workspace = cp.empty(worksize, dtype=dtype)
+
+    # Cholesky factorization
+    potrf(handle, uplo, n, a.data.ptr, lda, workspace.data.ptr,
+          worksize, dev_info.data.ptr)
+    cp.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrf, dev_info)
+
+    b_shape = b.shape
+    b = b.reshape(n, -1).astype(dtype, order='F', copy=True)
+    ldb, nrhs = b.shape
+
+    # Solve: A * X = B
+    potrs(handle, uplo, n, nrhs, a.data.ptr, lda, b.data.ptr, ldb,
+          dev_info.data.ptr)
+    cp.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrs, dev_info)
+
+    return cp.ascontiguousarray(b.reshape(b_shape))
+
+@cupy.prof.TimeRangeDecorator("_batch_decorrelate_noise")
 def _batch_decorrelate_noise(icov):
-    """Batch version of simple decorrelation method"""
+    """Batch version of the simple decorrelation method"""
     cp.cuda.nvtx.RangePush('batch_sqrt_icov')
     cp.cuda.nvtx.RangePush('eigh')
     w, v = xp.linalg.eigh(iCov)
@@ -675,14 +686,17 @@ def _batch_decorrelate_noise(icov):
     cp.cuda.nvtx.RangePop() # batch_sqrt_icov
     return Q
 
-
+@cupy.prof.TimeRangeDecorator("_batch_decorrelate")
 def _batch_decorrelate(icov, block_size, clip_scale=0):
-    """Batch version of sophisticated decorrelation method"""
+    """Batch version of the better decorrelation method"""
 
-    batch_size, n, m = icov.shape
+    icov_shape = icov.shape
+    n, m = icov_shape[-2:]
+    batch_size = np.prod(icov_shape[:-2], dtype=int)
     nblocks, remainder = divmod(n, block_size)
     assert n == m
     assert remainder == 0
+    icov = icov.reshape(batch_size, n, m)
 
     cp.cuda.nvtx.RangePush('batch_invert_icov')
     # invert icov
@@ -725,9 +739,9 @@ def _batch_decorrelate(icov, block_size, clip_scale=0):
             Q[i, s:s + block_size, s:s + block_size] = q[i*nblocks + j]
     cp.cuda.nvtx.RangePop() # replace_blocks
 
-    return Q
+    return Q.reshape(icov_shape)
 
-
+@cupy.prof.TimeRangeDecorator("_batch_apply_resolution")
 def _batch_apply_resolution(deconvolved, Q):
     """Compute and apply resolution to deconvolved flux"""
     s = cp.einsum('...ij->...i', Q)
@@ -736,18 +750,23 @@ def _batch_apply_resolution(deconvolved, Q):
     flux = cp.einsum('...ij,...j->...i', resolution, deconvolved)
     return flux, fluxivar, resolution
 
+@cupy.prof.TimeRangeDecorator("_batch_extraction")
+def _batch_extraction(icov, y, nwavetot, clip_scale=0):
+    """Performs batch extraction given a batch of patches from a subbundle.
 
-def _batch_extraction(pixel_values, pixel_ivar, A4, regularize=0, clip_scale=0):
+    Note that the inputs are lists of ndarrays because the patches on the ccd are not
+    the same size.
+    """
 
-    batch_size = len(A4)
-    ny, nx, nspecpad, nwavetot = A4[0].shape
+    # batch_size = len(A4)
+    # ny, nx, nspecpad, nwavetot = A4[0].shape
 
-    cp.cuda.nvtx.RangePush('apply_weights')
-    icov, y = _batch_apply_weights(pixel_values, pixel_ivar, A4, regularize=regularize)
-    cp.cuda.nvtx.RangePop() # apply_weights
+    # cp.cuda.nvtx.RangePush('apply_weights')
+    # icov, y = _batch_apply_weights(pixel_values, pixel_ivar, A4, regularize=regularize)
+    # cp.cuda.nvtx.RangePop() # apply_weights
 
     cp.cuda.nvtx.RangePush('deconvolve')
-    deconvolved = _batch_cholesky_solve(icov, y)
+    deconvolved = cholesky_solve(icov, y)
     cp.cuda.nvtx.RangePop() # deconvolve
 
     cp.cuda.nvtx.RangePush('decorrelate')
@@ -761,42 +780,67 @@ def _batch_extraction(pixel_values, pixel_ivar, A4, regularize=0, clip_scale=0):
 
     return flux, fluxivar, resolution
 
+@cp.fuse()
+def compute_chisq(patchpixels, patchivar, patchmodel, psferr):
+    modelsigma = psferr*patchmodel
+    ii = (modelsigma > 0 ) & (patchivar > 0)
+    totpix_ivar = ii*cp.reciprocal(~ii + ii*modelsigma*modelsigma + ii*cp.reciprocal(ii*patchivar+~ii))
+    chi = (patchpixels - patchmodel)*cp.sqrt(totpix_ivar)
+    return chi*chi
+
+@cp.fuse()
+def reweight_chisq(chi2pix, weight):
+    bad = weight == 0
+    return (chi2pix * ~bad) / (weight + bad)
+
+@cupy.prof.TimeRangeDecorator("_finalize_patch")
 def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     ispec, nspec, bundlesize, nwave, wavepad, ndiag, psferr, model=None):
-    """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded.
-    """
+    """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded."""
 
     specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
 
     ny, nx, nspecpad, nwavetot = A4.shape
 
+    #- Select the non-padded spectra x wavelength core region
     specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
     specflux = fx.reshape(nspecpad, nwavetot)[specslice]
     specivar = ivarfx.reshape(nspecpad, nwavetot)[specslice]
-    Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
+    #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
+    Rdiags = get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad)[specslice[0]]
 
-    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
-    Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+    # if cp.any(cp.isnan(specflux)):
+    #     raise RuntimeError('Found NaN in extracted flux')
+
+    patchpixels = patchpixels.ravel()
+    patchivar = patchivar.ravel()
+
+    cp.cuda.nvtx.RangePush('pixmask_fraction')
+    Apatch = A4[:, :, specslice[0], specslice[1]]
     Apatch = Apatch.reshape(ny*nx, nspec*nwave)
-
-    pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
+    pixmask_fraction = Apatch.T.dot(patchivar == 0)
     pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
-
-    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
-    modelivar = (modelpadded*psferr + 1e-32)**-2
-    ii = (modelivar > 0 ) & (patchivar > 0)
-    totpix_ivar = cp.zeros((ny, nx))
-    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/patchivar[ii])
+    cp.cuda.nvtx.RangePop() # pixmask_fraction
 
     #- Weighted chi2 of pixels that contribute to each flux bin;
     #- only use unmasked pixels and avoid dividing by 0
-    chi = (patchpixels - modelpadded)*cp.sqrt(totpix_ivar)
-    psfweight = Apadded.T.dot(totpix_ivar.ravel() > 0)
-    bad = psfweight == 0
-
-    #- Compute chi2pix and reshape
-    chi2pix = (Apadded.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
+    cp.cuda.nvtx.RangePush('chi2pix')
+    cp.cuda.nvtx.RangePush('modelpadded')
+    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
+    patchmodel = Apadded.dot(fx.ravel())
+    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePush('chi2')
+    chi2 = compute_chisq(patchpixels, patchivar, patchmodel, psferr)
+    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePush('Apadded dot chi2')
+    chi2pix = Apadded.T.dot(chi2)
+    cp.cuda.nvtx.RangePop()
+    cp.cuda.nvtx.RangePush('psfweight')
+    psfweight = Apadded.T.dot(chi2 > 0)
+    chi2pix = reweight_chisq(chi2pix, psfweight)
+    cp.cuda.nvtx.RangePop()
     chi2pix = chi2pix.reshape(nspecpad, nwavetot)[specslice]
+    cp.cuda.nvtx.RangePop() # chi2pix
 
     if model:
         modelimage = Apatch.dot(specflux.ravel()).reshape(ny, nx)
@@ -837,24 +881,40 @@ def ex2d_subbundle(image, imageivar, patches, spots, corners, bundlesize, regula
     batch_ivar = list()
     batch_A4 = list()
     batch_xyslice = list()
+    batch_icov = list()
+    batch_y = list()
+
+    corners_cpu = (corners[0].get(), corners[1].get())
 
     cp.cuda.nvtx.RangePush('batch_prepare')
     for patch in patches:
         patchpixels, patchivar, patchA4, xyslice = _prepare_patch(
             image, imageivar, patch.ispec-patch.bspecmin, patch.nspectra_per_patch,
-            patch.iwave, patch.nwavestep, spots, corners, wavepad=patch.wavepad, bundlesize=bundlesize,
+            patch.iwave, patch.nwavestep, spots, corners, corners_cpu, wavepad=patch.wavepad, bundlesize=bundlesize,
+        )
+        icov, y = _apply_weights(
+            patchpixels.ravel(), patchivar.ravel(), patchA4.reshape(patchpixels.size, -1),
+            regularize=regularize
         )
         patch.xyslice = xyslice
         batch_pixels.append(patchpixels)
         batch_ivar.append(patchivar)
         batch_A4.append(patchA4)
         batch_xyslice.append(xyslice)
+        batch_icov.append(icov)
+        batch_y.append(y)
+    batch_icov = cp.array(batch_icov)
+    batch_y = cp.array(batch_y)
     cp.cuda.nvtx.RangePop()
 
     # perform batch extraction
     cp.cuda.nvtx.RangePush('batch_extraction')
+    # batch_flux, batch_fluxivar, batch_resolution = _batch_extraction(
+    #     batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
+    # )
+    nwavetot = patches[0].nwavestep + 2*patches[0].wavepad
     batch_flux, batch_fluxivar, batch_resolution = _batch_extraction(
-        batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
+        batch_icov, batch_y, nwavetot, clip_scale=clip_scale
     )
     cp.cuda.nvtx.RangePop()
 

@@ -16,7 +16,11 @@ import glob
 import os
 import sys
 
+import cupy as cp
+
 from desispec.scripts import extract
+from gpu_specter.mpi import SyncIOComm, AsyncIOComm, AsyncIOComm2
+import gpu_specter.spex
 
 #- Parse args before initializing MPI so that --help will work anywhere
 
@@ -48,8 +52,14 @@ parser.add_argument("--model", action="store_true", required=False,
     help="output 2D pixel model file")
 parser.add_argument("--nwavestep", type=int, default=30,
     help="patch size parameter")
+parser.add_argument("--nsubbundles", type=int, default=5,
+    help="number of subbundles")
 parser.add_argument("--barycentric-correction", action="store_true",
     help="apply barycentric correction to wavelength")
+parser.add_argument("--spex", action="store_true",
+    help="use spex")
+parser.add_argument("--async-io", action="store_true",
+    help="use fancy comm")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -83,6 +93,14 @@ assert group_size * ngroups == size, \
 group_rank = rank % group_size
 group_index = rank // group_size
 group_comm = comm.Split(color=group_index, key=group_rank)
+
+if args.async_io:
+    group_comm = AsyncIOComm(group_comm)
+else:
+    group_comm = SyncIOComm(group_comm)
+
+# if not args.spex:
+#     group_comm = group_comm.extract_comm
 
 if rank == 0:
     print(f"Splitting {size} ranks into {ngroups} groups of {group_size}")
@@ -157,8 +175,14 @@ for camera in group_cameras:
             sys.stdout.flush()
         continue
 
-    cmd = \
-        "desi_extract_spectra --mpi" \
+    if args.spex:
+        cmd = "spex"
+        engine = gpu_specter.spex
+    else:
+        cmd = "desi_extract_spectra --gpu-specter"
+        engine = extract
+
+    cmd += " --mpi" \
         f" -i {img_filename}" \
         f" -p {psf_filename}" \
         f" -o {frame_filename}"
@@ -178,7 +202,7 @@ for camera in group_cameras:
     elif camera.startswith("z"):
         cmd = cmd + " -w 7520.0,9824.0,0.8"
 
-    cmd = cmd + " --gpu-specter --nsubbundles 5"
+    cmd = cmd + f" --nsubbundles {args.nsubbundles}"
 
     cmd = cmd + f" --nwavestep {args.nwavestep}"
 
@@ -196,11 +220,13 @@ for camera in group_cameras:
         print(rank, cmd)
         sys.stdout.flush()
 
-    cmd_args = extract.parse(cmd.split()[1:])
     timing = dict()
+    cmd_args = engine.parse(cmd.split()[1:])
 
     #- Perform extraction
-    extract.main_gpu_specter(cmd_args, comm=group_comm, timing=timing)
+    cp.cuda.nvtx.RangePush(f'{rank}:main_gpu_specter')
+    engine.main_gpu_specter(cmd_args, comm=group_comm, timing=timing)
+    cp.cuda.nvtx.RangePop() # main_gpu_specter
 
     #- Save timing events from extraction
     for event_name in timing:
@@ -245,10 +271,9 @@ if rank == 0:
     extraction_work_rate = nframes / extraction_node_hours
 
     print("desi-extract {} frames in {:.1f} min".format(nframes, elapsed_time / 60))
-    print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
-    print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
     print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
+    print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
 
     if args.gpu:
         unique_devices = set()
@@ -265,4 +290,7 @@ if rank == 0:
         gpu_extraction_work_rate = nframes / gpu_extraction_hours
 
         print("desi-extract gpu effective work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
+
+    print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
+    if args.gpu:
         print("desi-extract gpu extraction work rate = {:.2f} frames per gpu-hour".format(gpu_extraction_work_rate))

@@ -66,7 +66,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -101,7 +101,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -147,7 +147,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -157,7 +157,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=True,
             loglevel='WARN',
         )

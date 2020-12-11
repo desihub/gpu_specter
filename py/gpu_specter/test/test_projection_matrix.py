@@ -76,7 +76,7 @@ class TestProjectionMatrix(unittest.TestCase):
 
             #- gpu projection matrix
             A4_gpu, xyrange_gpu = gpu_projection_matrix(
-                ispec=ispec, nspec=nspec, iwave=iwave, nwave=nwave, spots=spots_gpu, corners=corners_gpu)
+                ispec=ispec, nspec=nspec, iwave=iwave, nwave=nwave, spots=spots_gpu, corners=corners_gpu, corners_cpu=corners)
 
             self.assertEqual(xyrange, xyrange_gpu)
             self.assertEqual(A4.shape, A4_gpu.shape)

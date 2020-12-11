@@ -3,6 +3,10 @@ import numpy as np
 from astropy.table import Table
 import fitsio
 
+import cupy as cp
+
+from gpu_specter.util import get_logger
+
 def native_endian(data):
     """Temporary function, sourced from desispec.io
     Convert numpy array data to native endianness if needed.
@@ -27,9 +31,11 @@ def read_psf(filename):
     psfdata = dict()
     psfdata['PSF'] = Table.read(filename, 'PSF')
 
+    log = get_logger()
+
     if 'PSFERR' not in psfdata['PSF'].meta:
         default_psferr = 0.01
-        print(f'Warning! PSFERR not found in PSF meta. Setting to {default_psferr}')
+        log.debug(f'PSFERR not found in PSF meta. Setting to {default_psferr}')
         psfdata['PSF'].meta['PSFERR'] = default_psferr
     
     with fitsio.FITS(filename, 'r') as fx:
@@ -44,7 +50,7 @@ def read_psf(filename):
     
     return psfdata
 
-def read_img(filename):
+def read_img(filename, move_to_device=False):
     """
     Read 2D image data from input filename
 
@@ -53,9 +59,14 @@ def read_img(filename):
 
     imgdata = dict()
 
+    if move_to_device:
+        array = cp.array
+    else:
+        array = np.array
+
     with fitsio.FITS(filename, 'r') as fx:
-        imgdata['image'] = native_endian(fx['IMAGE'].read().astype('f8'))
-        imgdata['ivar'] = native_endian(fx['IVAR'].read().astype('f8'))
+        imgdata['image'] = array(native_endian(fx['IMAGE'].read().astype('f8')))
+        imgdata['ivar'] = array(native_endian(fx['IVAR'].read().astype('f8')))
         imgdata['imagehdr'] = fx['IMAGE'].read_header()
         mask = fx['MASK'].read()
         imgdata['ivar'][mask != 0] = 0.0
