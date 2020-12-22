@@ -3,8 +3,6 @@ import numpy as np
 from astropy.table import Table
 import fitsio
 
-import cupy as cp
-
 from gpu_specter.util import get_logger
 
 def native_endian(data):
@@ -50,7 +48,7 @@ def read_psf(filename):
     
     return psfdata
 
-def read_img(filename, move_to_device=False):
+def read_img(filename):
     """
     Read 2D image data from input filename
 
@@ -59,14 +57,9 @@ def read_img(filename, move_to_device=False):
 
     imgdata = dict()
 
-    if move_to_device:
-        array = cp.array
-    else:
-        array = np.array
-
     with fitsio.FITS(filename, 'r') as fx:
-        imgdata['image'] = array(native_endian(fx['IMAGE'].read().astype('f8')))
-        imgdata['ivar'] = array(native_endian(fx['IVAR'].read().astype('f8')))
+        imgdata['image'] = native_endian(fx['IMAGE'].read().astype('f8'))
+        imgdata['ivar'] = native_endian(fx['IVAR'].read().astype('f8'))
         imgdata['imagehdr'] = fx['IMAGE'].read_header()
         mask = fx['MASK'].read()
         imgdata['ivar'][mask != 0] = 0.0

@@ -373,7 +373,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         # timer.log_splits(log)
     return bundle
 
-@cupy.prof.TimeRangeDecorator("decompose_comm")
+# @cupy.prof.TimeRangeDecorator("decompose_comm")
 def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
     """Decomposes MPI communicator into frame and bundle communicators depending on
     size of communicator, number of GPU devices (if requested), and (optionally) the
@@ -442,7 +442,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 
     return bundle_comm, frame_comm, frame_rank, frame_size
 
-@cupy.prof.TimeRangeDecorator("extract_frame")
+# @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, clip_scale=0):
     """

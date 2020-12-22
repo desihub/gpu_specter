@@ -119,7 +119,9 @@ def main_gpu_specter(args=None, comm=None, timing=None):
     def read_data():
         cp.cuda.nvtx.RangePush('read_data')
         log.info('Loading inputs')
-        img = read_img(args.input, move_to_device=True)
+        img = read_img(args.input)
+        img['image'] = cp.array(img['image'])
+        img['ivar'] = cp.array(img['ivar'])
         psf = read_psf(args.psf)
         cp.cuda.nvtx.RangePop() # read_data
         return img, psf
