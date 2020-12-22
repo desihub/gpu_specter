@@ -394,7 +394,6 @@ def get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad):
     Args:
         R: dense resolution matrix
         ndiag: number of diagonal elements to keep in the resolution matrix
-        ispec: starting spectrum index relative to padding
         nspec: number of spectra to extract (not including padding)
         nwave: number of wavelengths to extract (not including padding)
         wavepad: number of extra wave bins to extract (and discard) on each end
@@ -403,8 +402,9 @@ def get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad):
         Rdiags (nspec,  2*ndiag+1, nwave): resolution matrix diagonals
     """
     mask = _rdiags_mask(ndiag, nspecpad, nwave, wavepad)
-    # Rdiags = R.T[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
-    Rdiags = R[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
+    Rdiags = R.T[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
+    # NOTE: I think this is actually correct but need to compare with specter
+    # Rdiags = R[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
     return Rdiags
 
 @cupy.prof.TimeRangeDecorator("ex2d_padded")

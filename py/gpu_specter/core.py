@@ -500,8 +500,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     imgpixels = imgivar = None
     if rank == 0:
-        imgpixels = cp.array(img['image'])
-        imgivar = cp.array(img['ivar'])
+        imgpixels = img['image']
+        imgivar = img['ivar']
 
     #- If using MPI, broadcast image, ivar, and psf to all ranks
     if comm is not None:
@@ -509,29 +509,31 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
 
-        move_to_device = True
-        if move_to_device:
-            empty = cp.empty
-        else:
-            empty = np.empty
+        # move_to_device = True
+        # if move_to_device:
+        #     empty = cp.empty
+        # else:
+        #     empty = np.empty
 
-        cp.cuda.nvtx.RangePush('shape')
-        if rank == 0:
-            shape = imgpixels.shape
-        else:
-            shape = None
-        shape = comm.bcast(shape, root=0)
-        if rank > 0:
-            imgpixels = empty(shape, dtype='f8')
-            imgivar = empty(shape, dtype='f8')
-        cp.cuda.nvtx.RangePop() # shape
+        # cp.cuda.nvtx.RangePush('shape')
+        # if rank == 0:
+        #     shape = imgpixels.shape
+        # else:
+        #     shape = None
+        # shape = comm.bcast(shape, root=0)
+        # if rank > 0:
+        #     imgpixels = empty(shape, dtype='f8')
+        #     imgivar = empty(shape, dtype='f8')
+        # cp.cuda.nvtx.RangePop() # shape
 
         cp.cuda.nvtx.RangePush('imgpixels')
-        comm.Bcast(imgpixels, root=0)
+        # comm.Bcast(imgpixels, root=0)
+        imgpixels = comm.bcast(imgpixels, root=0)
         cp.cuda.nvtx.RangePop() # imgpixels
 
         cp.cuda.nvtx.RangePush('imgivar')
-        comm.Bcast(imgivar, root=0)
+        # comm.Bcast(imgivar, root=0)
+        imgivar = comm.bcast(imgivar, root=0)
         cp.cuda.nvtx.RangePop() # imgivar
 
         cp.cuda.nvtx.RangePush('psf')
