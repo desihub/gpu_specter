@@ -163,26 +163,39 @@ def calc_pgh(ispec, wavelengths, psfparams):
 
     return pGHx, pGHy
 
-@numba.jit(nopython=True)
-def multispot(pGHx, pGHy, ghc):
+# @numba.jit(nopython=True)
+def multispot(pGHx, pGHy, ghc, out):
     '''
     TODO: Document
     '''
     nx = pGHx.shape[-1]
     ny = pGHy.shape[-1]
     nwave = pGHx.shape[1]
-    spots = np.zeros((nwave, ny, nx))
+    # spots = np.zeros((nwave, ny, nx))
 
-    for iwave in range(nwave):
-        for i in range(pGHx.shape[0]):
-            px = pGHx[i,iwave]
-            for j in range(0, pGHy.shape[0]):
-                py = pGHy[j,iwave]
-                c = ghc[i,j,iwave]
-                #- c * outer(py, px)
-                for iy in range(len(py)):
-                    for ix in range(len(px)):
-                        spots[iwave, iy, ix] += c * py[iy] * px[ix]
+    # 2.5s
+    # spots = np.einsum('lmk,mkj,lki->kji', ghc, pGHy, pGHx)
+
+    # 1.4s
+    spots = np.einsum('lmk,mkj,lki->kji', ghc, pGHy, pGHx, optimize=True)
+
+    # np.einsum('lmk,mkj,lki->kji', ghc, pGHy, pGHx, out=out, optimize=True)
+
+    # for iwave in range(nwave):
+    #     for i in range(pGHx.shape[0]):
+    #         px = pGHx[i,iwave]
+    #         for j in range(0, pGHy.shape[0]):
+    #             py = pGHy[j,iwave]
+    #             c = ghc[i,j,iwave]
+    #             #- c * outer(py, px)
+    #             # 1.2s
+    #             for iy in range(len(py)):
+    #                 for ix in range(len(px)):
+    #                     spots[iwave, iy, ix] += c * py[iy] * px[ix]
+    #             # 3.6s
+    #             # spots[iwave] = c*np.outer(py, px)
+    #             # 2.5s
+    #             # np.outer(c * py, px, spots[iwave])
 
     return spots
 
@@ -205,9 +218,12 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
     spots = np.zeros((nspec, nwave, ny, nx))
+
     for ispec in range(nspec):
         pGHx, pGHy = calc_pgh(ispec, wavelengths, p)
-        spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
+        # spots[ispec] = multispot(pGHx, pGHy, p['GH'][:,:,ispec,:])
+        np.einsum('lmk,mkj,lki->kji',
+            p['GH'][:,:,ispec,:], pGHy, pGHx, out=spots[ispec], optimize='greedy')
 
     #- ensure positivity and normalize
     #- TODO: should this be within multispot itself?

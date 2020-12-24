@@ -410,6 +410,10 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
         device_id = rank // ranks_per_device
         cp.cuda.Device(device_id).use()
 
+        #- 
+        mempool = cp.get_default_memory_pool()
+        mempool.set_limit(fraction=1.0/ranks_per_device)
+
         default_ranks_per_bundle = ranks_per_device
     else:
         default_ranks_per_bundle = size
