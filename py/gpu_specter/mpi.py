@@ -1,5 +1,29 @@
 import cupy.prof
 
+class NoMPIComm(object):
+    READ_RANK = 0
+    WRITE_RANK = 0
+    EXTRACT_ROOT = 0
+
+    def __init__(self):
+        self.comm = None
+        self.rank = 0
+        self.size = 1
+
+        self.extract_comm = None
+
+    def is_extract_rank(self):
+        return True
+
+    def is_extract_root(self):
+        return True
+
+    def read(self, func, data):
+        return func()
+
+    def write(self, func, data):
+        func(data)
+
 class SyncIOComm(object):
     READ_RANK = 0
     WRITE_RANK = 0
@@ -19,6 +43,9 @@ class SyncIOComm(object):
 
     def is_extract_rank(self):
         return self.comm.rank >= SyncIOComm.EXTRACT_ROOT
+
+    def is_extract_root(self):
+        return self.comm.rank == SyncIOComm.EXTRACT_ROOT
 
     @cupy.prof.TimeRangeDecorator("SyncIOComm.read")
     def read(self, func, data):
@@ -60,6 +87,9 @@ class AsyncIOComm(object):
         Otherwise returns False.
         """
         return self.comm.rank >= AsyncIOComm.EXTRACT_ROOT
+
+    def is_extract_root(self):
+        return self.comm.rank == AsyncIOComm.EXTRACT_ROOT
 
     @cupy.prof.TimeRangeDecorator("AsyncIOComm.read")
     def read(self, func, data):
@@ -128,6 +158,10 @@ class AnotherAsyncIOComm(object):
         Otherwise returns False.
         """
         return self.comm.rank >= AnotherAsyncIOComm.EXTRACT_READ_RANK
+
+    def is_extract_root(self):
+        # WIP: what should the extract root be in this case?
+        raise NotImplementedError()
 
     @cupy.prof.TimeRangeDecorator("AnotherAsyncIOComm.read")
     def read(self, func, data):
