@@ -472,19 +472,16 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     timer = Timer()
     time_start = time.time()
 
-    cp.cuda.nvtx.RangePush('get_logger')
     log = get_logger(loglevel)
-    cp.cuda.nvtx.RangePop()
 
     if comm is None:
         rank, size = 0, 1
     else:
         rank, size = comm.rank, comm.size
 
-    #- For now, force batch subbundle for GPU extraction and 1 rank per bundle
+    #- Force batch subbundle for GPU extraction and 1 rank per bundle
     #- Eventually, add options to configure this and figure out desired default behavior
     if gpu:
-    # if False:
         batch_subbundle = True
         ranks_per_bundle = 1
         assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
@@ -505,7 +502,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     #- If using MPI, broadcast image, ivar, and psf to all ranks
     if comm is not None:
-        cp.cuda.nvtx.RangePush('mpi bcast')
+        # cp.cuda.nvtx.RangePush('mpi bcast')
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
 
@@ -514,7 +511,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         else:
             empty = np.empty
 
-        cp.cuda.nvtx.RangePush('shape')
+        # cp.cuda.nvtx.RangePush('shape')
         if rank == 0:
             shape = imgpixels.shape
         else:
@@ -523,22 +520,22 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         if rank > 0:
             imgpixels = empty(shape, dtype='f8')
             imgivar = empty(shape, dtype='f8')
-        cp.cuda.nvtx.RangePop() # shape
+        # cp.cuda.nvtx.RangePop() # shape
 
-        cp.cuda.nvtx.RangePush('imgpixels')
+        # cp.cuda.nvtx.RangePush('imgpixels')
         comm.Bcast(imgpixels, root=0)
         # imgpixels = comm.bcast(imgpixels, root=0)
-        cp.cuda.nvtx.RangePop() # imgpixels
+        # cp.cuda.nvtx.RangePop() # imgpixels
 
-        cp.cuda.nvtx.RangePush('imgivar')
+        # cp.cuda.nvtx.RangePush('imgivar')
         comm.Bcast(imgivar, root=0)
         # imgivar = comm.bcast(imgivar, root=0)
-        cp.cuda.nvtx.RangePop() # imgivar
+        # cp.cuda.nvtx.RangePop() # imgivar
 
-        cp.cuda.nvtx.RangePush('psf')
+        # cp.cuda.nvtx.RangePush('psf')
         psf = comm.bcast(psf, root=0)
-        cp.cuda.nvtx.RangePop() # psf
-        cp.cuda.nvtx.RangePop() # mpi bcast
+        # cp.cuda.nvtx.RangePop() # psf
+        # cp.cuda.nvtx.RangePop() # mpi bcast
 
     timer.split('mpi-bcast-raw')
     time_mpi_bcast_raw = time.time()
@@ -616,7 +613,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     timer.split('extracted-bundles')
     time_extracted_bundles = time.time()
 
-    cp.cuda.nvtx.RangePush('mpi gather')
+    # cp.cuda.nvtx.RangePush('mpi gather')
     if frame_comm is not None:
         # gather results from multiple mpi groups
         if bundle_comm is None or bundle_comm.rank == 0:
@@ -638,14 +635,14 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
-    cp.cuda.nvtx.RangePop() # mpi gather
+    # cp.cuda.nvtx.RangePop() # mpi gather
 
     timer.split('staged-bundles')
     time_staged_bundles = time.time()
 
     #- Finalize and write output
     frame = None
-    cp.cuda.nvtx.RangePush('finalize output')
+    # cp.cuda.nvtx.RangePush('finalize output')
     if rank == 0:
 
         #- flatten list of lists into single list
@@ -702,7 +699,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         time_merged_bundles = time.time()
         time_assembled_frame = time.time()
-    cp.cuda.nvtx.RangePop() # finalize output
+    # cp.cuda.nvtx.RangePop() # finalize output
 
     if isinstance(timing, dict):
         timing['init-mpi-comm'] = time_init_mpi_comm
