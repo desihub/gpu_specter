@@ -83,8 +83,6 @@ def check_input_options(args):
             return False, 'cannot import module cupy'
         if not cp.is_available():
             return False, 'gpu is not available'
-        if cp.cuda.runtime.getDeviceCount() > 1 and not args.mpi:
-            return False, 'mpi is required to run with multiple gpu devices'
 
     return True, 'OK'
 
