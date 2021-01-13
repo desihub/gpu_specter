@@ -1,11 +1,11 @@
 import argparse
 
 import numpy as np
-import cupy as cp
 
 from gpu_specter.util import get_logger, Timer
 from gpu_specter.io import read_img, read_psf, write_frame, write_model
 from gpu_specter.core import extract_frame
+from gpu_specter.mpi import NoMPIComm, SyncIOComm, AsyncIOComm
 
 __all__ = ["parse", "main_gpu_specter"]
 
@@ -47,7 +47,8 @@ def parse(options=None):
     # parser.add_argument("--fibermap-index", type=int, default=None, required=False,
     #                     help="start at this index in the fibermap table instead of using the spectro id from the camera")
     # parser.add_argument("--barycentric-correction", action="store_true", help="apply barycentric correction to wavelength")
-    
+    parser.add_argument("--async-io", action="store_true",
+                        help="use asynchronous read/write mpi comm")
     args = None
     if options is None:
         args = parser.parse_args()
@@ -102,32 +103,38 @@ def main_gpu_specter(args=None, comm=None, timing=None):
         log.critical(message)
         raise ValueError(message)
     
-    #- Load MPI only if requested
+    #- Load MPI only if requested and comm not provided
     if comm is not None:
-        rank, size = comm.rank, comm.size
+        pass
     elif args.mpi:
         from mpi4py import MPI
-        comm = MPI.COMM_WORLD
-        rank, size = comm.rank, comm.size
+        if args.async_io:
+            comm = AsyncIOComm(MPI.COMM_WORLD)
+        else:
+            comm = SyncIOComm(MPI.COMM_WORLD)
     else:
-        comm = None
-        rank, size = 0, 1
+        comm = NoMPIComm()
 
     timer.split('init')
 
+    if args.gpu:
+        #- If using gpu, move input data to device on read using cupy
+        import cupy as cp
+        array = cp.array
+    else:
+        #- Otherwise, use numpy array for cpu
+        array = np.array
+
     #- Load inputs
     def read_data():
-        cp.cuda.nvtx.RangePush('read_data')
         log.info('Loading inputs')
         img = read_img(args.input)
-        img['image'] = cp.array(img['image'])
-        img['ivar'] = cp.array(img['ivar'])
+        img['image'] = array(img['image'])
+        img['ivar'] = array(img['ivar'])
         psf = read_psf(args.psf)
-        cp.cuda.nvtx.RangePop() # read_data
         return img, psf
 
-    data = comm.read(read_data, (None, None))
-    img, psf = data
+    img, psf = comm.read(read_data, (None, None))
 
     timer.split('load')
 
@@ -148,7 +155,8 @@ def main_gpu_specter(args=None, comm=None, timing=None):
             args.loglevel,                     # log
         )
 
-        if comm.extract_comm.rank == 0:
+        #- Pass other input data through for output
+        if comm.is_extract_root():
             frame['imagehdr'] = img['imagehdr']
             frame['fibermap'] = img['fibermap']
             frame['fibermaphdr'] = img['fibermaphdr']
@@ -160,7 +168,6 @@ def main_gpu_specter(args=None, comm=None, timing=None):
 
     #- Write output
     def write_data(frame):
-        cp.cuda.nvtx.RangePush('write_data')
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
@@ -169,11 +176,9 @@ def main_gpu_specter(args=None, comm=None, timing=None):
             log.info(f'Writing model {args.model}')
             write_model(args.model, frame)
         
-        cp.cuda.nvtx.RangePop() # write_data
-
     comm.write(write_data, frame)
 
     #- Print timing summary
     timer.split('write')
-    if comm.rank == comm.EXTRACT_ROOT:
+    if comm.is_extract_root():
         timer.log_splits(log)
