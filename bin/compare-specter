@@ -36,45 +36,61 @@ def main():
                         help="number of wavelength steps per divide-and-conquer extraction step")
     parser.add_argument("--pull-threshold", type=float, required=False, default=0.01,
                         help="pull distribution threshold to use for comparing results")
+    parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
+    parser.add_argument("--gpu", action="store_true", help="Use GPU device")
     args = parser.parse_args()
 
     if not specter_available:
         raise RuntimeError('Could not import specter')
 
-    psf = read_psf(args.psf)
-    img = read_img(args.input)
+    if args.mpi:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        rank, size = comm.rank, comm.size
+    else:
+        comm = None
+        rank, size = 0, 1
+
+    if rank == 0:
+        psf = read_psf(args.psf)
+        img = read_img(args.input)
+    else:
+        psf = None
+        img = None
 
     frame_spex = extract_frame(
         img, psf, args.bundlesize,
         args.specmin, args.nspec,
         wavelength=args.wavelength,
         nwavestep=args.nwavestep, nsubbundles=args.nsubbundles,
-        comm=None, rank=0, size=1,
-        gpu=None,
+        comm=comm,
+        gpu=args.gpu,
         loglevel='INFO',
     )
 
-    specter_psf = specter.psf.load_psf(args.psf)
+    if rank == 0:
 
-    # use the same wavelength array 
-    wavelengths = frame_spex['wave']
+        specter_psf = specter.psf.load_psf(args.psf)
 
-    frame_specter = specter.extract.ex2d(
-        img['image'], img['ivar'], specter_psf, 
-        args.specmin, args.nspec, wavelengths, 
-        xyrange=None, regularize=0.0, ndecorr=False,
-        bundlesize=args.bundlesize, nsubbundles=args.nsubbundles,
-        wavesize=args.nwavestep, 
-        full_output=True, verbose=True,
-        debug=False, psferr=None,
-    )
+        # use the same wavelength array
+        wavelengths = frame_spex['wave']
 
-    diff = frame_spex['specflux'] - frame_specter['flux']
-    norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
-    pull = diff/norm
-    pull_fraction = np.average(np.abs(pull).ravel() < args.pull_threshold)
+        frame_specter = specter.extract.ex2d(
+            img['image'], img['ivar'], specter_psf,
+            args.specmin, args.nspec, wavelengths,
+            xyrange=None, regularize=0.0, ndecorr=False,
+            bundlesize=args.bundlesize, nsubbundles=args.nsubbundles,
+            wavesize=args.nwavestep,
+            full_output=True, verbose=True,
+            debug=False, psferr=None,
+        )
 
-    print(f'fraction of pixels with (pull < {args.pull_threshold}): {pull_fraction}')
+        diff = frame_spex['specflux'] - frame_specter['flux']
+        norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
+        pull = diff/norm
+        pull_fraction = np.average(np.abs(pull).ravel() < args.pull_threshold)
+
+        print(f'fraction of pixels with (pull < {args.pull_threshold}): {pull_fraction}')
 
 
 
