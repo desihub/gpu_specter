@@ -44,6 +44,12 @@ parser.add_argument("-v", "--verbose", action="store_true",
     help="print per-rank detailed timing")
 parser.add_argument("--old-format", action="store_true",
     help="use old format for benchmark data filenames")
+parser.add_argument("--model", action="store_true", required=False,
+    help="output 2D pixel model file")
+parser.add_argument("--nwavestep", type=int, default=30,
+    help="patch size parameter")
+parser.add_argument("--barycentric-correction", action="store_true",
+    help="apply barycentric correction to wavelength")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -174,6 +180,15 @@ for camera in group_cameras:
 
     cmd = cmd + " --gpu-specter --nsubbundles 5"
 
+    cmd = cmd + f" --nwavestep {args.nwavestep}"
+
+    if args.barycentric_correction:
+        cmd += " --barycentric-correction"
+
+    if args.model:
+        model_filename = frame_filename.rstrip(".fits") + "-model.fits"
+        cmd = cmd + f" --model {model_filename}"
+
     if args.gpu:
         cmd = cmd + " --gpu"
 
@@ -225,8 +240,13 @@ if rank == 0:
     node_hours = nnodes * elapsed_time / (60 * 60)
     work_rate = nframes / node_hours
 
-    print("desi-extract {} effective frames in {:.1f} min".format(nframes, elapsed_time / 60))
+    extraction_time = end_time - startup_time
+    extraction_node_hours = nnodes * extraction_time / (60 * 60)
+    extraction_work_rate = nframes / extraction_node_hours
+
+    print("desi-extract {} frames in {:.1f} min".format(nframes, elapsed_time / 60))
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
+    print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
     print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
 
@@ -240,4 +260,9 @@ if rank == 0:
 
         gpu_hours = ngpus * elapsed_time / (60 * 60)
         gpu_work_rate = nframes / gpu_hours
-        print("desi-extract gpu work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
+
+        gpu_extraction_hours = ngpus * extraction_time / (60 * 60)
+        gpu_extraction_work_rate = nframes / gpu_extraction_hours
+
+        print("desi-extract gpu effective work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
+        print("desi-extract gpu extraction work rate = {:.2f} frames per gpu-hour".format(gpu_extraction_work_rate))

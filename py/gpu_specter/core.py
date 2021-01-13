@@ -139,7 +139,13 @@ def assemble_bundle_patches(rankresults):
         chi2pix[patch.specslice, patch.waveslice] = xchi2pix[:, patch.keepslice]
 
         patchmodel = result['modelimage']
-        if patchmodel is None or ~np.all(np.isfinite(patchmodel)):
+        #- Skip if patchmodel is None, an array of None, or contains any nans
+        skip_patchmodel = (
+            (patchmodel is None)
+            or (not patchmodel.any())
+            or (not np.all(np.isfinite(patchmodel)))
+        )
+        if skip_patchmodel:
             continue
         ymin = patch.xyslice[0].start - ystart
         xmin = patch.xyslice[1].start - xstart
@@ -149,9 +155,9 @@ def assemble_bundle_patches(rankresults):
     return specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice
 
 
-def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1,
+def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1, batch_subbundle=False,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
-    psferr=None):
+    psferr=None, clip_scale=0):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -192,7 +198,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- Extracting on CPU or GPU?
     if gpu:
         from gpu_specter.extract.gpu import \
-                get_spots, ex2d_padded
+                get_spots, ex2d_padded, ex2d_subbundle
     else:
         from gpu_specter.extract.cpu import \
                 get_spots, ex2d_padded
@@ -217,48 +223,44 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     spot_nx, spot_ny = spots.shape[2:4]
 
     #- Organize what sub-bundle patches to extract
-    patches = list()
+    subbundles = list()
     nspectra_per_patch = bundlesize // nsubbundles
     for ispec in range(bspecmin, bspecmin+bundlesize, nspectra_per_patch):
+        patches = list()
         for iwave in range(wavepad, wavepad+nwave, nwavestep):
             patch = Patch(ispec, iwave, bspecmin,
                           nspectra_per_patch, nwavestep, wavepad,
                           nwave, bundlesize, ndiag)
             patches.append(patch)
-
-    if rank == 0:
-        log.debug(f'Dividing {len(patches)} patches between {size} ranks')
+        subbundles.append(patches)
 
     timer.split('organize patches')
 
     #- place to keep extraction patch results before assembling in rank 0
     results = list()
-    for patch in patches[rank::size]:
 
-        log.debug(f'rank={rank}, ispec={patch.ispec}, iwave={patch.iwave}')
-
-        #- Always extract the same patch size (more efficient for GPU
-        #- memory transfer) then decide post-facto whether to keep it all
-
-        if gpu:
-            cp.cuda.nvtx.RangePush('ex2d_padded')
-
-        result = ex2d_padded(image, imageivar,
-                             patch.ispec-bspecmin, patch.nspectra_per_patch,
-                             patch.iwave, patch.nwavestep,
-                             spots, corners, psferr,
-                             wavepad=patch.wavepad,
-                             bundlesize=bundlesize,
-                             model=model,
-                             regularize=regularize,
-                             )
-        patch.xyslice = result['xyslice']
-        if gpu:
-            cp.cuda.nvtx.RangePop()
-
-        results.append( (patch, result) )
-
-    timer.split('extracted patches')
+    if gpu and batch_subbundle:
+        for subbundle in subbundles[rank::size]:
+            result = ex2d_subbundle(
+                image, imageivar, subbundle, spots, corners,
+                bundlesize, regularize, clip_scale,
+                psferr, model
+            )
+            results += result
+    else:
+        patches = [patch for subbundle in subbundles for patch in subbundle]
+        for patch in patches[rank::size]:
+            result = ex2d_padded(image, imageivar,
+                                patch.ispec-bspecmin, patch.nspectra_per_patch,
+                                patch.iwave, patch.nwavestep,
+                                spots, corners, psferr,
+                                wavepad=patch.wavepad,
+                                bundlesize=bundlesize,
+                                model=model,
+                                regularize=regularize,
+                                )
+            patch.xyslice = result['xyslice']
+            results.append( (patch, result) )
 
     if comm is not None:
         if gpu:
@@ -271,14 +273,14 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
             pixmask_fraction = []
             chi2pix = []
             modelimage = []
-            for patch, results in results:
+            for patch, result in results:
                 patches.append(patch)
-                flux.append(results['flux'])
-                fluxivar.append(results['ivar'])
-                resolution.append(results['Rdiags'])
-                pixmask_fraction.append(results['pixmask_fraction'])
-                chi2pix.append(results['chi2pix'])
-                modelimage.append(cp.asnumpy(results['modelimage']))
+                flux.append(result['flux'])
+                fluxivar.append(result['ivar'])
+                resolution.append(result['Rdiags'])
+                pixmask_fraction.append(result['pixmask_fraction'])
+                chi2pix.append(result['chi2pix'])
+                modelimage.append(cp.asnumpy(result['modelimage']))
 
             # transfer to host in chunks
             cp.cuda.nvtx.RangePush('copy bundle results to host')
@@ -310,7 +312,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                     zip(patches,
                         map(lambda x: dict(
                                 flux=x[0], ivar=x[1], Rdiags=x[2],
-                                pixmask_fraction=x[3], chi2pix=x[4], modelimage=x[3]
+                                pixmask_fraction=x[3], chi2pix=x[4], modelimage=x[5]
                             ),
                             zip(
                                 flux, fluxivar, resolution, 
@@ -357,8 +359,77 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     return bundle
 
 
+def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
+    """Decomposes MPI communicator into frame and bundle communicators depending on
+    size of communicator, number of GPU devices (if requested), and (optionally) the
+    specified number of ranks per bundle.
+
+    Options:
+        comm (None, mpi4py.MPI.Intracomm): mpi communicator
+        gpu (bool): whether or not to assign ranks to GPUs
+        ranks_per_bundle (None, int): number of mpi ranks per bundle
+
+    Returns:
+        bundle_comm (None, mpi4py.MPI.Intracomm): bundle-level mpi communicator
+        frame_comm (None, mpi4py.MPI.Intracomm): frame-level mpi communicator
+        frame_rank (int): the rank with the frame-level communicator
+        frame_size (int): the size of root frame-level communicator
+    """
+
+
+    if comm is None:
+        rank, size = 0, 1
+    else:
+        rank, size = comm.rank, comm.size
+
+    #- Determine MPI communication strategy based on number of GPU devices and MPI ranks
+    if gpu:
+        import cupy as cp
+        #- Map MPI ranks to GPU devices
+        device_count = cp.cuda.runtime.getDeviceCount()
+        #- Ignore excess GPU devices
+        device_count = min(size, device_count)
+        ranks_per_device, remainder = divmod(size, device_count)
+        assert remainder == 0, 'Number of MPI ranks must be divisible by number of GPUs'
+
+        device_id = rank // ranks_per_device
+        cp.cuda.Device(device_id).use()
+
+        default_ranks_per_bundle = ranks_per_device
+    else:
+        default_ranks_per_bundle = size
+
+    #- Map ranks to bundles
+    if ranks_per_bundle is None:
+        ranks_per_bundle = default_ranks_per_bundle
+
+    frame_rank, bundle_rank = divmod(rank, ranks_per_bundle)
+    frame_size = (size - 1) // ranks_per_bundle + 1
+
+    if frame_size > 1:
+        #- MPI communication needs to happen at frame level
+        #- Bundles are processed in parallel
+        if ranks_per_bundle > 1:
+            #- Also need to communicate at bundle level
+            #- Patches/subbundles are processed in parallel
+            frame_comm = comm.Split(color=bundle_rank, key=frame_rank)
+            bundle_comm = comm.Split(color=frame_rank, key=bundle_rank)
+        else:
+            #- Only do MPI communication at frame level
+            #- Patches/subbundles are processed serially within each MPI rank
+            frame_comm = comm
+            bundle_comm = None
+    else:
+        #- MPI communication only happens at bundle level
+        #- Bundles are processed serially
+        frame_comm = None
+        bundle_comm = comm
+
+    return bundle_comm, frame_comm, frame_rank, frame_size
+
+
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None):
+    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None, clip_scale=0):
     """
     Extract 1D spectra from 2D image.
 
@@ -376,7 +447,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         comm: mpi communicator (no mpi: None)
         rank: integer process identifier (no mpi: 0)
         size: number of mpi processes (no mpi: 1)
-        gpu: use GPU for extraction (not yet implemented)
+        gpu: use GPU for extraction
         loglevel: log print level
 
     Returns:
@@ -388,37 +459,18 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
-    #- Determine MPI communication strategy based on number of gpu devices and MPI ranks
+    #- For now, force batch subbundle for GPU extraction and 1 rank per bundle
+    #- Eventually, add options to configure this and figure out desired default behavior
     if gpu:
-        import cupy as cp
-        #- TODO: specify number of gpus to use?
-        device_count = cp.cuda.runtime.getDeviceCount()
-        device_count = min(size, device_count)
-        assert size % device_count == 0, 'Number of MPI ranks must be divisible by number of GPUs'
-        device_id = rank % device_count
-        cp.cuda.Device(device_id).use()
-
-        #- Divide mpi ranks evenly among gpus
-        device_size = size // device_count
-        bundle_rank = rank // device_count
-
-        if device_count > 1:
-            #- Multi gpu, MPI communication needs to happen at frame level
-            frame_comm = comm.Split(color=bundle_rank, key=device_id)
-            if device_size > 1:
-                #- If multiple ranks per gpu, also need to communicate at bundle level
-                bundle_comm = comm.Split(color=device_id, key=bundle_rank)
-            else:
-                #- If only one rank per gpu, don't need bundle level communication
-                bundle_comm = None
-        else:
-            #- Single gpu, only do MPI communication at bundle level
-            frame_comm = None
-            bundle_comm = comm
+        batch_subbundle = True
+        ranks_per_bundle = 1
+        assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
+        assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
     else:
-        #- No gpu, do MPI communication at bundle level
-        frame_comm = None
-        bundle_comm = comm
+        batch_subbundle = False
+        ranks_per_bundle = None
+
+    bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
@@ -480,16 +532,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     
     #- TODO: barycentric wavelength corrections
 
-    #- Work bundle by bundle
-    if frame_comm is None:
-        bundle_start = 0
-        bundle_step = 1
-    else:
-        bundle_start = device_id
-        bundle_step = device_count
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
-    for bspecmin in bspecmins[bundle_start::bundle_step]:
+    for bspecmin in bspecmins[frame_rank::frame_size]:
         # log.info(f'Rank {rank}: Extracting spectra [{bspecmin}:{bspecmin+bundlesize}]')
         # sys.stdout.flush()
         if gpu:
@@ -498,6 +543,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             imgpixels, imgivar, psf,
             wave, fullwave, bspecmin,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
+            batch_subbundle=batch_subbundle,
             nwavestep=nwavestep, wavepad=wavepad,
             comm=bundle_comm,
             gpu=gpu,
@@ -505,6 +551,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             model=model,
             regularize=regularize,
             psferr=psferr,
+            clip_scale=clip_scale,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
@@ -519,7 +566,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     if frame_comm is not None:
         # gather results from multiple mpi groups
-        if bundle_rank == 0:
+        if bundle_comm is None or bundle_comm.rank == 0:
             bspecmins, bundles = zip(*bundles)
             flux, ivar, resolution, pixmask_fraction, chi2pix, modelimage, xyslice = zip(*bundles)
             bspecmins = frame_comm.gather(bspecmins, root=0)

@@ -7,14 +7,16 @@ in this branch.
 import math
 
 import numpy as np
-import cupy as cp
-import cupyx.scipy.special
+import numpy.polynomial.legendre
 from numba import cuda
+import cupy as cp
+import cupyx
+import cupyx.scipy.special
 
+from .cpu import get_spec_padding
+from .both import xp_ex2d_patch
 from ..io import native_endian
 from ..util import Timer
-
-import numpy.polynomial.legendre
 
 @cuda.jit
 def _hermevander(x, deg, output_matrix):
@@ -356,8 +358,6 @@ def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
 
     return A, (xmin, xmax, ymin, ymax)
 
-from .cpu import get_spec_padding
-from .both import xp_ex2d_patch
 
 def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
@@ -383,6 +383,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
         ii = slice(nwavetot*i, nwavetot*(i+1))
         Rdiags[i-ispec] = R[ii, ii][:,wavepad:-wavepad].T[mask].reshape(nwave, 2*ndiag+1).T
     return Rdiags
+
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
                 wavepad, bundlesize=25, model=None, regularize=0):
@@ -530,3 +531,346 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     # timer.print_splits()
 
     return result
+
+
+def _prepare_patch(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, wavepad, bundlesize):
+    """This is essentially the preamble of gpu_specter.extract.gpu.ex2d_padded
+    """
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+    nwavetot = nwave+2*wavepad
+    A4, xyrange = projection_matrix(specmin, nspecpad, iwave-wavepad, nwave+2*wavepad, spots, corners)
+    xmin, xmax, ypadmin, ypadmax = xyrange
+
+    xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
+
+    ypadlo = ymin - ypadmin
+    ypadhi = ypadmax - ymax
+    A4 = A4[ypadlo:-ypadhi]
+
+    ny, nx = A4.shape[0:2]
+
+    if (0 <= ymin) & (ymin+ny <= image.shape[0]):
+        xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
+        patchpixels = image[xyslice]
+        patchivar = imageivar[xyslice]
+    else:
+        xyslice = None
+        patchivar = cp.zeros((ny, nx))
+        patchpixels = cp.zeros((ny, nx))
+
+    return patchpixels, patchivar, A4, xyslice
+
+def _apply_weights(pixel_values, pixel_ivar, A, regularize=0, weight_scale=1e-4):
+    """This is essentially the preamble of of gpu_specter.extract.both.xp_deconvolve
+
+    The outputs of this will be uniform shape for a subbundle.
+    """
+    ATNinv = A.T * pixel_ivar
+    icov = ATNinv.dot(A)
+    y = ATNinv.dot(pixel_values)
+    fluxweight = ATNinv.sum(axis=1)
+
+    minweight = weight_scale*cp.max(fluxweight)
+    ibad = fluxweight <= minweight
+    lambda_squared = regularize*regularize*cp.ones_like(y)
+    lambda_squared[ibad] = minweight - fluxweight[ibad]
+    if np.any(lambda_squared):
+        icov += cp.diag(lambda_squared)
+
+    return icov, y
+
+def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize=0, weight_scale=1e-4):
+    """Turns a list of subbundle patch inputs into batch arrays of unifom shape
+    """
+
+    batch_size = len(batch_A4)
+    ny, nx, nspecpad, nwavetot = batch_A4[0].shape
+    nbin = nspecpad * nwavetot
+
+    batch_icov = cp.zeros((batch_size, nbin, nbin))
+    batch_y = cp.zeros((batch_size, nbin))
+    for i, (pix, ivar, A4) in enumerate(zip(batch_pixels, batch_ivar, batch_A4)):
+        # Note that each patch can have a different number of pixels
+        batch_icov[i], batch_y[i] = _apply_weights(
+            pix.ravel(), ivar.ravel(), A4.reshape(-1, nbin),
+            regularize=regularize, weight_scale=weight_scale)
+
+    return batch_icov, batch_y
+
+def _batch_cholesky_solve(a, b):
+    """Solve the linear equations A x = b via Cholesky factorization of A, where A
+    is a real symmetric or complex Hermitian positive-definite matrix.
+
+    If matrix ``a[i]`` is not positive definite, Cholesky factorization fails and
+    it raises an error.
+
+    Args:
+        a (cupy.ndarray): Array of real symmetric or complex hermitian
+            matrices with dimension (..., N, N).
+        b (cupy.ndarray): right-hand side (..., N).
+    Returns:
+        x (cupy.ndarray): Array of solutions (..., N).
+    """
+    if not cp.cusolver.check_availability('potrsBatched'):
+        raise RuntimeError('potrsBatched is not available')
+
+    dtype = numpy.promote_types(a.dtype, b.dtype)
+    dtype = numpy.promote_types(dtype, 'f')
+
+    if dtype == 'f':
+        potrfBatched = cp.cuda.cusolver.spotrfBatched
+        potrsBatched = cp.cuda.cusolver.spotrsBatched
+    elif dtype == 'd':
+        potrfBatched = cp.cuda.cusolver.dpotrfBatched
+        potrsBatched = cp.cuda.cusolver.dpotrsBatched
+    elif dtype == 'F':
+        potrfBatched = cp.cuda.cusolver.cpotrfBatched
+        potrsBatched = cp.cuda.cusolver.cpotrsBatched
+    elif dtype == 'D':
+        potrfBatched = cp.cuda.cusolver.zpotrfBatched
+        potrsBatched = cp.cuda.cusolver.zpotrsBatched
+    else:
+        msg = ('dtype must be float32, float64, complex64 or complex128'
+               ' (actual: {})'.format(a.dtype))
+        raise ValueError(msg)
+
+    # Cholesky factorization
+    a = a.astype(dtype, order='C', copy=True)
+    ap = cp.core._mat_ptrs(a)
+    lda, n = a.shape[-2:]
+    batch_size = int(numpy.prod(a.shape[:-2]))
+
+    handle = cp.cuda.device.get_cusolver_handle()
+    uplo = cp.cuda.cublas.CUBLAS_FILL_MODE_LOWER
+    dev_info = cp.empty(batch_size, dtype=numpy.int32)
+
+    potrfBatched(handle, uplo, n, ap.data.ptr, lda, dev_info.data.ptr,
+                 batch_size)
+    cp.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrfBatched, dev_info)
+
+    # Cholesky solve
+    b_shape = b.shape
+    b = b.conj().reshape(batch_size, n, -1).astype(dtype, order='C', copy=True)
+    bp = cp.core._mat_ptrs(b)
+    ldb, nrhs = b.shape[-2:]
+    dev_info = cp.empty(1, dtype=numpy.int32)
+
+    potrsBatched(handle, uplo, n, nrhs, ap.data.ptr, lda, bp.data.ptr, ldb,
+                 dev_info.data.ptr, batch_size)
+    cp.linalg._util._check_cusolver_dev_info_if_synchronization_allowed(
+        potrsBatched, dev_info)
+
+    return b.conj().reshape(b_shape)
+
+def _batch_decorrelate_noise(icov):
+    """Batch version of simple decorrelation method"""
+    cp.cuda.nvtx.RangePush('batch_sqrt_icov')
+    cp.cuda.nvtx.RangePush('eigh')
+    w, v = xp.linalg.eigh(iCov)
+    cp.cuda.nvtx.RangePop() # eigh
+    cp.cuda.nvtx.RangePush('compose')
+    Q = cp.einsum('...ik,...k,...jk->...ij', v, cp.sqrt(w), v)
+    cp.cuda.nvtx.RangePop() # compose
+    cp.cuda.nvtx.RangePop() # batch_sqrt_icov
+    return Q
+
+
+def _batch_decorrelate(icov, block_size, clip_scale=0):
+    """Batch version of sophisticated decorrelation method"""
+
+    batch_size, n, m = icov.shape
+    nblocks, remainder = divmod(n, block_size)
+    assert n == m
+    assert remainder == 0
+
+    cp.cuda.nvtx.RangePush('batch_invert_icov')
+    # invert icov
+    # cov = cp.linalg.inv(icov)
+    cp.cuda.nvtx.RangePush('eigh')
+    w, v = cp.linalg.eigh(icov)
+    cp.cuda.nvtx.RangePop() # eigh
+
+    cp.cuda.nvtx.RangePush('compose')
+    if clip_scale > 0:
+        w = cp.clip(w, a_min=clip_scale*cp.max(w))
+    cov = cp.einsum('...ik,...k,...jk->...ij', v, 1.0/w, v)
+    cp.cuda.nvtx.RangePop() # compose
+    cp.cuda.nvtx.RangePop() # batch_invert_icov
+
+    cp.cuda.nvtx.RangePush('extract_blocks')
+    cov_block_diags = cp.empty(
+        (batch_size * nblocks, block_size, block_size),
+        dtype=icov.dtype
+    )
+    for i in range(batch_size):
+        for j, s in enumerate(range(0, n, block_size)):
+            cov_block_diags[i*nblocks + j] = cov[i, s:s + block_size, s:s + block_size]
+    cp.cuda.nvtx.RangePop() # extract_blocks
+
+    cp.cuda.nvtx.RangePush('eigh')
+    ww, vv = cp.linalg.eigh(cov_block_diags)
+    cp.cuda.nvtx.RangePop() # eigh
+
+    cp.cuda.nvtx.RangePush('compose')
+    if clip_scale > 0:
+        ww = cp.clip(ww, a_min=clip_scale*cp.max(ww))
+    q = cp.einsum('...ik,...k,...jk->...ij', vv, cupyx.rsqrt(ww), vv)
+    cp.cuda.nvtx.RangePop() # compose
+
+    cp.cuda.nvtx.RangePush('replace_blocks')
+    Q = cp.zeros_like(icov)
+    for i in range(batch_size):
+        for j, s in enumerate(range(0, n, block_size)):
+            Q[i, s:s + block_size, s:s + block_size] = q[i*nblocks + j]
+    cp.cuda.nvtx.RangePop() # replace_blocks
+
+    return Q
+
+
+def _batch_apply_resolution(deconvolved, Q):
+    """Compute and apply resolution to deconvolved flux"""
+    s = cp.einsum('...ij->...i', Q)
+    resolution = Q/s[..., cp.newaxis]
+    fluxivar = s*s
+    flux = cp.einsum('...ij,...j->...i', resolution, deconvolved)
+    return flux, fluxivar, resolution
+
+
+def _batch_extraction(pixel_values, pixel_ivar, A4, regularize=0, clip_scale=0):
+
+    batch_size = len(A4)
+    ny, nx, nspecpad, nwavetot = A4[0].shape
+
+    cp.cuda.nvtx.RangePush('apply_weights')
+    icov, y = _batch_apply_weights(pixel_values, pixel_ivar, A4, regularize=regularize)
+    cp.cuda.nvtx.RangePop() # apply_weights
+
+    cp.cuda.nvtx.RangePush('deconvolve')
+    deconvolved = _batch_cholesky_solve(icov, y)
+    cp.cuda.nvtx.RangePop() # deconvolve
+
+    cp.cuda.nvtx.RangePush('decorrelate')
+    Q = _batch_decorrelate(icov, nwavetot, clip_scale=clip_scale)
+    # Q = _batch_decorrelate_noise(icov)
+    cp.cuda.nvtx.RangePop() # decorrelate
+
+    cp.cuda.nvtx.RangePush('apply_resolution')
+    flux, fluxivar, resolution = _batch_apply_resolution(deconvolved, Q)
+    cp.cuda.nvtx.RangePop() # apply_resolution
+
+    return flux, fluxivar, resolution
+
+def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
+    ispec, nspec, bundlesize, nwave, wavepad, ndiag, psferr, model=None):
+    """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded.
+    """
+
+    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+
+    ny, nx, nspecpad, nwavetot = A4.shape
+
+    specslice = np.s_[ispec-specmin:ispec-specmin+nspec,wavepad:wavepad+nwave]
+    specflux = fx.reshape(nspecpad, nwavetot)[specslice]
+    specivar = ivarfx.reshape(nspecpad, nwavetot)[specslice]
+    Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
+
+    Apadded = A4.reshape(ny*nx, nspecpad*nwavetot)
+    Apatch = A4[:, :, ispec-specmin:ispec-specmin+nspec, wavepad:wavepad+nwave]
+    Apatch = Apatch.reshape(ny*nx, nspec*nwave)
+
+    pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
+    pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
+
+    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
+    modelivar = (modelpadded*psferr + 1e-32)**-2
+    ii = (modelivar > 0 ) & (patchivar > 0)
+    totpix_ivar = cp.zeros((ny, nx))
+    totpix_ivar[ii] = 1.0 / (1.0/modelivar[ii] + 1.0/patchivar[ii])
+
+    #- Weighted chi2 of pixels that contribute to each flux bin;
+    #- only use unmasked pixels and avoid dividing by 0
+    chi = (patchpixels - modelpadded)*cp.sqrt(totpix_ivar)
+    psfweight = Apadded.T.dot(totpix_ivar.ravel() > 0)
+    bad = psfweight == 0
+
+    #- Compute chi2pix and reshape
+    chi2pix = (Apadded.T.dot(chi.ravel()**2) * ~bad) / (psfweight + bad)
+    chi2pix = chi2pix.reshape(nspecpad, nwavetot)[specslice]
+
+    if model:
+        modelimage = Apatch.dot(specflux.ravel()).reshape(ny, nx)
+    else:
+        #modelimage = cp.zeros((ny, nx))
+        modelimage = None
+
+    result = dict(
+        flux = specflux,
+        ivar = specivar,
+        Rdiags = Rdiags,
+        modelimage = modelimage,
+        xyslice = xyslice,
+        pixmask_fraction = pixmask_fraction,
+        chi2pix = chi2pix,
+    )
+
+    return result
+
+def ex2d_subbundle(image, imageivar, patches, spots, corners, bundlesize, regularize, clip_scale, psferr, model):
+    """Extract an entire subbundle of patches. The patches' output shape (nspec, nwave) must be aligned.
+
+    Args:
+        image: full image (not trimmed to a particular xy range)
+        imageivar: image inverse variance (same dimensions as image)
+        patches: list contain gpu_specter.core.Patch objects for extraction
+        spots: array[nspec, nwave, ny, nx] pre-evaluated PSF spots
+        corners: tuple of arrays xcorners[nspec, nwave], ycorners[nspec, nwave]
+        bundlesize: size of fiber bundles
+        clip_scale: scale factor to use when clipping eigenvalues
+        psferr: value of error to assume in psf model
+        model: compute image pixel model using extracted flux
+
+    Returns:
+        results: list of (patch, result) tuples
+    """
+    batch_pixels = list()
+    batch_ivar = list()
+    batch_A4 = list()
+    batch_xyslice = list()
+
+    cp.cuda.nvtx.RangePush('batch_prepare')
+    for patch in patches:
+        patchpixels, patchivar, patchA4, xyslice = _prepare_patch(
+            image, imageivar, patch.ispec-patch.bspecmin, patch.nspectra_per_patch,
+            patch.iwave, patch.nwavestep, spots, corners, wavepad=patch.wavepad, bundlesize=bundlesize,
+        )
+        patch.xyslice = xyslice
+        batch_pixels.append(patchpixels)
+        batch_ivar.append(patchivar)
+        batch_A4.append(patchA4)
+        batch_xyslice.append(xyslice)
+    cp.cuda.nvtx.RangePop()
+
+    # perform batch extraction
+    cp.cuda.nvtx.RangePush('batch_extraction')
+    batch_flux, batch_fluxivar, batch_resolution = _batch_extraction(
+        batch_pixels, batch_ivar, batch_A4, regularize=regularize, clip_scale=clip_scale
+    )
+    cp.cuda.nvtx.RangePop()
+
+    # finalize patch results
+    cp.cuda.nvtx.RangePush('batch_finalize')
+    results = list()
+    for i, patch in enumerate(patches):
+        result = _finalize_patch(
+            batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
+            batch_flux[i], batch_fluxivar[i], batch_resolution[i],
+            patch.ispec-patch.bspecmin, patch.nspectra_per_patch, bundlesize,
+            patch.nwavestep, patch.wavepad, patch.ndiag, psferr, model=model
+        )
+        results.append( (patches[i], result) )
+    cp.cuda.nvtx.RangePop()
+
+    return results
+
+
