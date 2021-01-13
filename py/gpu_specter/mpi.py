@@ -6,6 +6,11 @@ class SyncIOComm(object):
     EXTRACT_ROOT = 0
 
     def __init__(self, comm):
+        """Synchronous communication/extraction manager.
+
+        Args:
+            comm: the parent MPI communicator. Must have at least 1 rank
+        """
         self.comm = comm
         self.rank = comm.rank
         self.size = comm.size
@@ -92,7 +97,7 @@ class AsyncIOComm(object):
             func(data)
 
 
-class AsyncIOComm2(object):
+class AnotherAsyncIOComm(object):
     READ_RANK = 0
     WRITE_RANK = 1
     EXTRACT_READ_RANK = 2
@@ -114,7 +119,7 @@ class AsyncIOComm2(object):
         # READ/WRITE ranks have MPI_COMM_NULL?
         self.extract_comm = None
         self.extract_group = self.comm.group.Excl(
-            [AsyncIOComm2.READ_RANK, AsyncIOComm2.WRITE_RANK])
+            [AnotherAsyncIOComm.READ_RANK, AnotherAsyncIOComm.WRITE_RANK])
         if self.is_extract_rank():
             self.extract_comm = comm.Create_group(self.extract_group)
 
@@ -122,9 +127,9 @@ class AsyncIOComm2(object):
         """Returns True if this MPI rank is part of the extraction group.
         Otherwise returns False.
         """
-        return self.comm.rank >= AsyncIOComm2.EXTRACT_READ_RANK
+        return self.comm.rank >= AnotherAsyncIOComm.EXTRACT_READ_RANK
 
-    @cupy.prof.TimeRangeDecorator("AsyncIOComm2.read")
+    @cupy.prof.TimeRangeDecorator("AnotherAsyncIOComm.read")
     def read(self, func, data):
         """READ_RANK will call `func` and send the result to EXTRACT_ROOT.
         EXTRACT_ROOT returns the result from READ_RANK. All other ranks return 
@@ -137,14 +142,14 @@ class AsyncIOComm2(object):
         Returns: 
             data: either the provided default data or data returned by func on EXTRACT_ROOT/READ_RANK
         """
-        if self.comm.rank == AsyncIOComm2.READ_RANK:
+        if self.comm.rank == AnotherAsyncIOComm.READ_RANK:
             data = func()
-            self.comm.send(data, dest=AsyncIOComm2.EXTRACT_READ_RANK, tag=1)
-        elif self.comm.rank == AsyncIOComm2.EXTRACT_READ_RANK:
-            data = self.comm.recv(source=AsyncIOComm2.READ_RANK, tag=1)
+            self.comm.send(data, dest=AnotherAsyncIOComm.EXTRACT_READ_RANK, tag=1)
+        elif self.comm.rank == AnotherAsyncIOComm.EXTRACT_READ_RANK:
+            data = self.comm.recv(source=AnotherAsyncIOComm.READ_RANK, tag=1)
         return data
 
-    @cupy.prof.TimeRangeDecorator("AsyncIOComm2.write")
+    @cupy.prof.TimeRangeDecorator("AnotherAsyncIOComm.write")
     def write(self, func, data):
         """EXTRACT_ROOT sends `data` to WRITE_RANK. WRITE_RANK calls `func` to
         write `data`. This is a no-op for all other ranks.
@@ -153,8 +158,8 @@ class AsyncIOComm2(object):
             func (method): function that writes `data`.
             data: the data to be written by `func`.
         """
-        if self.comm.rank == AsyncIOComm2.EXTRACT_ROOT:
-            self.comm.send(data, dest=AsyncIOComm2.EXTRACT_WRITE_RANK, tag=2)
-        elif self.comm.rank == AsyncIOComm2.EXTRACT_WRITE_RANK:
-            data = self.comm.recv(source=AsyncIOComm2.EXTRACT_ROOT, tag=2)
+        if self.comm.rank == AnotherAsyncIOComm.EXTRACT_ROOT:
+            self.comm.send(data, dest=AnotherAsyncIOComm.EXTRACT_WRITE_RANK, tag=2)
+        elif self.comm.rank == AnotherAsyncIOComm.EXTRACT_WRITE_RANK:
+            data = self.comm.recv(source=AnotherAsyncIOComm.EXTRACT_ROOT, tag=2)
             func(data)

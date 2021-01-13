@@ -19,7 +19,7 @@ import sys
 import cupy as cp
 
 from desispec.scripts import extract
-from gpu_specter.mpi import SyncIOComm, AsyncIOComm, AsyncIOComm2
+from gpu_specter.mpi import SyncIOComm, AsyncIOComm
 import gpu_specter.spex
 
 #- Parse args before initializing MPI so that --help will work anywhere
