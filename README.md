@@ -37,21 +37,18 @@ Use the [these instructions](doc/how-to-build-gpu-conda-env.md) for building a g
 
 ```
 cd gpu_specter
-module load python esslurm cuda/10.2.89
+
+module purge
+module load cgpu
+module load python cuda/11.1.1 gcc openmpi
 salloc -C gpu -N 1 -G 1 -c 10 -t 60 -A m1759
 
-source activate desi-gpu
-export PATH=$(pwd)/bin:$PATH
-export PYTHONPATH=$(pwd)/py:$PYTHONPATH
-
-module load gcc/7.3.0 mvapich2
-export MV2_USE_CUDA=1
-export MV2_ENABLE_AFFINITY=0
-export LD_PRELOAD=$MVAPICH2_DIR/lib/libmpi.so
+source activate gpu-specter-dev
+# Add gpu_specter to PATH if not installed in conda env:
+# export PATH=$(pwd)/bin:$PATH
+# export PYTHONPATH=$(pwd)/py:$PYTHONPATH
 
 export OMP_NUM_THREADS=1
-export OMP_PLACES=threads
-export OMP_PROC_BIND=spread
 
 basedir=/global/cfs/cdirs/desi/spectro/redux/andes
 args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-00051060.fits -p $basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
@@ -72,22 +69,17 @@ srun -n 2 -c 2 --cpu-bind=cores bin/mps-wrapper bin/spex --mpi --gpu -o $SCRATCH
 ### Multi GPU 
 
 ```
-cd gpu_specter
-module load python esslurm cuda/10.2.89
+module purge
+module load cgpu
+module load python cuda/11.1.1 gcc openmpi
 salloc -C gpu -N 1 -G 2 -c 20 -t 60 -A m1759
 
-source activate desi-gpu
-export PATH=$(pwd)/bin:$PATH
-export PYTHONPATH=$(pwd)/py:$PYTHONPATH
-
-module load gcc/7.3.0 mvapich2
-export MV2_USE_CUDA=1
-export MV2_ENABLE_AFFINITY=0
-export LD_PRELOAD=$MVAPICH2_DIR/lib/libmpi.so
+source activate gpu-specter-dev
+# Add gpu_specter to PATH if not installed in conda env:
+# export PATH=$(pwd)/bin:$PATH
+# export PYTHONPATH=$(pwd)/py:$PYTHONPATH
 
 export OMP_NUM_THREADS=1
-export OMP_PLACES=threads
-export OMP_PROC_BIND=spread
 
 basedir=/global/cfs/cdirs/desi/spectro/redux/andes
 args="-w 5760.0,7620.0,0.8 -i $basedir/preproc/20200219/00051060/preproc-r0-00051060.fits -p $basedir/exposures/20200219/00051060/psf-r0-00051060.fits"
