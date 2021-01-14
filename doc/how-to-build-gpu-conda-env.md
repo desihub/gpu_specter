@@ -1,13 +1,16 @@
-# Instructions for building a GPU-enabled DESI conda environment for corigpu
+# Instructions for building a GPU-enabled DESI conda environment at NERSC
 
 For reference:
  * NERSC corigpu docs: https://docs-dev.nersc.gov/cgpu/software/python/
  * CuPy release info: https://github.com/cupy/cupy/releases/latest
  * CUDA release info: https://developer.nvidia.com/cuda-toolkit-archive
+ * mpi4py info: https://bitbucket.org/mpi4py/mpi4py/src/master/CHANGES.rst
 
-## Build your conda environment on a corigpu node
+## Start an interactive session on a GPU node
 
 As of Nov 2020, the latest CUDA toolkit version available at NERSC is `11.1.1`. Note that CuPy and CUDA versions must match.
+
+On Cori GPU:
 
 ```
 module purge
@@ -19,32 +22,45 @@ conda create -n gpu-specter-dev python=3.8
 source activate gpu-specter-dev
 ```
 
+On DGX:
+
+```
+module purge
+module load dgx
+salloc -C dgx -N 1 -G 1 -c 16 -t 60
+module load python cuda/11.1.1 gcc openmpi
+
+conda create -n gpu-specter-dev-dgx python=3.8
+source activate gpu-specter-dev-dgx
+```
+
 ## Install required DESI, GPU, and MPI python libraries
 
 ```
-conda install -y numpy scipy numba pyyaml astropy matplotlib
+conda install -y numpy scipy numba pyyaml matplotlib
+pip install astropy==4.1
 pip install fitsio
-# pip install speclite
-# pip install cupy-cuda111
+pip install healpy
+pip install speclite
+pip install cupy-cuda111
 # pip install mpi4py
 ```
 
-Installing speclite via pip is [broken](https://github.com/desihub/speclite/issues/60) so use the following instead:
+Make sure mpi4py builds from source using the loaded mpi module.
+
+Build mpi4py from development source. mpi4py [v3.1.0](https://bitbucket.org/mpi4py/mpi4py/src/master/CHANGES.rst) will support passing Python GPU arrays but is not officially released yet.
 
 ```
-pip install git+https://github.com/desihub/speclite.git
+git clone https://bitbucket.org/mpi4py/mpi4py.git
+cd mpi4py/
+python setup.py build
+python setup.py install
 ```
 
-Install CUDA 11.1 compatible cupy package (see [here](https://github.com/cupy/cupy/issues/4209))
+Once mpi4py v3.1.0 is released, use the following:
 
 ```
-pip install cupy-cuda111 -f https://github.com/cupy/cupy/releases/tag/v8.1.0
-```
-
-Make sure mpi4py builds from source using the loaded mpi module:
-
-```
-MPICC="$(which mpicc)" pip install --no-binary mpi4py mpi4py
+# MPICC="$(which mpicc)" pip install --no-binary mpi4py mpi4py
 ```
 
 ## Install gpu_specter
@@ -78,8 +94,6 @@ srun -n 1 -c 2 python -m unittest --verbose gpu_specter.test.test_suite
 
 Tests requiring `specter` are skipped unless the package is installed (see below).
 
-TODO: `test_compare_xp_gpu` is currently failing.
-
 ## Install additional DESI dependencies
 
 These are required to run the 30-frame benchmark.
@@ -91,7 +105,7 @@ pip install git+https://github.com/desihub/desitarget.git
 # pip install git+https://github.com/desihub/desispec.git
 ```
 
-As of Nov 2020, gpu_specter support is not yet merged into desispec so install from fork:
+As of Jan 2020, gpu_specter support is not yet merged into desispec so install from fork:
 
 ```
 pip install git+https://github.com/dmargala/desispec.git@add-gpu-specter-support
@@ -205,24 +219,3 @@ Remove jupyter kernel:
 ```
 jupyter kernelspec uninstall gpu-specter-dev
 ```
-
-## DGX node environment
-
-Very similar to cori gpu instructions, starting with:
-
-```
-module purge
-module load dgx
-salloc -C dgx -N 1 -G 1 -c 16 -t 60
-module load python cuda/11.0.2 gcc openmpi
-
-conda create -n gpu-specter-dev-dgx python=3.8
-source activate gpu-specter-dev-dgx
-```
-
-Then follow all the rest of the cori gpu steps except change the cupy installation command:
-
-```
-pip install cupy-cuda110
-```
-
