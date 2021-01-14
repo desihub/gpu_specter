@@ -265,15 +265,17 @@ class TestExtract(unittest.TestCase):
         nspec, ispec, specmin = 5, 5, 4
         nwave, wavepad, ndiag = 50, 10, 7
         nwavetot = nwave + 2*wavepad
-        n = nwavetot*(2+nspec)
+        nspectot = nspec + 2
+        n = nwavetot*nspectot
         R = np.arange(n*n).reshape(n, n)
 
         Rdiags0 = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
 
         R_gpu = cp.asarray(R)
-        Rdiags1_gpu = gpu_get_resolution_diags(R_gpu, ndiag, ispec-specmin, nspec, nwave, wavepad)
+        s = np.s_[ispec-specmin:ispec-specmin+nspec]
+        Rdiags1_gpu = gpu_get_resolution_diags(R_gpu, ndiag, nspectot, nwave, wavepad)[s]
 
-        self.assertTrue(np.alltrue(Rdiags0 == cp.asnumpy(Rdiags1_gpu)))
+        np.testing.assert_array_equal(Rdiags0, Rdiags1_gpu.get())
 
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
@@ -294,7 +296,7 @@ class TestExtract(unittest.TestCase):
 
         self.assertTrue(np.allclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
         self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
-        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=0))
+        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=1e3*eps_double))
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
         # Compare the "noise" decorrelation method

@@ -3,6 +3,8 @@ import numpy as np
 from astropy.table import Table
 import fitsio
 
+from gpu_specter.util import get_logger
+
 def native_endian(data):
     """Temporary function, sourced from desispec.io
     Convert numpy array data to native endianness if needed.
@@ -27,9 +29,11 @@ def read_psf(filename):
     psfdata = dict()
     psfdata['PSF'] = Table.read(filename, 'PSF')
 
+    log = get_logger()
+
     if 'PSFERR' not in psfdata['PSF'].meta:
         default_psferr = 0.01
-        print(f'Warning! PSFERR not found in PSF meta. Setting to {default_psferr}')
+        log.debug(f'PSFERR not found in PSF meta. Setting to {default_psferr}')
         psfdata['PSF'].meta['PSFERR'] = default_psferr
     
     with fitsio.FITS(filename, 'r') as fx:

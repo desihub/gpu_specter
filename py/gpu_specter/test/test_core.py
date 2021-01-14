@@ -66,7 +66,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -101,7 +101,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -147,7 +147,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=None,
             loglevel='WARN',
         )
@@ -157,7 +157,7 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None, rank=0, size=1,
+            comm=None,
             gpu=True,
             loglevel='WARN',
         )
@@ -167,7 +167,7 @@ class TestCore(unittest.TestCase):
         diff = frame_cpu['specflux'] - frame_gpu['specflux']
         norm = np.sqrt(1.0/frame_cpu['specivar'] + 1.0/frame_gpu['specivar'])
         pull = diff/norm
-        pull_threshold = 1e-4
+        pull_threshold = 5e-4
         self.assertTrue(np.alltrue(np.abs(pull) < pull_threshold))
         # pull_fraction = np.average(np.abs(pull) < pull_threshold)
         # self.assertGreaterEqual(pull_fraction, 0.99)

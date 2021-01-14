@@ -11,6 +11,7 @@ try:
     import numba.cuda
     numba.cuda.is_available()
     import cupy as cp
+    import cupy.prof
     cp.is_available()
 except ImportError:
     pass
@@ -250,17 +251,31 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     else:
         patches = [patch for subbundle in subbundles for patch in subbundle]
         for patch in patches[rank::size]:
-            result = ex2d_padded(image, imageivar,
-                                patch.ispec-bspecmin, patch.nspectra_per_patch,
-                                patch.iwave, patch.nwavestep,
-                                spots, corners, psferr,
-                                wavepad=patch.wavepad,
-                                bundlesize=bundlesize,
-                                model=model,
-                                regularize=regularize,
-                                )
+            try:
+                result = ex2d_padded(image, imageivar,
+                                    patch.ispec-bspecmin, patch.nspectra_per_patch,
+                                    patch.iwave, patch.nwavestep,
+                                    spots, corners, psferr,
+                                    wavepad=patch.wavepad,
+                                    bundlesize=bundlesize,
+                                    model=model,
+                                    regularize=regularize,
+                                    )
+            except RuntimeError:
+                if regularize == 0:
+                    #- Add a smidgen of regularization and to try to power through...
+                    regularize = 1e-4
+                    log.warning(f'Error extracting patch ({patch.ispec}, {patch.iwave}) extraction, retrying with regularize={regularize}')
+                    result = ex2d_padded(image, imageivar, patch.ispec-bspecmin,
+                        patch.nspectra_per_patch, patch.iwave, patch.nwavestep,
+                        spots, corners, psferr, wavepad=patch.wavepad, bundlesize=bundlesize,
+                        model=model, regularize=regularize)
+                else:
+                    raise
             patch.xyslice = result['xyslice']
             results.append( (patch, result) )
+
+    timer.split('extracted patches')
 
     if comm is not None:
         if gpu:
@@ -358,7 +373,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         # timer.log_splits(log)
     return bundle
 
-
+# @cupy.prof.TimeRangeDecorator("decompose_comm")
 def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
     """Decomposes MPI communicator into frame and bundle communicators depending on
     size of communicator, number of GPU devices (if requested), and (optionally) the
@@ -427,9 +442,9 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 
     return bundle_comm, frame_comm, frame_rank, frame_size
 
-
+# @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, rank=0, size=1, gpu=None, loglevel=None, timing=None, clip_scale=0):
+    model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, clip_scale=0):
     """
     Extract 1D spectra from 2D image.
 
@@ -459,7 +474,12 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     log = get_logger(loglevel)
 
-    #- For now, force batch subbundle for GPU extraction and 1 rank per bundle
+    if comm is None:
+        rank, size = 0, 1
+    else:
+        rank, size = comm.rank, comm.size
+
+    #- Force batch subbundle for GPU extraction and 1 rank per bundle
     #- Eventually, add options to configure this and figure out desired default behavior
     if gpu:
         batch_subbundle = True
@@ -482,11 +502,40 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     #- If using MPI, broadcast image, ivar, and psf to all ranks
     if comm is not None:
+        # cp.cuda.nvtx.RangePush('mpi bcast')
         if rank == 0:
             log.info('Broadcasting inputs to other MPI ranks')
-        imgpixels = comm.bcast(imgpixels, root=0)
-        imgivar = comm.bcast(imgivar, root=0)
+
+        if gpu:
+            empty = cp.empty
+        else:
+            empty = np.empty
+
+        # cp.cuda.nvtx.RangePush('shape')
+        if rank == 0:
+            shape = imgpixels.shape
+        else:
+            shape = None
+        shape = comm.bcast(shape, root=0)
+        if rank > 0:
+            imgpixels = empty(shape, dtype='f8')
+            imgivar = empty(shape, dtype='f8')
+        # cp.cuda.nvtx.RangePop() # shape
+
+        # cp.cuda.nvtx.RangePush('imgpixels')
+        comm.Bcast(imgpixels, root=0)
+        # imgpixels = comm.bcast(imgpixels, root=0)
+        # cp.cuda.nvtx.RangePop() # imgpixels
+
+        # cp.cuda.nvtx.RangePush('imgivar')
+        comm.Bcast(imgivar, root=0)
+        # imgivar = comm.bcast(imgivar, root=0)
+        # cp.cuda.nvtx.RangePop() # imgivar
+
+        # cp.cuda.nvtx.RangePush('psf')
         psf = comm.bcast(psf, root=0)
+        # cp.cuda.nvtx.RangePop() # psf
+        # cp.cuda.nvtx.RangePop() # mpi bcast
 
     timer.split('mpi-bcast-raw')
     time_mpi_bcast_raw = time.time()
@@ -564,6 +613,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     timer.split('extracted-bundles')
     time_extracted_bundles = time.time()
 
+    # cp.cuda.nvtx.RangePush('mpi gather')
     if frame_comm is not None:
         # gather results from multiple mpi groups
         if bundle_comm is None or bundle_comm.rank == 0:
@@ -585,12 +635,14 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         # no mpi or single group with all ranks
         rankbundles = [bundles,]
+    # cp.cuda.nvtx.RangePop() # mpi gather
 
     timer.split('staged-bundles')
     time_staged_bundles = time.time()
 
     #- Finalize and write output
     frame = None
+    # cp.cuda.nvtx.RangePush('finalize output')
     if rank == 0:
 
         #- flatten list of lists into single list
@@ -647,6 +699,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         time_merged_bundles = time.time()
         time_assembled_frame = time.time()
+    # cp.cuda.nvtx.RangePop() # finalize output
 
     if isinstance(timing, dict):
         timing['init-mpi-comm'] = time_init_mpi_comm
