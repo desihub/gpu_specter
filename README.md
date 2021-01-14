@@ -90,3 +90,9 @@ srun -n 2 -c 2 --cpu-bind=cores bin/spex --mpi --gpu -o $SCRATCH/spex_skylake_mp
 # 2 GPU + MPI + MPS
 srun -n 4 -c 2 --cpu-bind=cores bin/mps-wrapper bin/spex --mpi --gpu -o $SCRATCH/spex_skylake_mpi4_gpu2_mps.fits $args
 ```
+
+# More documentation
+
+ * [testing](doc/testing.md)
+ * [profiling](doc/profiling.md)
+ * [benchmark](doc/benchmark.md)
