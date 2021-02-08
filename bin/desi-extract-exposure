@@ -60,47 +60,64 @@ parser.add_argument("--spex", action="store_true",
     help="use spex")
 parser.add_argument("--async-io", action="store_true",
     help="use fancy comm")
+parser.add_argument("--no-mpi", action="store_true",
+    help="don't use mpi")
 args = parser.parse_args()
 
 start_time = args.start_time
 
-from mpi4py import MPI
-
-comm = MPI.COMM_WORLD
-rank = comm.rank
-size = comm.size
+if args.no_mpi:
+    comm = None
+    rank, size = 0, 1
+    startup_waiting_time = time.time()
+    startup_time = time.time()
+else:
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.rank
+    size = comm.size
 
 startup_waiting_time = time.time()
-comm.barrier()
+if comm is not None:
+    comm.barrier()
 startup_time = time.time()
 
 #- Divide MPI ranks into per node communication groups
-node = MPI.Get_processor_name()
+if comm is not None:
+    node = MPI.Get_processor_name()
+else:
+    import socket
+    node = socket.gethostname()
 
 group = node
 if args.gpu:
     gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     group += ":" + gpus
 
-groups = comm.allgather(group)
-ngroups = len(set(groups))
-group_size = size // ngroups
+if comm is not None:
+    groups = comm.allgather(group)
+    ngroups = len(set(groups))
+    group_size = size // ngroups
 
-assert group_size * ngroups == size, \
-    f"Number of ranks {size} not divisible by number of groups {ngroups}"
+    assert group_size * ngroups == size, \
+        f"Number of ranks {size} not divisible by number of groups {ngroups}"
 
-#- Assumes contiguous blocks of MPI ranks per group
-group_rank = rank % group_size
-group_index = rank // group_size
-group_comm = comm.Split(color=group_index, key=group_rank)
+    #- Assumes contiguous blocks of MPI ranks per group
+    group_rank = rank % group_size
+    group_index = rank // group_size
+    group_comm = comm.Split(color=group_index, key=group_rank)
 
-if args.async_io:
-    group_comm = AsyncIOComm(group_comm)
+    if args.async_io:
+        group_comm = AsyncIOComm(group_comm)
+    else:
+        group_comm = SyncIOComm(group_comm)
 else:
-    group_comm = SyncIOComm(group_comm)
-
-# if not args.spex:
-#     group_comm = group_comm.extract_comm
+    ngroups = 1
+    group_index = 0
+    group_rank = 0
+    group_size = 1
+    group_comm = None
+    groups = [group, ]
 
 if rank == 0:
     print(f"Splitting {size} ranks into {ngroups} groups of {group_size}")
@@ -166,12 +183,12 @@ for camera in group_cameras:
 
     if not os.path.isfile(img_filename):
         if group_rank == 0:
-            print("Skipping {camera}, image file does not exist: {img_filename}")
+            print(f"Skipping {camera}, image file does not exist: {img_filename}")
             sys.stdout.flush()
         continue
     if not os.path.isfile(psf_filename):
         if group_rank == 0:
-            print("Skipping {camera}, psf file does not exist: {psf_filename}")
+            print(f"Skipping {camera}, psf file does not exist: {psf_filename}")
             sys.stdout.flush()
         continue
 
@@ -182,18 +199,21 @@ for camera in group_cameras:
         cmd = "desi_extract_spectra --gpu-specter"
         engine = extract
 
-    cmd += " --mpi" \
+    if not args.no_mpi:
+        cmd += " --mpi"
+
+    cmd += \
         f" -i {img_filename}" \
         f" -p {psf_filename}" \
         f" -o {frame_filename}"
 
     #- DEBUG speed
     # if camera.startswith("b"):
-    #     cmd = cmd + " -w 4000,4200,1"
+    #     cmd = cmd + " -w 3600.0,3700.0,0.8"
     # elif camera.startswith("r"):
-    #     cmd = cmd + " -w 6000,6200,1"
+    #     cmd = cmd + " -w 5760.0,5860.0,0.8"
     # elif camera.startswith("z"):
-    #     cmd = cmd + " -w 9000,9200,1"
+    #     cmd = cmd + " -w 7520.0,7620.0,0.8"
 
     if camera.startswith("b"):
         cmd = cmd + " -w 3600.0,5800.0,0.8"
@@ -216,7 +236,7 @@ for camera in group_cameras:
     if args.gpu:
         cmd = cmd + " --gpu"
 
-    if group_comm.rank == 0:
+    if group_rank == 0:
         print(rank, cmd)
         sys.stdout.flush()
 
@@ -234,20 +254,26 @@ for camera in group_cameras:
         events.append((group, rank, group_rank, camera, event_name, event_time - start_time))
 
     #- Mark successfully extracted frame
-    if group_comm.rank == 0:
+    if group_rank == 0:
         frames_extracted.append(camera)
 
 #- Wait for all ranks
 end_waiting_time = time.time()
-comm.barrier()
+if comm is not None:
+    comm.barrier()
 end_time = time.time()
 events.append((group, rank, group_rank, None, "exposure-end-waiting", end_waiting_time - start_time))
 events.append((group, rank, group_rank, None, "exposure-end", end_time - start_time))
 
 #- Collect metrics
-nframes = comm.reduce(len(frames_extracted), root=0)
-events = comm.gather(events, root=0)
-nodes = comm.gather(node, root=0)
+if comm is not None:
+    nframes = comm.reduce(len(frames_extracted), root=0)
+    events = comm.gather(events, root=0)
+    nodes = comm.gather(node, root=0)
+else:
+    nframes = len(frames_extracted)
+    events = [events, ]
+    nodes = [node, ]
 
 if rank == 0:
 
