@@ -502,7 +502,7 @@ def _prepare_patch(image, imageivar, specmin, nspectot, iwave, nwave, wavepad, s
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
         #- of the image; we can do better than that
-        print('offedge:', ymin, ymin+ny, image.shape[0], flush=True)
+        #print('offedge:', ymin, ymin+ny, image.shape[0], flush=True)
         xyslice = None
         patchivar = cp.zeros((ny, nx))
         patchpixels = cp.zeros((ny, nx))
@@ -834,16 +834,16 @@ def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
     Rdiags = get_resolution_diags(R, ndiag, nspectot, nwave, wavepad)[specslice[0]]
 
-    if cp.any(cp.isnan(specflux[:, patch.keepslice])):
-        # raise RuntimeError('Found NaN in extracted flux')
-        print(f'nanflux: {patch.bspecmin}, {patch.ispec}, {patch.iwave}, {xyslice}', flush=True)
+    # if cp.any(cp.isnan(specflux[:, patch.keepslice])):
+    #     # raise RuntimeError('Found NaN in extracted flux')
+    #     print(f'nanflux: {patch.bspecmin}, {patch.ispec}, {patch.iwave}, {xyslice}', flush=True)
 
-    if cp.any(specflux[:, patch.keepslice] == 0):
-        # raise RuntimeError('Found zero in extracted flux')
-        print(specflux.shape, patch.keepslice, flush=True)
-        print(f'zeroflux: ({patch.bspecmin}, {patch.ispec}, {ispec}), {patch.iwave}, {xyslice}', flush=True)
-        where = np.where(specflux[:, patch.keepslice] == 0)
-        print(f'where: {where}', flush=True)
+    # if cp.any(specflux[:, patch.keepslice] == 0):
+    #     # raise RuntimeError('Found zero in extracted flux')
+    #     print(specflux.shape, patch.keepslice, flush=True)
+    #     print(f'zeroflux: ({patch.bspecmin}, {patch.ispec}, {ispec}), {patch.iwave}, {xyslice}', flush=True)
+    #     where = np.where(specflux[:, patch.keepslice] == 0)
+    #     print(f'where: {where}', flush=True)
 
     patchpixels = patchpixels.ravel()
     patchivar = patchivar.ravel()
