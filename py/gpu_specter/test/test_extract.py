@@ -36,7 +36,7 @@ class TestExtract(unittest.TestCase):
         nspec = 5
 
         cls.psferr = cls.psfdata['PSF'].meta['PSFERR']
-        cls.spots, cls.corners = get_spots(0, nspec, cls.wavelengths, cls.psfdata)
+        cls.spots, cls.corners, psfparams = get_spots(0, nspec, cls.wavelengths, cls.psfdata)
         cls.A4, cls.xyrange = projection_matrix(0, nspec, 0, nwave, cls.spots, cls.corners)
 
         phot = np.zeros((nspec, nwave))

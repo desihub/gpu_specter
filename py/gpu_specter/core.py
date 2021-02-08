@@ -155,7 +155,7 @@ def assemble_bundle_patches(rankresults):
 
     return specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice
 
-
+# @cupy.prof.TimeRangeDecorator("extract_bundle")
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1, batch_subbundle=False,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
     psferr=None, clip_scale=0):
@@ -198,11 +198,13 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     #- Extracting on CPU or GPU?
     if gpu:
-        from gpu_specter.extract.gpu import \
-                get_spots, ex2d_padded, ex2d_subbundle
+        from gpu_specter.extract.gpu import (
+            get_spots, ex2d_padded, ex2d_subbundle
+        )
     else:
-        from gpu_specter.extract.cpu import \
-                get_spots, ex2d_padded
+        from gpu_specter.extract.cpu import (
+            get_spots, ex2d_padded
+        )
 
     nwave = len(wave)
     ndiag = psf['PSF'].meta['HSIZEY']
@@ -212,7 +214,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     #- Cache PSF spots for all wavelengths for spectra in this bundle
     if gpu:
         cp.cuda.nvtx.RangePush('get_spots')
-    spots, corners = get_spots(bspecmin, bundlesize, fullwave, psf)
+    spots, corners, psfparams = get_spots(bspecmin, bundlesize, fullwave, psf)
     if gpu:
         cp.cuda.nvtx.RangePop()
     if psferr is None:
@@ -260,6 +262,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                                     bundlesize=bundlesize,
                                     model=model,
                                     regularize=regularize,
+                                    patch=patch,
                                     )
             except RuntimeError:
                 if regularize == 0:
@@ -269,7 +272,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                     result = ex2d_padded(image, imageivar, patch.ispec-bspecmin,
                         patch.nspectra_per_patch, patch.iwave, patch.nwavestep,
                         spots, corners, psferr, wavepad=patch.wavepad, bundlesize=bundlesize,
-                        model=model, regularize=regularize)
+                        model=model, regularize=regularize, patch=patch)
                 else:
                     raise
             patch.xyslice = result['xyslice']
@@ -553,20 +556,24 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         timer.split('host-to-device-raw')
     time_host_to_device_raw = time.time()
 
-    if wavelength is not None:
-        wmin, wmax, dw = map(float, wavelength.split(','))
+    if isinstance(wavelength, np.ndarray):
+        wave = wavelength
+        wmin, wmax = wave[0], wave[-1]
+        dw = np.gradient(wave)[0]
     else:
-        wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
-        dw = 0.8
-
-    if rank == 0:
-        log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
-    
-    #- TODO: calculate this instead of hardcoding it
-    wavepad = 10
+        if isinstance(wavelength, str):
+            wmin, wmax, dw = map(float, wavelength.split(','))
+        else:
+            wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
+            dw = 0.8
+        wave = np.arange(wmin, wmax + 0.5*dw, dw)
 
     #- Wavelength range that we want to extract
-    wave = np.arange(wmin, wmax + 0.5*dw, dw)
+    if rank == 0:
+        log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
+
+    #- TODO: calculate this instead of hardcoding it
+    wavepad = 10
     nwave = len(wave)
     
     #- Pad that with buffer wavelengths to extract and discard, including an
@@ -575,7 +582,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     wavelo -= (np.max(wavelo)+dw)
     wavelo += wmin
     wavehi = wave[-1] + (1.0+np.arange(wavepad+nwavestep))*dw
-    
+
     fullwave = np.concatenate((wavelo, wave, wavehi))
     assert np.allclose(np.diff(fullwave), dw)
     

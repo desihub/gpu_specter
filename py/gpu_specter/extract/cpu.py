@@ -222,7 +222,7 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
 
     corners = (xc, yc)
 
-    return spots, corners
+    return spots, corners, p
 
 @numba.jit
 def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
@@ -344,7 +344,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
     return Rdiags
 
 def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
-                wavepad, bundlesize=25, model=None, regularize=0):
+                wavepad, bundlesize=25, model=None, regularize=0, patch=None):
     """
     Extracted a patch with border padding, but only return results for patch
 
