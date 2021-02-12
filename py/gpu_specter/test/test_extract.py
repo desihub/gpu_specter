@@ -4,6 +4,7 @@ from astropy.table import Table
 import numpy as np
 
 from gpu_specter.io import read_psf
+from gpu_specter.core import Patch
 from gpu_specter.extract.cpu import (
     projection_matrix, get_spots, get_resolution_diags,
     ex2d_padded, ex2d_patch
@@ -111,11 +112,11 @@ class TestExtract(unittest.TestCase):
         img[ypadmin:ypadmax, xmin:xmax] = self.noisyimg
         ivar[ypadmin:ypadmax, xmin:xmax] = self.imgivar
 
+        patch = Patch(ispec, iwave, 0, bundlesize, nwavepatch, wavepad, nwave, bundlesize, 11)
+
         result = ex2d_padded(
-            img, ivar, ispec, nspec, iwave, nwavepatch,
-            self.spots, self.corners, self.psferr,
-            wavepad, bundlesize=bundlesize,
-            model=True, regularize=1e-8
+            img, ivar, patch, self.spots, self.corners, 
+            pixpad_frac=0, regularize=1e-8, model=True, psferr=self.psferr
         )
 
         modelimage = np.zeros_like(img)
@@ -201,7 +202,8 @@ class TestExtract(unittest.TestCase):
 
         eps_double = np.finfo(np.float64).eps
         np.testing.assert_array_equal(icov, icov3)
-        np.testing.assert_allclose(icov, cp.asnumpy(icov_gpu), rtol=1e3*eps_double, atol=0)
+        where = np.where(~np.isclose(icov, cp.asnumpy(icov_gpu), rtol=1e3*eps_double, atol=0))
+        np.testing.assert_allclose(icov, cp.asnumpy(icov_gpu), rtol=1e3*eps_double, atol=0, err_msg=f"where: {where}")
         np.testing.assert_allclose(y, cp.asnumpy(y_gpu), rtol=1e3*eps_double, atol=0)
         np.testing.assert_allclose(fluxweight, cp.asnumpy(fluxweight_gpu), rtol=1e3*eps_double, atol=0)
 
@@ -294,7 +296,8 @@ class TestExtract(unittest.TestCase):
 
         eps_double = np.finfo(np.float64).eps
 
-        self.assertTrue(np.allclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
+        where = np.where(~np.isclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
+        np.testing.assert_allclose(flux0, flux1, rtol=1e5*eps_double, atol=0, err_msg=f"where: {where}")
         self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
         self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=1e3*eps_double))
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
@@ -310,6 +313,33 @@ class TestExtract(unittest.TestCase):
         self.assertTrue(np.allclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
         self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
         self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=0))
+        self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
+
+    @unittest.skipIf(not cupy_available, 'cupy not available')
+    def test_compare_batch_extraction(self):
+        from gpu_specter.extract.gpu import _apply_weights, _batch_extraction
+        noisyimg_gpu = cp.asarray(self.noisyimg)
+        imgivar_gpu = cp.asarray(self.imgivar)
+        A4_gpu = cp.asarray(self.A4)
+
+        # Compare the "signal" decorrelation method
+        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+
+        ny, nx, nspec, nwave = self.A4.shape
+        icov, y = _apply_weights(noisyimg_gpu.ravel(), imgivar_gpu.ravel(), A4_gpu.reshape(ny*nx, nspec*nwave), regularize=0)
+        flux1_gpu, ivar1_gpu, R1_gpu = _batch_extraction(icov, y, nwave)
+        # Rdiags = get_resolution_diags(R, ndiag, nspectot, nwave, wavepad)[specslice[0]]
+
+        flux1 = cp.asnumpy(flux1_gpu.reshape(nspec, nwave))
+        ivar1 = cp.asnumpy(ivar1_gpu.reshape(nspec, nwave))
+        R1 = cp.asnumpy(R1_gpu.reshape(nspec*nwave, nspec*nwave))
+
+        eps_double = np.finfo(np.float64).eps
+
+        where = np.where(~np.isclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
+        np.testing.assert_allclose(flux0, flux1, rtol=1e5*eps_double, atol=0, err_msg=f"where: {where}")
+        self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
+        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=1e3*eps_double))
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
     @unittest.skipIf(not specter_available, 'specter not available')
