@@ -61,8 +61,9 @@ def read_img(filename):
         imgdata['image'] = native_endian(fx['IMAGE'].read().astype('f8'))
         imgdata['ivar'] = native_endian(fx['IVAR'].read().astype('f8'))
         imgdata['imagehdr'] = fx['IMAGE'].read_header()
-        mask = fx['MASK'].read()
-        imgdata['ivar'][mask != 0] = 0.0
+        imgdata['mask'] = fx['MASK'].read()
+        imgdata['ivar'][imgdata['mask'] != 0] = 0.0
+        # imgdata['image'] = imgdata['image']*(imgdata['ivar'] > 0)
         imgdata['fibermap'] = fx['FIBERMAP'].read()
         try:
             imgdata['fibermaphdr'] = fx['FIBERMAP'].read_header()

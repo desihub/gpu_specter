@@ -40,7 +40,7 @@ class TestProjectionMatrix(unittest.TestCase):
 
     def test_basics(self):
         wavelengths = np.arange(6000.0, 6050.0, 1.0)
-        spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
+        spots, corners, psfparams = get_spots(0, 25, wavelengths, self.psfdata)
         
         #- Projection matrix for a subset of spots and wavelenghts
         A4, (xmin, xmax, ymin, ymax) = projection_matrix(
@@ -57,7 +57,7 @@ class TestProjectionMatrix(unittest.TestCase):
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
         wavelengths = np.arange(5990.0, 6060.0, 1.0)
-        spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
+        spots, corners, psfparams = get_spots(0, 25, wavelengths, self.psfdata)
 
         spots_gpu = cp.asarray(spots)
         corners_gpu = [cp.asarray(c) for c in corners]
@@ -88,7 +88,7 @@ class TestProjectionMatrix(unittest.TestCase):
         
         #- gpu_specter
         wavelengths = np.arange(5990.0, 6060.0, 1.0)
-        spots, corners = get_spots(0, 25, wavelengths, self.psfdata)
+        spots, corners, psfparams = get_spots(0, 25, wavelengths, self.psfdata)
 
         #- Load specter PSF
         psf = specter.psf.load_psf(self.psffile)

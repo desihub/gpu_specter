@@ -46,7 +46,7 @@ class TestPSFSpots(unittest.TestCase):
 
     def test_basics(self):
         nspec = 50
-        spots, corners = get_spots(0, nspec, self.wavelengths, self.psfdata)
+        spots, corners, psfparams = get_spots(0, nspec, self.wavelengths, self.psfdata)
         cx, cy = corners
         
         #- Dimensions
@@ -88,10 +88,10 @@ class TestPSFSpots(unittest.TestCase):
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
         for ispec in np.linspace(0, 499, 20).astype(int):
-            spots, corners = get_spots(ispec, 1, self.wavelengths, self.psfdata)
+            spots, corners, psfparams = get_spots(ispec, 1, self.wavelengths, self.psfdata)
             xc, yc = corners
 
-            spots_gpu, corners_gpu = gpu_get_spots(ispec, 1, self.wavelengths, self.psfdata)
+            spots_gpu, corners_gpu, psfparams_gpu = gpu_get_spots(ispec, 1, self.wavelengths, self.psfdata)
             xc_gpu, yc_gpu = corners_gpu
 
             # compare corners
@@ -109,7 +109,7 @@ class TestPSFSpots(unittest.TestCase):
         psf = specter.psf.load_psf(self.psffile)
 
         for ispec in np.linspace(0, 499, 20).astype(int):
-            spots, corners = get_spots(ispec, 1, self.wavelengths, self.psfdata)
+            spots, corners, psfparams = get_spots(ispec, 1, self.wavelengths, self.psfdata)
             xc, yc = corners
 
             ny, nx = spots.shape[2:4]
