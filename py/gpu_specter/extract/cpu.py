@@ -343,8 +343,7 @@ def get_resolution_diags(R, ndiag, ispec, nspec, nwave, wavepad):
             Rdiags[i-ispec, :, j-wavepad] = Rx[j-ndiag:j+ndiag+1, j]
     return Rdiags
 
-def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, psferr,
-                wavepad, bundlesize=25, model=None, regularize=0, patch=None):
+def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize, model, psferr):
     """
     Extracted a patch with border padding, but only return results for patch
 
@@ -362,8 +361,13 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     Options:
         bundlesize: size of fiber bundles; padding not needed on their edges
     """
+    ispec = patch.ispec - patch.bspecmin
+    nspec = patch.nspectra_per_patch
+    iwave = patch.iwave
+    nwave = patch.nwavestep
+    wavepad = patch.wavepad
 
-    specmin, nspecpad = get_spec_padding(ispec, nspec, bundlesize)
+    specmin, nspecpad = get_spec_padding(ispec, nspec, patch.bundlesize)
 
     #- Total number of wavelengths to be extracted, including padding
     nwavetot = nwave+2*wavepad
@@ -377,12 +381,15 @@ def ex2d_padded(image, imageivar, ispec, nspec, iwave, nwave, spots, corners, ps
     #- But we only want to use the pixels covered by the original wavelengths
     #- TODO: this unnecessarily also re-calculates xranges
     xlo, xhi, ymin, ymax = get_xyrange(specmin, nspecpad, iwave, nwave, spots, corners)
-    ypadlo = ymin - ypadmin
-    ypadhi = ypadmax - ymax
-    A4 = A4[ypadlo:-ypadhi]
+
+    ypadlo = int((ymin - ypadmin) * (1 - pixpad_frac))
+    ypadhi = int((ymax - ypadmin) + (ypadmax - ymax) * (pixpad_frac))
+    A4 = A4[ypadlo:ypadhi]
 
     #- Number of image pixels in y and x
     ny, nx = A4.shape[0:2]
+    ymin = ypadmin+ypadlo
+    ymax = ypadmin+ypadhi
 
     #- Check dimensions
     assert A4.shape[2] == nspecpad

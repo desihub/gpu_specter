@@ -158,7 +158,7 @@ def assemble_bundle_patches(rankresults):
 # @cupy.prof.TimeRangeDecorator("extract_bundle")
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1, batch_subbundle=False,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
-    psferr=None, clip_scale=0):
+    psferr=None, pixpad_frac=0):
     """
     Extract 1D spectra from a single bundle of a 2D image.
 
@@ -173,16 +173,19 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
     Options:
         bundlesize: fixed number of spectra per bundle (25 for DESI)
         nsubbundles: number of spectra per patch
+        batch_subbundles: whether or not to use batch subbundle extraction
         nwavestep: number of wavelength bins per patch
         wavepad: number of wavelengths bins to add on each end of patch for extraction
         comm: mpi communicator (no mpi: None)
-        rank: integer process identifier (no mpi: 0)
-        size: number of mpi processes (no mpi: 1)
         gpu: use GPU for extraction (not yet implemented)
         loglevel: log print level
+        model: indicate whether or not to compute the image model
+        regularize: regularization parameter
+        psferr: scale factor to use for psf in chi2
+        pixpad_frac: fraction of padded pixels to use in extraction
 
     Returns:
-        bundle: (flux, ivar, R) tuple
+        bundle: (flux, ivar, resolution, pixmask_fraction, chi2pix, modelimage, xyslice) tuple
 
     """
     timer = Timer()
@@ -246,33 +249,22 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         for subbundle in subbundles[rank::size]:
             result = ex2d_subbundle(
                 image, imageivar, subbundle, spots, corners,
-                bundlesize, regularize, clip_scale,
-                psferr, model
+                pixpad_frac, regularize, model, psferr
             )
             results += result
     else:
         patches = [patch for subbundle in subbundles for patch in subbundle]
         for patch in patches[rank::size]:
             try:
-                result = ex2d_padded(image, imageivar,
-                                    patch.ispec-bspecmin, patch.nspectra_per_patch,
-                                    patch.iwave, patch.nwavestep,
-                                    spots, corners, psferr,
-                                    wavepad=patch.wavepad,
-                                    bundlesize=bundlesize,
-                                    model=model,
-                                    regularize=regularize,
-                                    patch=patch,
-                                    )
+                result = ex2d_padded(image, imageivar, patch, spots, corners, 
+                    pixpad_frac, regularize, model, psferr)
             except RuntimeError:
                 if regularize == 0:
                     #- Add a smidgen of regularization and to try to power through...
                     regularize = 1e-4
                     log.warning(f'Error extracting patch ({patch.ispec}, {patch.iwave}) extraction, retrying with regularize={regularize}')
-                    result = ex2d_padded(image, imageivar, patch.ispec-bspecmin,
-                        patch.nspectra_per_patch, patch.iwave, patch.nwavestep,
-                        spots, corners, psferr, wavepad=patch.wavepad, bundlesize=bundlesize,
-                        model=model, regularize=regularize, patch=patch)
+                    result = ex2d_padded(image, imageivar, patch, spots, corners, 
+                        pixpad_frac, regularize, model, psferr)
                 else:
                     raise
             patch.xyslice = result['xyslice']
@@ -280,6 +272,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     timer.split('extracted patches')
 
+    bundle = None
     if comm is not None:
         if gpu:
             # If we have gpu and an MPI comm for this bundle, transfer data
@@ -341,39 +334,15 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
                 ]
         else:
             rankresults = comm.gather(results, root=0)
+        if rank == 0:
+            bundle = assemble_bundle_patches(rankresults)
     else:
         # this is fine for GPU w/out MPI comm
         rankresults = [results,]
-
-    timer.split('gathered patches')
-
-    bundle = None
-    if rank == 0:
-        if gpu:
-            cp.cuda.nvtx.RangePush('assemble patches on device')
-            device_id = cp.cuda.runtime.getDevice()
-            log.debug(f'Rank {rank}: Assembling bundle {bspecmin} patches on device {device_id}')
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
-            cp.cuda.nvtx.RangePop()
-            if comm is None:
-                cp.cuda.nvtx.RangePush('copy bundle results to host')
-                device_id = cp.cuda.runtime.getDevice()
-                log.debug(f'Rank {rank}: Moving bundle {bspecmin} to host from device {device_id}')
-                specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice = bundle
-                bundle = (
-                    cp.asnumpy(specflux),
-                    cp.asnumpy(specivar),
-                    cp.asnumpy(Rdiags),
-                    cp.asnumpy(pixmask_fraction),
-                    cp.asnumpy(chi2pix),
-                    cp.asnumpy(modelimage),
-                    xyslice
-                )
-                # bundle = tuple(cp.asnumpy(x) for x in bundle)
-                cp.cuda.nvtx.RangePop()
-        timer.split('assembled patches')
-        # timer.log_splits(log)
+            bundle = tuple(cp.asnumpy(x) if isinstance(x, cp.core.core.ndarray) else x for x in bundle)
+
     return bundle
 
 # @cupy.prof.TimeRangeDecorator("decompose_comm")
@@ -447,7 +416,8 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
-    model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, clip_scale=0):
+    model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
+    wavepad=10, pixpad_frac=0):
     """
     Extract 1D spectra from 2D image.
 
@@ -462,11 +432,16 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         wavelength: wavelength range to extract, formatted as 'wmin,wmax,dw'
         nwavestep: number of wavelength bins per patch
         nsubbundles: number of spectra per patch
+        model: indicate whether or not to compute the image model
+        regularize: regularization parameter
+        psferr: scale factor to use for psf in chi2
         comm: mpi communicator (no mpi: None)
-        rank: integer process identifier (no mpi: 0)
-        size: number of mpi processes (no mpi: 1)
         gpu: use GPU for extraction
         loglevel: log print level
+        timing: dictionary to return timing splits
+        wavepad: number of wavelength bins to pad extraction with (must be greater than
+            spotsize)
+        pixpad_frac: fraction of padded pixels to use in extraction
 
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
@@ -607,7 +582,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             model=model,
             regularize=regularize,
             psferr=psferr,
-            clip_scale=clip_scale,
+            pixpad_frac=0,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
