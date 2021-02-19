@@ -28,24 +28,23 @@ class TestPolynomial(unittest.TestCase):
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_gpu_hermevander(self):
-        from numpy.polynomial.hermite_e import hermevander as numpy_hermevander
-        from gpu_specter.polynomial import hermevander as gpu_hermevander
-        x = np.array([-1, 0, 1])
-        result = numpy_hermevander(x, 3)
-        gpu_x = cp.array(x)
-        gpu_result = gpu_hermevander(gpu_x, 3)
-        ok = np.allclose(cp.asnumpy(gpu_result), result)
-        self.assertTrue(ok, f'{gpu_result} != {result}')
+        from gpu_specter.polynomial import hermevander
+        degree = 10
+        rng = np.random.default_rng(12345)
+        cpu_x = rng.random((10, 100))
+        gpu_x = cp.array(cpu_x)
+        cpu_result = np.polynomial.hermite_e.hermevander(cpu_x, degree)
+        gpu_result = hermevander(gpu_x, degree)
+        self.assertTrue(np.allclose(cpu_result, gpu_result.get()))
 
 
     @unittest.skipIf(not cupy_available, 'cupy not available')
     def test_gpu_legvander(self):
-        from numpy.polynomial.legendre import legvander as numpy_legvander
-        from gpu_specter.polynomial import legvander as gpu_legvander
-        x = np.array([-1, 0, 1])
-        result = numpy_legvander(x, 3)
-        gpu_x = cp.array(x)
-        gpu_result = gpu_legvander(gpu_x, 3)
-        ok = np.allclose(cp.asnumpy(gpu_result), result)
-        self.assertTrue(ok, f'{gpu_result} != {result}')
-        
+        from gpu_specter.polynomial import legvander
+        degree = 10
+        rng = np.random.default_rng(12345)
+        cpu_x = rng.random(100)
+        gpu_x = cp.array(cpu_x)
+        cpu_result = np.polynomial.legendre.legvander(cpu_x, degree)
+        gpu_result = legvander(gpu_x, degree)
+        self.assertTrue(np.allclose(cpu_result, gpu_result.get()))
