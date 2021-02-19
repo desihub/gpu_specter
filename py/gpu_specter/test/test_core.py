@@ -175,7 +175,7 @@ class TestCore(unittest.TestCase):
         wavelength = '5760.0,7620.0,0.8'
 
         specmin = 0
-        nspec = 10
+        nspec = 20
         nwavestep = 50
         nsubbundles = 2
 
@@ -227,7 +227,7 @@ class TestCore(unittest.TestCase):
         wavelength = '5760.0,7620.0,0.8'
 
         specmin = 0
-        nspec = 20
+        nspec = 40
         nwavestep = 50
         nsubbundles = 2
 
