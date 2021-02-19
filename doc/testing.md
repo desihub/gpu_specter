@@ -36,25 +36,6 @@ coverage combine
 coverage report -m
 ```
 
-Example output:
-
-```
-Name                                 Stmts   Miss  Cover   Missing
-------------------------------------------------------------------
-py/gpu_specter/__init__.py               1      0   100%
-py/gpu_specter/core.py                 339     31    91%   114, 133, 151-154, 261-269, 402-403, 538-540, 545-546, 646-650, 689-695
-py/gpu_specter/extract/__init__.py       0      0   100%
-py/gpu_specter/extract/both.py         115      9    92%   53, 129-135, 199
-py/gpu_specter/extract/cpu.py          308     83    73%   171-187, 244-253, 277-287, 418-428, 431, 497-512, 530-549, 625-630, 646-651, 696
-py/gpu_specter/extract/gpu.py          349     47    87%   185-204, 265-277, 465-477, 483-487, 516-528, 640
-py/gpu_specter/io.py                    68     26    62%   70-71, 81-90, 94-97, 105-122
-py/gpu_specter/linalg.py               123     21    83%   23, 29-30, 34-43, 109-120
-py/gpu_specter/polynomial.py            25      1    96%   24
-py/gpu_specter/util.py                  76     10    87%   61-63, 74, 79-84, 161-162
-------------------------------------------------------------------
-TOTAL                                 1404    228    84%
-```
-
 ## Strict regression test
     
 Use to confirm that changes do not affect the output. 
