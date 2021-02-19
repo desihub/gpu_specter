@@ -28,17 +28,41 @@ try:
 except:
     preproc_available = False
 
+try:
+    from mpi4py import MPI
+    mpi_available = True
+except:
+    mpi_available = False
+
 
 @unittest.skipIf(not preproc_available, f'{imgfile} not available')
 class TestCore(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+
+
+        if mpi_available:
+            cls.comm = MPI.COMM_WORLD
+            cls.rank = cls.comm.Get_rank()
+            cls.size = cls.comm.Get_size()
+            #- ignore mpi if fewer than 2 ranks by setting comm to None
+            if cls.size < 2:
+                cls.comm = None
+        else:
+            cls.comm = None
+            cls.rank = 0
+            cls.size = 1
+
         cls.psffile = pkg_resources.resource_filename(
             'gpu_specter', 'test/data/psf-r0-00051060.fits')
-        cls.psfdata = read_psf(cls.psffile)
 
-        cls.imgdata = read_img(imgfile)
+        if cls.rank == 0:
+            cls.psfdata = read_psf(cls.psffile)
+            cls.imgdata = read_img(imgfile)
+        else:
+            cls.psfdata = None
+            cls.imgdata = None
 
     @classmethod
     def tearDownClass(cls):
@@ -51,6 +75,8 @@ class TestCore(unittest.TestCase):
         pass
 
     def test_extract_frame(self):
+        if self.comm is not None:
+            self.comm.barrier()
 
         bundlesize = 10
         wavelength = '6000.0,6100.0,1.0'
@@ -66,10 +92,13 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None,
+            comm=self.comm,
             gpu=None,
             loglevel='WARN',
         )
+
+        if self.rank > 0:
+            return
 
         keys = (
             'wave', 'specflux', 'specivar', 'Rdiags',
@@ -87,6 +116,8 @@ class TestCore(unittest.TestCase):
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):
+        if self.comm is not None:
+            self.comm.barrier()
 
         bundlesize = 10
         wavelength = '5760.0,7620.0,0.8'
@@ -101,10 +132,13 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None,
+            comm=self.comm,
             gpu=None,
             loglevel='WARN',
         )
+
+        if self.rank > 0:
+            return
 
         self.assertEqual(frame_spex['specflux'].shape[0], nspec)
 
@@ -118,7 +152,7 @@ class TestCore(unittest.TestCase):
             xyrange=None, regularize=0.0, ndecorr=False,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             wavesize=nwavestep, 
-            full_output=True, verbose=False,
+            full_output=True, verbose=True,
             debug=False, psferr=None,
         )
 
@@ -134,6 +168,9 @@ class TestCore(unittest.TestCase):
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
+        if self.comm is not None:
+            self.comm.barrier()
+
         bundlesize = 10
         wavelength = '5760.0,7620.0,0.8'
 
@@ -147,9 +184,9 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None,
+            comm=self.comm,
             gpu=None,
-            loglevel='WARN',
+            loglevel='INFO',
         )
 
         frame_gpu = extract_frame(
@@ -157,10 +194,14 @@ class TestCore(unittest.TestCase):
             specmin, nspec,
             wavelength=wavelength,
             nwavestep=nwavestep, nsubbundles=nsubbundles,
-            comm=None,
+            comm=self.comm,
             gpu=True,
-            loglevel='WARN',
+            loglevel='INFO',
+            batch_subbundle=False,
         )
+
+        if self.rank > 0:
+            return
 
         self.assertEqual(frame_cpu['specflux'].shape, frame_gpu['specflux'].shape)
 
@@ -176,6 +217,59 @@ class TestCore(unittest.TestCase):
         np.testing.assert_allclose(frame_cpu['specflux'], frame_gpu['specflux'], rtol=1e-3, atol=0)
         np.testing.assert_allclose(frame_cpu['specivar'], frame_gpu['specivar'], rtol=1e-3, atol=0)
         np.testing.assert_allclose(frame_cpu['Rdiags'], frame_gpu['Rdiags'], rtol=1e-5, atol=1e-6)
+
+    @unittest.skipIf(not gpu_available, 'gpu not available')
+    def test_gpu_batch_subbundle(self):
+        if self.comm is not None:
+            self.comm.barrier()
+
+        bundlesize = 10
+        wavelength = '5760.0,7620.0,0.8'
+
+        specmin = 0
+        nspec = 20
+        nwavestep = 50
+        nsubbundles = 2
+
+        patch_gpu_frame = extract_frame(
+            self.imgdata, self.psfdata, bundlesize,
+            specmin, nspec,
+            wavelength=wavelength,
+            nwavestep=nwavestep, nsubbundles=nsubbundles,
+            comm=self.comm,
+            gpu=True,
+            loglevel='WARN',
+            batch_subbundle=False,
+        )
+
+        subbundle_gpu_frame = extract_frame(
+            self.imgdata, self.psfdata, bundlesize,
+            specmin, nspec,
+            wavelength=wavelength,
+            nwavestep=nwavestep, nsubbundles=nsubbundles,
+            comm=self.comm,
+            gpu=True,
+            loglevel='WARN',
+            batch_subbundle=True,
+        )
+
+        if self.rank > 0:
+            return
+
+        self.assertEqual(patch_gpu_frame['specflux'].shape, subbundle_gpu_frame['specflux'].shape)
+
+        diff = patch_gpu_frame['specflux'] - subbundle_gpu_frame['specflux']
+        norm = np.sqrt(1.0/patch_gpu_frame['specivar'] + 1.0/subbundle_gpu_frame['specivar'])
+        pull = diff/norm
+        pull_threshold = 5e-4
+        self.assertTrue(np.alltrue(np.abs(pull) < pull_threshold))
+        # pull_fraction = np.average(np.abs(pull) < pull_threshold)
+        # self.assertGreaterEqual(pull_fraction, 0.99)
+
+        eps_double = np.finfo(np.float64).eps
+        np.testing.assert_allclose(patch_gpu_frame['specflux'], subbundle_gpu_frame['specflux'], rtol=1e-3, atol=0)
+        np.testing.assert_allclose(patch_gpu_frame['specivar'], subbundle_gpu_frame['specivar'], rtol=1e-3, atol=0)
+        np.testing.assert_allclose(patch_gpu_frame['Rdiags'], subbundle_gpu_frame['Rdiags'], rtol=1e-5, atol=1e-6)
 
 if __name__ == '__main__':
     unittest.main()
