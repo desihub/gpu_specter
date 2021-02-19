@@ -152,7 +152,7 @@ class TestCore(unittest.TestCase):
             xyrange=None, regularize=0.0, ndecorr=False,
             bundlesize=bundlesize, nsubbundles=nsubbundles,
             wavesize=nwavestep, 
-            full_output=True, verbose=True,
+            full_output=True, verbose=False,
             debug=False, psferr=None,
         )
 
@@ -186,7 +186,7 @@ class TestCore(unittest.TestCase):
             nwavestep=nwavestep, nsubbundles=nsubbundles,
             comm=self.comm,
             gpu=None,
-            loglevel='INFO',
+            loglevel='WARN',
         )
 
         frame_gpu = extract_frame(
@@ -196,7 +196,7 @@ class TestCore(unittest.TestCase):
             nwavestep=nwavestep, nsubbundles=nsubbundles,
             comm=self.comm,
             gpu=True,
-            loglevel='INFO',
+            loglevel='WARN',
             batch_subbundle=False,
         )
 
