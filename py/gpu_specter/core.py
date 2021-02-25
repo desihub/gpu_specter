@@ -498,19 +498,19 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         else:
             shape = None
         shape = comm.bcast(shape, root=0)
-        if rank > 0:
-            imgpixels = empty(shape, dtype='f8')
-            imgivar = empty(shape, dtype='f8')
+        # if rank > 0:
+        #     imgpixels = empty(shape, dtype='f8')
+        #     imgivar = empty(shape, dtype='f8')
         # cp.cuda.nvtx.RangePop() # shape
 
         # cp.cuda.nvtx.RangePush('imgpixels')
-        comm.Bcast(imgpixels, root=0)
-        # imgpixels = comm.bcast(imgpixels, root=0)
+        # comm.Bcast(imgpixels, root=0)
+        imgpixels = comm.bcast(imgpixels, root=0)
         # cp.cuda.nvtx.RangePop() # imgpixels
 
         # cp.cuda.nvtx.RangePush('imgivar')
-        comm.Bcast(imgivar, root=0)
-        # imgivar = comm.bcast(imgivar, root=0)
+        # comm.Bcast(imgivar, root=0)
+        imgivar = comm.bcast(imgivar, root=0)
         # cp.cuda.nvtx.RangePop() # imgivar
 
         # cp.cuda.nvtx.RangePush('psf')
