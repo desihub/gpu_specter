@@ -15,7 +15,25 @@ python -m unittest --verbose gpu_specter.test.test_suite
 On a gpu node:
 
 ```
-srun python -m unittest --verbose gpu_specter.test.test_suite
+srun -n 1 -c 2 python -m unittest --verbose gpu_specter.test.test_suite
+```
+
+or 
+
+```
+srun -n 1 -c 2 --cpu-bind=cores python -m pytest py/gpu_specter
+```
+
+
+## Test Coverage
+
+To count mpi and non-mpi code paths, run coverage with the parallel option (`-p`) and combine results before generating report:
+
+```
+srun -n 1 -c 2 --cpu-bind=cores coverage run -p -m pytest py/gpu_specter
+srun -n 2 -c 2 --cpu-bind=cores coverage run -p -m pytest py/gpu_specter/test/test_core.py
+coverage combine
+coverage report -m
 ```
 
 ## Strict regression test

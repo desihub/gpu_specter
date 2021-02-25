@@ -417,7 +417,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
-    wavepad=10, pixpad_frac=0):
+    wavepad=10, pixpad_frac=0, batch_subbundle=True):
     """
     Extract 1D spectra from 2D image.
 
@@ -442,6 +442,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         wavepad: number of wavelength bins to pad extraction with (must be greater than
             spotsize)
         pixpad_frac: fraction of padded pixels to use in extraction
+        batch_subbundle: perform extraction in subbundle batch of patches (GPU-only)
 
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
@@ -457,14 +458,16 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         rank, size = comm.rank, comm.size
 
-    #- Force batch subbundle for GPU extraction and 1 rank per bundle
-    #- Eventually, add options to configure this and figure out desired default behavior
     if gpu:
-        batch_subbundle = True
-        ranks_per_bundle = 1
-        assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
-        assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
+        #- Eventually, add options to configure this and figure out desired default behavior
+        if batch_subbundle:
+            ranks_per_bundle = 1
+            assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
+            assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
+        else:
+            ranks_per_bundle = None
     else:
+        #- Disable batch subbundle for CPU extraction
         batch_subbundle = False
         ranks_per_bundle = None
 
@@ -548,7 +551,6 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
 
     #- TODO: calculate this instead of hardcoding it
-    wavepad = 10
     nwave = len(wave)
     
     #- Pad that with buffer wavelengths to extract and discard, including an
