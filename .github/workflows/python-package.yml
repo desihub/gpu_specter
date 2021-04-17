@@ -35,5 +35,5 @@ jobs:
                 python -m pip install -r requirements.txt
                 python -m pip install git+https://github.com/desihub/specter.git@0.10.0#egg=specter
             - name: Run the test
-              run: pytest
+              run: pytest py/gpu_specter
 
