@@ -28,11 +28,16 @@ try:
 except:
     preproc_available = False
 
-try:
-    from mpi4py import MPI
-    mpi_available = True
-except:
+#- Check if MPI is available.  Even importing mpi4py crashes hard on NERSC
+#- login nodes, so treat that as a special case
+if ('NERSC_HOST' in os.environ) and ('SLURM_JOB_NAME' not in os.environ):
     mpi_available = False
+else:
+    try:
+        from mpi4py import MPI
+        mpi_available = True
+    except:
+        mpi_available = False
 
 
 @unittest.skipIf(not preproc_available, f'{imgfile} not available')
