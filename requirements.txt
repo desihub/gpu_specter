@@ -1,6 +1,7 @@
 scipy
 astropy
 numba
+fitsio
 
 # only needed for testing
 git+https://github.com/desihub/specter.git@0.9.4#egg=specter
