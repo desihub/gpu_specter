@@ -5,6 +5,7 @@ import numpy as np
 
 from gpu_specter.io import read_img, read_psf
 from gpu_specter.core import extract_frame
+from .util import find_test_file
 
 try:
     import specter.psf
@@ -21,10 +22,9 @@ try:
 except ImportError:
     gpu_available = False
 
-imgfile = pkg_resources.resource_filename('gpu_specter', 'test/data/preproc-r0-00051060.fits')
+#- Warning: could trigger a download if not at NERSC; catch any exceptions
 try:
-    img = read_img(imgfile)
-    preproc_available = True
+    preproc_available = os.path.exists(find_test_file('preproc'))
 except:
     preproc_available = False
 
@@ -40,13 +40,11 @@ else:
         mpi_available = False
 
 
-@unittest.skipIf(not preproc_available, f'{imgfile} not available')
+@unittest.skipIf(not preproc_available, f'preproc img file not available')
 class TestCore(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-
-
         if mpi_available:
             cls.comm = MPI.COMM_WORLD
             cls.rank = cls.comm.Get_rank()
@@ -59,12 +57,11 @@ class TestCore(unittest.TestCase):
             cls.rank = 0
             cls.size = 1
 
-        cls.psffile = pkg_resources.resource_filename(
-            'gpu_specter', 'test/data/psf-r0-00051060.fits')
+        cls.psffile = find_test_file('psf')
 
         if cls.rank == 0:
             cls.psfdata = read_psf(cls.psffile)
-            cls.imgdata = read_img(imgfile)
+            cls.imgdata = read_img(find_test_file('preproc'))
         else:
             cls.psfdata = None
             cls.imgdata = None
@@ -165,11 +162,19 @@ class TestCore(unittest.TestCase):
 
         diff = frame_spex['specflux'] - frame_specter['flux']
         norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
-        pull = diff/norm
-        pull_threshold = 0.01
-        pull_fraction = np.average(np.abs(pull).ravel() < pull_threshold)
+        pull = (diff/norm).ravel()
 
-        self.assertGreaterEqual(pull_fraction, 0.95)
+        #- require that 99% of results are consistent to better than 0.01*sigma
+        frac = np.count_nonzero(np.abs(pull)<0.01) / len(pull)
+        self.assertLess(frac, 0.99)
+
+        #- require that the largest deviation is within 5% of a sigma
+        self.assertLess(np.max(np.abs(pull)), 0.05)
+
+        #- previous test; I'm not sure this makes sense
+        # pull_threshold = 0.01
+        # pull_fraction = np.average(np.abs(pull).ravel() < pull_threshold)
+        # self.assertGreaterEqual(pull_fraction, 0.95)
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
