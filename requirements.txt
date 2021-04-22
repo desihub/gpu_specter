@@ -3,6 +3,10 @@ astropy
 numba
 fitsio
 
-# only needed for testing
-git+https://github.com/desihub/specter.git@0.9.4#egg=specter
+#- needed for the actual "gpu" part of gpu_specter, but the cpu-only part
+#- is still useful, and CPUs are all we have on GitHub Actions testing
+# cupy
+
+#- only needed for consistency testing
+# git+https://github.com/desihub/specter.git@0.10.0#egg=specter
 
