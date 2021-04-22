@@ -5,6 +5,7 @@ import numpy as np
 
 from gpu_specter.io import read_psf
 from gpu_specter.extract.cpu import evalcoeffs
+from .util import find_test_file
 
 try:
     import specter.psf
@@ -24,8 +25,7 @@ class TestPSFCoeff(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.psffile = pkg_resources.resource_filename(
-            'gpu_specter', 'test/data/psf-r0-00051060.fits')
+        cls.psffile = find_test_file('psf')
         cls.psfdata = read_psf(cls.psffile)
 
     @classmethod

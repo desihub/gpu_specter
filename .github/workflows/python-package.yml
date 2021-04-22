@@ -1,0 +1,39 @@
+# Workflow is based on the Astropy GitHub actions workflow, ci_workflows.yml
+name: CI
+
+on:
+    push:
+        branches:
+            - '*'
+        tags:
+            - '*'
+    pull_request:
+
+jobs:
+    tests:
+        name: Unit tests
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: true
+            matrix:
+                os: [ubuntu-latest]
+                python-version: [3.8]  # fitsio does not like Python < 3.7
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v2
+              with:
+                fetch-depth: 0
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v2
+              with:
+                python-version: ${{ matrix.python-version }}
+            - name: Install Python dependencies
+              run: |
+                python -m pip install --upgrade pip wheel
+                python -m pip install pytest
+                python -m pip install -r requirements.txt
+                python -m pip install git+https://github.com/desihub/specter.git@0.10.0#egg=specter
+            - name: Run the test
+              run: pytest py/gpu_specter
+
