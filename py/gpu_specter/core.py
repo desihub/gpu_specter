@@ -584,7 +584,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
             model=model,
             regularize=regularize,
             psferr=psferr,
-            pixpad_frac=0,
+            pixpad_frac=pixpad_frac,
         )
         if gpu:
             cp.cuda.nvtx.RangePop()
