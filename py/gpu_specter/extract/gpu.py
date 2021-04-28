@@ -726,13 +726,12 @@ def ex2d_subbundle(image, imageivar, patches, spots, corners, pixpad_frac, regul
     # finalize patch results
     cp.cuda.nvtx.RangePush('batch_finalize')
     results = list()
-    ndiag = spots.shape[2]//2
     for i, patch in enumerate(patches):
         result = _finalize_patch(
             batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
             batch_flux[i], batch_fluxivar[i], batch_resolution[i],
             patch.ispec-patch.bspecmin-specmin, patch.nspectra_per_patch,
-            patch.nwavestep, patch.wavepad, ndiag, psferr, patch, model=model
+            patch.nwavestep, patch.wavepad, patch.ndiag, psferr, patch, model=model
         )
         results.append( (patches[i], result) )
     cp.cuda.nvtx.RangePop()
