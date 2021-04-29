@@ -417,7 +417,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
-    wavepad=10, pixpad_frac=0, batch_subbundle=True):
+    wavepad=12, pixpad_frac=0.8, batch_subbundle=True):
     """
     Extract 1D spectra from 2D image.
 
