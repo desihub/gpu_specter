@@ -1,3 +1,6 @@
+"""This module provides functions for performing linear algebra operations.
+"""
+
 import numpy
 import cupy
 import cupy.prof
