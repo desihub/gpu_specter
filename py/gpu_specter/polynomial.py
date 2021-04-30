@@ -1,3 +1,6 @@
+"""This module provides functions for working with polynomial series using GPUs. Theses functions
+are based on ones provided by `numpy.polynomial`.
+"""
 import numpy
 
 from numba import cuda

@@ -1,3 +1,6 @@
+"""This module provides helpers classes for managing data movement when using MPI.
+"""
+
 # import cupy.prof
 
 class NoMPIComm(object):

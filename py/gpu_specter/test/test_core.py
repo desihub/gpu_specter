@@ -164,17 +164,14 @@ class TestCore(unittest.TestCase):
         norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
         pull = (diff/norm).ravel()
 
-        #- require that 99% of results are consistent to better than 0.01*sigma
-        frac = np.count_nonzero(np.abs(pull)<0.01) / len(pull)
-        self.assertLess(frac, 0.99)
+        #- Require that >99% of the pull values are consistent to
+        #- better than 0.01*sigma
+        pull_threshold = 0.01
+        pull_fraction = np.average(np.abs(pull) < pull_threshold)
+        self.assertGreaterEqual(pull_fraction, 0.99)
 
         #- require that the largest deviation is within 5% of a sigma
         self.assertLess(np.max(np.abs(pull)), 0.05)
-
-        #- previous test; I'm not sure this makes sense
-        # pull_threshold = 0.01
-        # pull_fraction = np.average(np.abs(pull).ravel() < pull_threshold)
-        # self.assertGreaterEqual(pull_fraction, 0.95)
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
