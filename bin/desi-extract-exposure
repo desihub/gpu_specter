@@ -16,10 +16,15 @@ import glob
 import os
 import sys
 
-import cupy as cp
+try:
+    import cupy as cp
+    cupy_available = True
+except:
+    cupy_available = False
 
 from desispec.scripts import extract
-from gpu_specter.mpi import SyncIOComm, AsyncIOComm
+from gpu_specter.mpi import (
+    NoMPIIOCoordinator, SerialIOCoordinator, ParallelIOCoordinator)
 import gpu_specter.spex
 
 #- Parse args before initializing MPI so that --help will work anywhere
@@ -91,6 +96,7 @@ else:
 
 group = node
 if args.gpu:
+    assert cupy_available, f"arg.gpu specified but failed to import cupy"
     gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     group += ":" + gpus
 
@@ -108,9 +114,9 @@ if comm is not None:
     group_comm = comm.Split(color=group_index, key=group_rank)
 
     if args.async_io:
-        group_comm = AsyncIOComm(group_comm)
+        coordinator = ParallelIOCoordinator(group_comm)
     else:
-        group_comm = SyncIOComm(group_comm)
+        coordinator = SerialIOCoordinator(group_comm)
 else:
     ngroups = 1
     group_index = 0
@@ -118,6 +124,7 @@ else:
     group_size = 1
     group_comm = None
     groups = [group, ]
+    coordinator = NoMPIIOCoordinator()
 
 if rank == 0:
     print(f"Splitting {size} ranks into {ngroups} groups of {group_size}")
@@ -245,7 +252,7 @@ for camera in group_cameras:
 
     #- Perform extraction
     cp.cuda.nvtx.RangePush(f'{rank}:main_gpu_specter')
-    engine.main_gpu_specter(cmd_args, comm=group_comm, timing=timing)
+    engine.main_gpu_specter(cmd_args, coordinator=coordinator, timing=timing)
     cp.cuda.nvtx.RangePop() # main_gpu_specter
 
     #- Save timing events from extraction
