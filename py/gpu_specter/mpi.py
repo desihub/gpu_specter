@@ -1,4 +1,17 @@
 """This module provides helpers classes for managing data movement when using MPI.
+
+Example usage:
+
+# no mpi
+python py/gpu_specter/mpi.py
+
+# mpi: serial io
+mpirun -n 2 python py/gpu_specter/mpi.py --mpi
+
+# mpi: parallel io
+# parallel io requires at least 3 MPI ranks (2 for IO and at least one for processing)
+mpirun -n 4 python py/gpu_specter/mpi.py --mpi --async-io
+
 """
 
 from abc import ABC, abstractmethod
