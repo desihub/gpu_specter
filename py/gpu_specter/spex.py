@@ -5,7 +5,7 @@ import numpy as np
 from gpu_specter.util import get_logger, Timer
 from gpu_specter.io import read_img, read_psf, write_frame, write_model
 from gpu_specter.core import extract_frame
-from gpu_specter.mpi import NoMPIComm, SyncIOComm, AsyncIOComm
+from gpu_specter.mpi import NoMPIIOCoordinator, SerialIOCoordinator, ParallelIOCoordinator
 
 __all__ = ["parse", "main_gpu_specter"]
 
@@ -90,7 +90,7 @@ def check_input_options(args):
 
     return True, 'OK'
 
-def main_gpu_specter(args=None, comm=None, timing=None):
+def main_gpu_specter(args=None, comm=None, timing=None, coordinator=None):
 
     timer = Timer()
 
@@ -105,17 +105,20 @@ def main_gpu_specter(args=None, comm=None, timing=None):
         log.critical(message)
         raise ValueError(message)
     
-    #- Load MPI only if requested and comm not provided
-    if comm is not None:
+    #- Load MPI only if requested and coordinator not provided
+    if coordinator is not None:
         pass
-    elif args.mpi:
-        from mpi4py import MPI
+    elif comm is not None or args.mpi:
+        #- Use MPI if comm is provided or args.mpi is specified
+        if comm is None:
+            from mpi4py import MPI
+            comm = MPI.COMM_WORLD
         if args.async_io:
-            comm = AsyncIOComm(MPI.COMM_WORLD)
+            coordinator = ParallelIOCoordinator(comm)
         else:
-            comm = SyncIOComm(MPI.COMM_WORLD)
+            coordinator = SerialIOCoordinator(comm)
     else:
-        comm = NoMPIComm()
+        coordinator = NoMPIIOCoordinator()
 
     timer.split('init')
 
@@ -128,7 +131,7 @@ def main_gpu_specter(args=None, comm=None, timing=None):
         array = np.array
 
     #- Load inputs
-    def read_data():
+    def read():
         log.info('Loading inputs')
         img = read_img(args.input)
         img['image'] = array(img['image'])
@@ -136,13 +139,11 @@ def main_gpu_specter(args=None, comm=None, timing=None):
         psf = read_psf(args.psf)
         return img, psf
 
-    img, psf = comm.read(read_data, (None, None))
+    img, psf = coordinator.read(read, (None, None))
 
     timer.split('load')
 
-    frame = None
-    if comm.is_extract_rank():
-
+    def process():
         #- Perform extraction
         frame = extract_frame(
             img, psf, args.bundlesize,         # input data
@@ -152,26 +153,25 @@ def main_gpu_specter(args=None, comm=None, timing=None):
             args.model,
             args.regularize,
             args.psferr,
-            comm.extract_comm,                 # mpi parameters
+            coordinator.work_comm,             # mpi parameters
             args.gpu,                          # gpu parameters
             args.loglevel,                     # log
             wavepad=args.wavepad,
             pixpad_frac=args.pixpad_frac,
         )
-
         #- Pass other input data through for output
-        if comm.is_extract_root():
+        if coordinator.is_worker_root(coordinator.rank):
             frame['imagehdr'] = img['imagehdr']
             frame['fibermap'] = img['fibermap']
             frame['fibermaphdr'] = img['fibermaphdr']
-    else:
-        # READ_RANK / WRITE_RANK
-        pass
+        return frame
+
+    frame = coordinator.process(process, None)
 
     timer.split('extract')
 
     #- Write output
-    def write_data(frame):
+    def write(frame):
         if args.output is not None:
             log.info(f'Writing {args.output}')
             write_frame(args.output, frame)
@@ -180,9 +180,9 @@ def main_gpu_specter(args=None, comm=None, timing=None):
             log.info(f'Writing model {args.model}')
             write_model(args.model, frame)
         
-    comm.write(write_data, frame)
+    coordinator.write(write, frame)
 
     #- Print timing summary
     timer.split('write')
-    if comm.is_extract_root():
+    if coordinator.is_worker_root(coordinator.rank):
         timer.log_splits(log)
