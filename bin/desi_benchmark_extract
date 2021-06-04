@@ -40,8 +40,6 @@ parser.add_argument("--night", type=str, default="20200315",
     help="YYYYMMDD to extract")
 parser.add_argument("--expid", type=str, default="00055672",
     help="Exposure ID to extract")
-parser.add_argument("--nexp-max", type=int, default=0,
-    help="Limit number of exposures to use")
 parser.add_argument("--spectrographs", type=str, default="0,1,2,3,4,5,6,7,8,9",
     help="Comma-separated list of spectrographs to extract")
 parser.add_argument("--colors", type=str,
@@ -318,7 +316,7 @@ if rank == 0:
     extraction_node_hours = nnodes * extraction_time / (60 * 60)
     extraction_work_rate = nframes / extraction_node_hours
 
-    print("desi-extract {} frames in {:.1f} min".format(nframes, elapsed_time / 60))
+    print("desi-extract {} frames in {:.1f} min using {} nodes".format(nframes, elapsed_time / 60, nnodes))
     print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
