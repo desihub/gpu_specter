@@ -40,6 +40,8 @@ parser.add_argument("--night", type=str, default="20200315",
     help="YYYYMMDD to extract")
 parser.add_argument("--expid", type=str, default="00055672",
     help="Exposure ID to extract")
+parser.add_argument("--nexp-max", type=int, default=0,
+    help="Limit number of exposures to use")
 parser.add_argument("--spectrographs", type=str, default="0,1,2,3,4,5,6,7,8,9",
     help="Comma-separated list of spectrographs to extract")
 parser.add_argument("--colors", type=str,
@@ -67,6 +69,12 @@ parser.add_argument("--async-io", action="store_true",
     help="use fancy comm")
 parser.add_argument("--no-mpi", action="store_true",
     help="don't use mpi")
+parser.add_argument("--cpu-specter", action="store_true",
+    help="use cpu specter")
+parser.add_argument("--pixpad-frac", type=float, default=0, 
+    help="fraction of a PSF spotsize to pad in pixels when extracting")
+parser.add_argument("--wavepad-frac", type=float, default=0, 
+    help="fraction of a PSF spotsize to pad in wavelengths when extracting")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -202,6 +210,9 @@ for camera in group_cameras:
     if args.spex:
         cmd = "spex"
         engine = gpu_specter.spex
+    elif args.cpu_specter:
+        cmd = "desi_extract_spectra"
+        engine = extract
     else:
         cmd = "desi_extract_spectra --gpu-specter"
         engine = extract
@@ -230,8 +241,9 @@ for camera in group_cameras:
         cmd = cmd + " -w 7520.0,9824.0,0.8"
 
     cmd = cmd + f" --nsubbundles {args.nsubbundles}"
-
     cmd = cmd + f" --nwavestep {args.nwavestep}"
+    cmd = cmd + f" --pixpad-frac {args.pixpad_frac}"
+    cmd = cmd + f" --wavepad-frac {args.wavepad_frac}"
 
     if args.barycentric_correction:
         cmd += " --barycentric-correction"
@@ -251,13 +263,16 @@ for camera in group_cameras:
     cmd_args = engine.parse(cmd.split()[1:])
 
     #- Perform extraction
-    cp.cuda.nvtx.RangePush(f'{rank}:main_gpu_specter')
-    engine.main_gpu_specter(cmd_args, coordinator=coordinator, timing=timing)
-    cp.cuda.nvtx.RangePop() # main_gpu_specter
+    if args.cpu_specter:
+        engine.main_mpi(cmd_args, comm=coordinator.comm, timing=timing)
+    else:
+        engine.main_gpu_specter(cmd_args, coordinator=coordinator, timing=timing)
 
     #- Save timing events from extraction
     for event_name in timing:
         event_time = timing[event_name]
+        if event_time is None:
+            continue
         events.append((group, rank, group_rank, camera, event_name, event_time - start_time))
 
     #- Mark successfully extracted frame
@@ -307,7 +322,7 @@ if rank == 0:
     print("desi-extract startup time: {:.1f} sec".format(startup_time - start_time))
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
-
+    print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
     if args.gpu:
         unique_devices = set()
         for group in set(groups):
@@ -323,7 +338,4 @@ if rank == 0:
         gpu_extraction_work_rate = nframes / gpu_extraction_hours
 
         print("desi-extract gpu effective work rate = {:.2f} frames per gpu-hour".format(gpu_work_rate))
-
-    print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
-    if args.gpu:
         print("desi-extract gpu extraction work rate = {:.2f} frames per gpu-hour".format(gpu_extraction_work_rate))

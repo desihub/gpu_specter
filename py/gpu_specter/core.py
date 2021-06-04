@@ -417,7 +417,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
-    wavepad=12, pixpad_frac=0.8, batch_subbundle=True):
+    wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True):
     """
     Extract 1D spectra from 2D image.
 
@@ -441,7 +441,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         timing: dictionary to return timing splits
         wavepad: number of wavelength bins to pad extraction with (must be greater than
             spotsize)
-        pixpad_frac: fraction of padded pixels to use in extraction
+        pixpad_frac: fraction of a PSF spotsize to pad in pixels when extracting
+        wavepad_frac: fraction of a PSF spotsize to pad in wavelengths when extracting
         batch_subbundle: perform extraction in subbundle batch of patches (GPU-only)
 
     Returns:
@@ -541,6 +542,8 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         if isinstance(wavelength, str):
             wmin, wmax, dw = map(float, wavelength.split(','))
+        elif isinstance(wavelength, tuple):
+            wmin, wmax, dw = wavelength
         else:
             wmin, wmax = psf['PSF'].meta['WAVEMIN'], psf['PSF'].meta['WAVEMAX']
             dw = 0.8
@@ -550,11 +553,12 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     if rank == 0:
         log.info(f'Extracting wavelengths {wmin},{wmax},{dw}')
 
-    #- TODO: calculate this instead of hardcoding it
-    nwave = len(wave)
-    
     #- Pad that with buffer wavelengths to extract and discard, including an
     #- extra args.nwavestep bins to allow coverage for a final partial bin
+
+    #- TODO: calculate initial wavepad from psf spotsize instead of using parameter
+    wavepad += int(wavepad*wavepad_frac)
+
     wavelo = np.arange(wavepad)*dw
     wavelo -= (np.max(wavelo)+dw)
     wavelo += wmin
@@ -563,8 +567,6 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     fullwave = np.concatenate((wavelo, wave, wavehi))
     assert np.allclose(np.diff(fullwave), dw)
     
-    #- TODO: barycentric wavelength corrections
-
     bspecmins = list(range(specmin, specmin+nspec, bundlesize))
     bundles = list()
     for bspecmin in bspecmins[frame_rank::frame_size]:
