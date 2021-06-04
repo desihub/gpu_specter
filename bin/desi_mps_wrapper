@@ -1,13 +1,15 @@
 #!/bin/bash
 # Wrapper script to use CUDA Multi-Process Service with SLURM and MPI
 
+scriptname=$(basename $0)
+
 print_usage() {
     printf "Usage: \n\n"
-    printf "  $0 [-d <delay-in-seconds>] ...\n\n"
+    printf "  $scriptname [-d <delay-in-seconds>] ...\n\n"
     printf "Typical usage between <srun/mpirun> and <command>: \n\n"
-    printf "  srun -n 2 $0 command arg1 arg2 ... \n\n"
+    printf "  srun -n 2 $scriptname command arg1 arg2 ... \n\n"
     printf "Set delay to 5 seconds: \n\n"
-    printf "  srun -n 2 $0 -d 5 command arg1 arg2 ... \n\n"
+    printf "  srun -n 2 $scriptname -d 5 command arg1 arg2 ... \n\n"
 }
 
 delay=1
