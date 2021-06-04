@@ -149,7 +149,7 @@ if args.cameras is None:
     spectrographs = args.spectrographs.split(",")
     colors = args.colors.split(",")
     cameras = [
-        f"{color}{spec}" for spec in spectrographs for color in colors
+        f"{color}{spec}" for color in colors for spec in spectrographs
     ]
 else:
     cameras = args.cameras.split(",")
