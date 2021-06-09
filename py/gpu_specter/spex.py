@@ -50,9 +50,12 @@ def parse(options=None):
     parser.add_argument("--async-io", action="store_true",
                         help="use asynchronous read/write mpi comm")
     parser.add_argument("--pixpad-frac", type=float, required=False, default=0.8,
-                        help="Fraction of pixel padding to apply to extraction patch")
+                        help="fraction of a PSF spotsize to pad in pixels when extracting")
+    parser.add_argument("--wavepad-frac", type=float, default=0.2, 
+                        help="fraction of a PSF spotsize to pad in wavelengths when extracting")
     parser.add_argument("--wavepad", type=int, required=False, default=12,
                         help="Number of wavelength bins to pad on boths end of extraction patch")
+
     args = None
     if options is None:
         args = parser.parse_args()
@@ -157,6 +160,7 @@ def main_gpu_specter(args=None, comm=None, timing=None, coordinator=None):
             args.gpu,                          # gpu parameters
             args.loglevel,                     # log
             wavepad=args.wavepad,
+            wavepad_frac=args.wavepad_frac, 
             pixpad_frac=args.pixpad_frac,
         )
         #- Pass other input data through for output

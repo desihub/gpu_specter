@@ -1,0 +1,55 @@
+#!/bin/bash
+# Wrapper script to use CUDA Multi-Process Service with SLURM and MPI
+
+scriptname=$(basename $0)
+
+print_usage() {
+    printf "Usage: \n\n"
+    printf "  $scriptname [-d <delay-in-seconds>] ...\n\n"
+    printf "Typical usage between <srun/mpirun> and <command>: \n\n"
+    printf "  srun -n 2 $scriptname command arg1 arg2 ... \n\n"
+    printf "Set delay to 5 seconds: \n\n"
+    printf "  srun -n 2 $scriptname -d 5 command arg1 arg2 ... \n\n"
+}
+
+delay=1
+
+while getopts 'd:' flag; do
+    case "${flag}" in
+        d) delay="${OPTARG}" ;;
+        *) print_usage
+           exit 1 ;;
+    esac
+done
+# Remove flags that have been processed from arg list
+shift $((OPTIND-1))
+
+# https://docs.nvidia.com/deploy/mps/index.html
+export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log
+
+# https://docs.nvidia.com/deploy/mps/index.html#topic_3_3_5_2
+# export CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=$((100 / $SLURM_NTASKS))
+# export CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=$((200 / $SLURM_NTASKS))
+
+# Start MPS on each node only once
+# SLURM_LOCALID is the node local task ID for the process within a job
+if [ $SLURM_LOCALID -eq 0 ]; then
+    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control starting at $(date --iso-8601=seconds)
+    nvidia-cuda-mps-control -d
+fi
+
+# Add a delay to ensure MPS has started
+sleep $delay
+
+if [ $SLURM_LOCALID -eq 0 ]; then
+    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control ready at $(date --iso-8601=seconds)
+fi
+
+# Run the command
+"$@"
+
+if [ $SLURM_LOCALID -eq 0 ]; then
+    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control stopping at $(date --iso-8601=seconds)
+    echo quit | nvidia-cuda-mps-control
+fi
