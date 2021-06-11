@@ -73,6 +73,8 @@ parser.add_argument("--pixpad-frac", type=float, default=0,
     help="fraction of a PSF spotsize to pad in pixels when extracting")
 parser.add_argument("--wavepad-frac", type=float, default=0, 
     help="fraction of a PSF spotsize to pad in wavelengths when extracting")
+parser.add_argument("--ranks-per-bundle", type=int, default=None, 
+    help="number of ranks per bundle")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -252,6 +254,9 @@ for camera in group_cameras:
 
     if args.gpu:
         cmd = cmd + " --gpu"
+
+    if args.ranks_per_bundle:
+        cmd = cmd + f" --ranks-per-bundle {args.ranks_per_bundle}"
 
     if group_rank == 0:
         print(rank, cmd)

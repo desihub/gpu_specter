@@ -417,7 +417,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
-    wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True):
+    wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True, ranks_per_bundle=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -470,9 +470,20 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         #- Disable batch subbundle for CPU extraction
         batch_subbundle = False
-        ranks_per_bundle = None
 
     bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
+
+    if bundle_comm is None:
+        bundle_rank = 1
+    else:
+        bundle_rank = bundle_comm.rank
+
+    if frame_comm is None:
+        frame_rank = 1
+    else:
+        frame_rank = frame_comm.rank
+
+    log.info(f"{rank=} {frame_rank=} {bundle_rank=}")
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
