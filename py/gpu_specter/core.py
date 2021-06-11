@@ -474,16 +474,16 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
 
     if bundle_comm is None:
-        bundle_rank = 1
+        my_bundle_rank = 0
     else:
-        bundle_rank = bundle_comm.rank
+        my_bundle_rank = bundle_comm.rank
 
     if frame_comm is None:
-        frame_rank = 1
+        my_frame_rank = 0
     else:
-        frame_rank = frame_comm.rank
+        my_frame_rank = frame_comm.rank
 
-    log.info(f"{rank=} {frame_rank=} {bundle_rank=}")
+    log.info(f"{rank=} {my_frame_rank=} {my_bundle_rank=}")
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
