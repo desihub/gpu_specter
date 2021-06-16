@@ -51,11 +51,11 @@ def parse(options=None):
                         help="use asynchronous read/write mpi comm")
     parser.add_argument("--pixpad-frac", type=float, required=False, default=0.8,
                         help="fraction of a PSF spotsize to pad in pixels when extracting")
-    parser.add_argument("--wavepad-frac", type=float, default=0.2, 
+    parser.add_argument("--wavepad-frac", type=float, default=0.2,
                         help="fraction of a PSF spotsize to pad in wavelengths when extracting")
-    parser.add_argument("--wavepad", type=int, required=False, default=12,
+    parser.add_argument("--wavepad", type=int, required=False, default=10,
                         help="Number of wavelength bins to pad on boths end of extraction patch")
-    parser.add_argument("--ranks-per-bundle", type=int, default=None, 
+    parser.add_argument("--ranks-per-bundle", type=int, default=None,
                         help="number of ranks per bundle")
     args = None
     if options is None:
