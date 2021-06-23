@@ -417,7 +417,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
-    wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True):
+    wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True, ranks_per_bundle=None):
     """
     Extract 1D spectra from 2D image.
 
@@ -444,6 +444,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         pixpad_frac: fraction of a PSF spotsize to pad in pixels when extracting
         wavepad_frac: fraction of a PSF spotsize to pad in wavelengths when extracting
         batch_subbundle: perform extraction in subbundle batch of patches (GPU-only)
+        ranks_per_bundle: number of mpi ranks per bundle comm
 
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
@@ -459,20 +460,27 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
     else:
         rank, size = comm.rank, comm.size
 
-    if gpu:
-        #- Eventually, add options to configure this and figure out desired default behavior
-        if batch_subbundle:
-            ranks_per_bundle = 1
-            assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
-            assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
-        else:
-            ranks_per_bundle = None
-    else:
-        #- Disable batch subbundle for CPU extraction
+    #- Disable batch subbundle for CPU extraction
+    if not gpu:
         batch_subbundle = False
-        ranks_per_bundle = None
+
+    #- Batch subbundle extraction constrains the number of MPI ranks per bundle
+    if batch_subbundle:
+        #- Default to one MPI rank per bundle
+        if ranks_per_bundle is None:
+            ranks_per_bundle = 1
+        assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
+        assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
+
+    if rank == 0:
+        log.info(f'{gpu=} {batch_subbundle=} {ranks_per_bundle=}')
 
     bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
+
+    #- MPI rank to bundle/frame comm mapping
+    my_bundle_rank = 0 if bundle_comm is None else bundle_comm.rank
+    my_frame_rank = 0 if frame_comm is None else frame_comm.rank
+    log.info(f'{rank=} {my_frame_rank=} {my_bundle_rank=}')
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
@@ -558,6 +566,9 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
 
     #- TODO: calculate initial wavepad from psf spotsize instead of using parameter
     wavepad += int(wavepad*wavepad_frac)
+
+    if rank == 0:
+        log.info(f'Padding patches with {wavepad} wave bins on both ends')
 
     wavelo = np.arange(wavepad)*dw
     wavelo -= (np.max(wavelo)+dw)
