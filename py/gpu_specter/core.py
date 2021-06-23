@@ -444,6 +444,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         pixpad_frac: fraction of a PSF spotsize to pad in pixels when extracting
         wavepad_frac: fraction of a PSF spotsize to pad in wavelengths when extracting
         batch_subbundle: perform extraction in subbundle batch of patches (GPU-only)
+        ranks_per_bundle: number of mpi ranks per bundle comm
 
     Returns:
         frame: dictionary frame object (see gpu_specter.io.write_frame)
