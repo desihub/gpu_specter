@@ -12,7 +12,6 @@ import_time = time.time()
 
 import argparse
 import csv
-import glob 
 import os
 import sys
 
@@ -95,30 +94,44 @@ if comm is not None:
     comm.barrier()
 startup_time = time.time()
 
-#- Divide MPI ranks into per node communication groups
+#- MPI Communication Group Setup
+#- The convention for specter is to split the MPI communicator into groups of size 20.
+#- The convention for gpu_specter is to split the MPI communicator into groups by node.
+#- The groups will be assigned frames using the strided task mapping pattern
+
 if comm is not None:
     node = MPI.Get_processor_name()
 else:
     import socket
     node = socket.gethostname()
 
-group = node
-if args.gpu:
-    assert cupy_available, f"arg.gpu specified but failed to import cupy"
-    gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-    group += ":" + gpus
-
 if comm is not None:
-    groups = comm.allgather(group)
-    ngroups = len(set(groups))
-    group_size = size // ngroups
+    if args.cpu_specter:
+        #- Split communicator by 20 (number of bundles per frame)
+        group_size = 20
+        group = rank // group_size
+        ngroups = size // group_size
+        groups = list(range(ngroups))
+    else:
+        #- Divide MPI ranks into per node communication groups
+        group = node
+        if args.gpu:
+            assert cupy_available, f"arg.gpu specified but failed to import cupy"
+            gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+            group += ":" + gpus
+        groups = comm.allgather(group)
+        ngroups = len(set(groups))
+        group_size = size // ngroups
 
-    assert group_size * ngroups == size, \
-        f"Number of ranks {size} not divisible by number of groups {ngroups}"
+    if (rank == 0) and (size%group_size != 0):
+        print(f'Warning: MPI size={size} should be evenly divisible by {group_size}')
 
     #- Assumes contiguous blocks of MPI ranks per group
     group_rank = rank % group_size
     group_index = rank // group_size
+    #- Use a catchall group index for excess mpi ranks
+    if rank >= group_size * ngroups:
+        group_index = -1
     group_comm = comm.Split(color=group_index, key=group_rank)
 
     if args.async_io:
@@ -126,6 +139,7 @@ if comm is not None:
     else:
         coordinator = SerialIOCoordinator(group_comm)
 else:
+    group = node
     ngroups = 1
     group_index = 0
     group_rank = 0
@@ -167,6 +181,10 @@ for camera in cameras:
 if rank == 0:
     print(f"Extracting frames from cameras: {','.join(cameras)}")
     sys.stdout.flush()
+
+if group_index == -1:
+    #- skip frames by setting index to number of frames
+    group_index = len(cameras)
 
 #- Divide cameras between groups
 group_cameras = cameras[group_index::ngroups]
