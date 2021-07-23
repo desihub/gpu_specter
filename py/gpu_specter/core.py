@@ -412,7 +412,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
         frame_comm = None
         bundle_comm = comm
 
-    return bundle_comm, frame_comm, frame_rank, frame_size
+    return bundle_comm, frame_comm
 
 # @cupy.prof.TimeRangeDecorator("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
@@ -472,15 +472,21 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         assert ranks_per_bundle <= nsubbundles, 'ranks_per_bundle should be <= nsubbundles'
         assert nsubbundles % ranks_per_bundle == 0, 'ranks_per_bundle should evenly divide nsubbundles'
 
-    if rank == 0:
-        log.info(f'{gpu=} {batch_subbundle=} {ranks_per_bundle=}')
+    bundle_comm, frame_comm = decompose_comm(comm, gpu, ranks_per_bundle)
 
-    bundle_comm, frame_comm, frame_rank, frame_size = decompose_comm(comm, gpu, ranks_per_bundle)
+    bundle_rank = 0 if bundle_comm is None else bundle_comm.rank
+    bundle_size = 1 if bundle_comm is None else bundle_comm.size
+    frame_rank = 0 if frame_comm is None else frame_comm.rank
+    frame_size = 1 if frame_comm is None else frame_comm.size
+
+    if rank == 0:
+        log.info(f'Using GPU: {gpu}')
+        log.info(f'Using batch subbundle extraction: {batch_subbundle}')
+        log.info(f'Size of frame MPI comm: {frame_size}')
+        log.info(f'Size of bundle MPI comm: {bundle_size}')
 
     #- MPI rank to bundle/frame comm mapping
-    my_bundle_rank = 0 if bundle_comm is None else bundle_comm.rank
-    my_frame_rank = 0 if frame_comm is None else frame_comm.rank
-    log.info(f'{rank=} {my_frame_rank=} {my_bundle_rank=}')
+    log.debug(f'{rank=} {frame_rank=}/{frame_size=} {bundle_rank=}/{bundle_size=}')
 
     timer.split('init-mpi-comm')
     time_init_mpi_comm = time.time()
@@ -677,7 +683,7 @@ def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavest
         # mask[results['pixmask_fraction']>0.5] |= specmask.SOMEBADPIX
         # mask[results['pixmask_fraction']==1.0] |= specmask.ALLBADPIX
         # mask[chi2pix>100.0] |= specmask.BAD2DFIT
-        specmask = (specivar == 0).astype(np.int)
+        specmask = (specivar == 0).astype(int)
 
         frame = dict(
             specflux = specflux,

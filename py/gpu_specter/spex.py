@@ -136,10 +136,11 @@ def main_gpu_specter(args=None, comm=None, timing=None, coordinator=None):
 
     #- Load inputs
     def read():
-        log.info('Loading inputs')
+        log.info(f'Reading image: {args.input}')
         img = read_img(args.input)
         img['image'] = array(img['image'])
         img['ivar'] = array(img['ivar'])
+        log.info(f'Reading PSF: {args.psf}')
         psf = read_psf(args.psf)
         return img, psf
 
