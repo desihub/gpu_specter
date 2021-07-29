@@ -341,7 +341,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
         rankresults = [results,]
         bundle = assemble_bundle_patches(rankresults)
         if gpu:
-            bundle = tuple(cp.asnumpy(x) if isinstance(x, cp.core.core.ndarray) else x for x in bundle)
+            bundle = tuple(cp.asnumpy(x) if isinstance(x, cp.ndarray) else x for x in bundle)
 
     return bundle
 
