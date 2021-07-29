@@ -160,9 +160,23 @@ class TestCore(unittest.TestCase):
 
         self.assertEqual(frame_spex['specflux'].shape, frame_specter['flux'].shape)
 
-        diff = frame_spex['specflux'] - frame_specter['flux']
-        norm = np.sqrt(1.0/frame_spex['specivar'] + 1.0/frame_specter['ivar'])
-        pull = (diff/norm).ravel()
+        #- Compute pull (dflux*sigma) ignoring masked pixels
+        mask1 = (
+            (frame_specter['ivar'] == 0) |
+            (frame_specter['chi2pix'] > 100) |
+            (frame_specter['pixmask_fraction'] > 0.5)
+        )
+        mask2 = (
+            (frame_spex['specivar'] == 0) |
+            (frame_spex['chi2pix'] > 100) |
+            (frame_spex['pixmask_fraction'] > 0.5)
+        )
+        mask = mask1 | mask2
+        var1 = np.reciprocal(~mask*frame_specter['ivar'] + mask)
+        var2 = np.reciprocal(~mask*frame_spex['specivar'] + mask)
+        ivar = np.reciprocal(~mask*(var1 + var2) + mask)
+        dflux = frame_specter['flux'] - frame_spex['specflux']
+        pull = ~mask*dflux*np.sqrt(ivar)
 
         #- Require that >99% of the pull values are consistent to
         #- better than 0.01*sigma
