@@ -498,10 +498,9 @@ def _apply_weights(pixel_values, pixel_ivar, A, regularize, weight_scale=default
 
     minweight = weight_scale*cp.max(fluxweight)
     ibad = fluxweight <= minweight
-    #- TODO: regularize vs regularize**2 ?
-    lambda_squared = regularize*regularize*cp.ones_like(y)
-    lambda_squared[ibad] = minweight - fluxweight[ibad]
-    icov += cp.diag(lambda_squared)
+    alpha = regularize*cp.ones_like(y)
+    alpha[ibad] = minweight - fluxweight[ibad]
+    icov += cp.diag(alpha*alpha + 1e-15)
     
     #- TODO: is cupy.fuse() faster?
     # icov += cp.diag(_regularize(ATNinv, regularize, weight_scale))
