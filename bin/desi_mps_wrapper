@@ -5,17 +5,26 @@ scriptname=$(basename $0)
 
 print_usage() {
     printf "Usage: \n\n"
-    printf "  $scriptname [-d <delay-in-seconds>] ...\n\n"
+    printf "  $scriptname [-v] [-d <delay-in-seconds>] ...\n\n"
     printf "Typical usage between <srun/mpirun> and <command>: \n\n"
     printf "  srun -n 2 $scriptname command arg1 arg2 ... \n\n"
     printf "Set delay to 5 seconds: \n\n"
     printf "  srun -n 2 $scriptname -d 5 command arg1 arg2 ... \n\n"
 }
 
+verbose=0
+
+function log () {
+    if [[ $verbose -eq 1 ]]; then
+        echo rank $SLURM_PROCID "$@" nvidia-cuda-mps-control at $(date +%FT%T.%3NZ) on $(hostname)
+    fi
+}
+
 delay=1
 
-while getopts 'd:' flag; do
+while getopts 'vd:' flag; do
     case "${flag}" in
+        v) verbose=1 ;;
         d) delay="${OPTARG}" ;;
         *) print_usage
            exit 1 ;;
@@ -35,21 +44,39 @@ export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log
 # Start MPS on each node only once
 # SLURM_LOCALID is the node local task ID for the process within a job
 if [ $SLURM_LOCALID -eq 0 ]; then
-    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control starting at $(date --iso-8601=seconds)
-    nvidia-cuda-mps-control -d
+    log "starting"
+    # when using slurm gpu-binding, rank 0 might not be able to "see" all GPUs
+    # set CUDA_VISIBLE_DEVICES to all GPUs available on node when starting MPS
+    CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS nvidia-cuda-mps-control -d
 fi
 
 # Add a delay to ensure MPS has started
 sleep $delay
 
-if [ $SLURM_LOCALID -eq 0 ]; then
-    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control ready at $(date --iso-8601=seconds)
+# Verify MPS is running
+ps aux | grep nvidia-cuda-mps | grep -v grep > /dev/null
+if [ $? -eq 0 ]; then
+    log "detected"
+else
+    log "did not detect"
 fi
 
 # Run the command
 "$@"
 
+# Stop MPS on each node from local rank 0
 if [ $SLURM_LOCALID -eq 0 ]; then
-    echo rank $SLURM_PROCID on $(hostname): nvidia-cuda-mps-control stopping at $(date --iso-8601=seconds)
-    echo quit | nvidia-cuda-mps-control
+    # Stop if running
+    ps aux | grep nvidia-cuda-mps | grep -v grep > /dev/null
+    if [ $? -eq 0 ]; then
+        log "stopping"
+        echo quit | nvidia-cuda-mps-control
+    fi
+
+    # Stop if zombie
+    ps aux | grep nvidia-cuda-mps | grep -v grep > /dev/null
+    if [ $? -eq 0 ]; then
+        log "stopping zombie"
+        killall nvidia-cuda-mps-server
+    fi
 fi
