@@ -7,6 +7,11 @@ from numba import cuda
 import cupy
 from cupyx.profiler import time_range
 
+from numba.core.errors import NumbaPerformanceWarning
+import warnings
+
+warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
+
 @cuda.jit
 def _hermevander(x, deg, output_matrix):
     i = cuda.blockIdx.x
