@@ -10,7 +10,7 @@ import numpy as np
 import numpy.polynomial.legendre
 from numba import cuda
 import cupy as cp
-import cupy.prof
+from cupyx.profiler import time_range
 import cupyx
 import cupyx.scipy.special
 
@@ -32,7 +32,7 @@ from ..polynomial import (
 default_weight_scale = 1e-4
 
 
-@cupy.prof.TimeRangeDecorator("evalcoeffs")
+@time_range("evalcoeffs")
 def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     '''
     evaluate PSF coefficients parameterized as Legendre polynomials
@@ -104,7 +104,7 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
 
     return p
 
-@cupy.prof.TimeRangeDecorator("calc_pgh")
+@time_range("calc_pgh")
 def calc_pgh(ispec, wavelengths, psfparams):
     '''
     Calculate the pixelated Gauss Hermite for all wavelengths of a single spectrum
@@ -203,7 +203,7 @@ def _multispot(pGHx, pGHy, ghc, spots):
                     for ix in range(len(px)):
                         spots[iwave, iy, ix] += c * py[iy] * px[ix]
 
-@cupy.prof.TimeRangeDecorator("multispot")
+@time_range("multispot")
 def multispot(pGHx, pGHy, ghc):
     nx = pGHx.shape[-1]
     ny = pGHy.shape[-1]
@@ -215,7 +215,7 @@ def multispot(pGHx, pGHy, ghc):
     cuda.synchronize()
     return spots
 
-@cupy.prof.TimeRangeDecorator("get_spots")
+@time_range("get_spots")
 def get_spots(specmin, nspec, wavelengths, psfdata):
     '''Calculate PSF spots for the specified spectra and wavelengths
 
@@ -276,7 +276,7 @@ def _cuda_projection_matrix(A, xc, yc, xmin, ymin, ispec, iwave, nspec, nwave, s
                 temp_spot = spots[ispec+i, iwave+j][iy, ix]
                 A[y, x, i, j] += temp_spot
 
-@cupy.prof.TimeRangeDecorator("get_xyrange")
+@time_range("get_xyrange")
 def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     """
     Find xy ranges that these spectra cover
@@ -305,7 +305,7 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
 
     return xmin, xmax, ymin, ymax
 
-@cupy.prof.TimeRangeDecorator("projection_matrix")
+@time_range("projection_matrix")
 def projection_matrix(ispec, nspec, iwave, nwave, spots, corners, corners_cpu):
     '''
     Create the projection matrix A for p = Af
@@ -353,7 +353,7 @@ def _rdiags_mask(ndiag, nspecpad, nwave, wavepad):
     mask &= (cp.abs((2 * (ii % nwavetot) - (nwavetot - 0.5))) <= nwave)
     return mask
 
-@cupy.prof.TimeRangeDecorator("get_resolution_diags")
+@time_range("get_resolution_diags")
 def get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad):
     """Returns the diagonals of R in a form suited for creating scipy.sparse.dia_matrix
 
@@ -373,7 +373,7 @@ def get_resolution_diags(R, ndiag, nspecpad, nwave, wavepad):
     # Rdiags = R[mask].reshape(nspecpad, nwave, -1).swapaxes(-2, -1)
     return Rdiags
 
-@cupy.prof.TimeRangeDecorator("ex2d_padded")
+@time_range("ex2d_padded")
 def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize, model, psferr):
     """
     Extracts a patch with border padding, but only return results for patch
@@ -424,7 +424,7 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
 
     return result
 
-@cupy.prof.TimeRangeDecorator("_prepare_patch")
+@time_range("_prepare_patch")
 def _prepare_patch(image, imageivar, specmin, nspectot, iwave, nwave, wavepad, spots, corners, corners_cpu, pixpad_frac):
     """This is essentially the preamble of `gpu_specter.extract.gpu.ex2d_padded`"""
 
@@ -478,7 +478,7 @@ def _prepare_patch(image, imageivar, specmin, nspectot, iwave, nwave, wavepad, s
 
     return patchpixels, patchivar, A4, xyslice
 
-@cupy.fuse()
+@cp.fuse()
 def _regularize(ATNinv, regularize, weight_scale):
     fluxweight = ATNinv.sum(axis=-1)
     minweight = weight_scale*cp.max(fluxweight)
@@ -486,7 +486,7 @@ def _regularize(ATNinv, regularize, weight_scale):
     lambda_squared = ibad*(minweight - fluxweight) + ~ibad*regularize*regularize
     return lambda_squared
 
-@cupy.prof.TimeRangeDecorator("_apply_weights")
+@time_range("_apply_weights")
 def _apply_weights(pixel_values, pixel_ivar, A, regularize, weight_scale=default_weight_scale):
     """This is essentially the preamble of of `gpu_specter.extract.both.xp_deconvolve`
     The outputs of this will be uniform shape for a subbundle.
@@ -507,7 +507,7 @@ def _apply_weights(pixel_values, pixel_ivar, A, regularize, weight_scale=default
 
     return icov, y
 
-@cupy.prof.TimeRangeDecorator("_batch_apply_weights")
+@time_range("_batch_apply_weights")
 def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize, weight_scale=default_weight_scale):
     """Turns a list of subbundle patch inputs into batch arrays of unifom shape
     """
@@ -526,7 +526,7 @@ def _batch_apply_weights(batch_pixels, batch_ivar, batch_A4, regularize, weight_
 
     return batch_icov, batch_y
 
-@cupy.prof.TimeRangeDecorator("_batch_apply_resolution")
+@time_range("_batch_apply_resolution")
 def _batch_apply_resolution(deconvolved, Q):
     """Compute and apply resolution to deconvolved flux"""
     s = cp.einsum('...ij->...i', Q)
@@ -535,7 +535,7 @@ def _batch_apply_resolution(deconvolved, Q):
     flux = cp.einsum('...ij,...j->...i', resolution, deconvolved)
     return flux, fluxivar, resolution
 
-@cupy.prof.TimeRangeDecorator("_batch_extraction")
+@time_range("_batch_extraction")
 def _batch_extraction(icov, y, nwavetot):
     """Performs batch extraction given a batch of patches from a subbundle.
 
@@ -579,7 +579,7 @@ def reweight_chisq(chi2pix, weight):
     bad = weight == 0
     return (chi2pix * ~bad) / (weight + bad)
 
-@cupy.prof.TimeRangeDecorator("_finalize_patch")
+@time_range("_finalize_patch")
 def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     ispec, nspec, nwave, wavepad, ndiag, psferr, patch, model=None):
     """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded."""

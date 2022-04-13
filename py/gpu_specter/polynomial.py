@@ -5,7 +5,7 @@ import numpy
 
 from numba import cuda
 import cupy
-import cupy.prof
+from cupyx.profiler import time_range
 
 @cuda.jit
 def _hermevander(x, deg, output_matrix):
@@ -19,7 +19,7 @@ def _hermevander(x, deg, output_matrix):
             for k in range(2, deg + 1):
                 output_matrix[i][j][k] = output_matrix[i][j][k-1]*x[i][j] - output_matrix[i][j][k-2]*(k-1)
 
-@cupy.prof.TimeRangeDecorator("hermevander")
+@time_range("hermevander")
 def hermevander(x, deg):
     """Temprorary wrapper that allocates memory and calls hermevander_gpu
     """
@@ -42,7 +42,7 @@ def _legvander(x, deg, output_matrix):
         for j in range(2, deg + 1):
             output_matrix[i][j] = (output_matrix[i][j-1]*x[i]*(2*j - 1) - output_matrix[i][j-2]*(j - 1)) / j
 
-@cupy.prof.TimeRangeDecorator("legvander")
+@time_range("legvander")
 def legvander(x, deg):
     """Temporary wrapper that allocates memory and defines grid before calling legvander.
     Probably won't be needed once cupy has the correpsponding legvander function.
