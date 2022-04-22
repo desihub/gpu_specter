@@ -46,7 +46,7 @@ parser.add_argument("--colors", type=str,
 parser.add_argument("--cameras", type=str, default=None,
     help=("Comma separated list of cameras to extract. If not provided then the outer "
           "product of --spectrographs and --colors will be used to construct."))
-parser.add_argument("--gpu", action="store_true",
+parser.add_argument("--use-gpu", action="store_true",
     help="use GPU")
 parser.add_argument("-v", "--verbose", action="store_true",
     help="print per-rank detailed timing")
@@ -115,8 +115,8 @@ if comm is not None:
     else:
         #- Divide MPI ranks into per node communication groups
         group = node
-        if args.gpu:
-            assert cupy_available, f"arg.gpu specified but failed to import cupy"
+        if args.use_gpu:
+            assert cupy_available, f"--use-gpu specified but failed to import cupy"
             gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
             group += ":" + gpus
         groups = comm.allgather(group)
@@ -270,8 +270,8 @@ for camera in group_cameras:
         model_filename = frame_filename.rstrip(".fits") + "-model.fits"
         cmd = cmd + f" --model {model_filename}"
 
-    if args.gpu:
-        cmd = cmd + " --gpu"
+    if args.use_gpu:
+        cmd = cmd + " --use-gpu"
 
     if args.ranks_per_bundle:
         cmd = cmd + f" --ranks-per-bundle {args.ranks_per_bundle}"
@@ -344,7 +344,7 @@ if rank == 0:
     print("desi-extract elapsed time: {:.1f} sec".format(elapsed_time))
     print("desi-extract effective work rate = {:.2f} frames per node-hour".format(work_rate))
     print("desi-extract extraction work rate = {:.2f} frames per node-hour".format(extraction_work_rate))
-    if args.gpu:
+    if args.use_gpu:
         unique_devices = set()
         for group in set(groups):
             node, devices = group.split(":")
