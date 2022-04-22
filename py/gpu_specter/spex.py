@@ -39,7 +39,7 @@ def parse(options=None):
     # parser.add_argument("-v", "--verbose", action="store_true", help="print more stuff")
     parser.add_argument("--loglevel", default='info', help='log print level (debug,info,warn,error)')
     parser.add_argument("--mpi", action="store_true", help="Use MPI for parallelism")
-    parser.add_argument("--gpu", action="store_true", help="Use GPU for extraction")
+    parser.add_argument("--use-gpu", action="store_true", help="Use GPU for extraction")
     # parser.add_argument("--decorrelate-fibers", action="store_true", help="Not recommended")
     # parser.add_argument("--no-scores", action="store_true", help="Do not compute scores")
     parser.add_argument("--psferr", type=float, default=None, required=False,
@@ -84,7 +84,7 @@ def check_input_options(args):
         msg = 'specmin ({}) must begin at a bundle boundary'.format(args.specmin)
         return False, msg
 
-    if args.gpu:
+    if args.use_gpu:
         try:
             import cupy as cp
         except ImportError:
@@ -126,7 +126,7 @@ def main_gpu_specter(args=None, comm=None, timing=None, coordinator=None):
 
     timer.split('init')
 
-    if args.gpu:
+    if args.use_gpu:
         #- If using gpu, move input data to device on read using cupy
         import cupy as cp
         array = cp.array
@@ -159,7 +159,7 @@ def main_gpu_specter(args=None, comm=None, timing=None, coordinator=None):
             args.regularize,
             args.psferr,
             coordinator.work_comm,             # mpi parameters
-            args.gpu,                          # gpu parameters
+            args.use_gpu,                      # gpu parameters
             args.loglevel,                     # log
             wavepad=args.wavepad,
             wavepad_frac=args.wavepad_frac, 
