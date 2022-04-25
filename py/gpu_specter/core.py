@@ -11,7 +11,7 @@ try:
     import numba.cuda
     numba.cuda.is_available()
     import cupy as cp
-    import cupy.prof
+    from cupyx.profiler import time_range
     cp.is_available()
 except ImportError:
     pass
@@ -155,7 +155,7 @@ def assemble_bundle_patches(rankresults):
 
     return specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice
 
-# @cupy.prof.TimeRangeDecorator("extract_bundle")
+# @time_range("extract_bundle")
 def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=25, nsubbundles=1, batch_subbundle=False,
     nwavestep=50, wavepad=10, comm=None, gpu=None, loglevel=None, model=None, regularize=0,
     psferr=None, pixpad_frac=0):
@@ -345,7 +345,7 @@ def extract_bundle(image, imageivar, psf, wave, fullwave, bspecmin, bundlesize=2
 
     return bundle
 
-# @cupy.prof.TimeRangeDecorator("decompose_comm")
+# @time_range("decompose_comm")
 def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
     """Decomposes MPI communicator into frame and bundle communicators depending on
     size of communicator, number of GPU devices (if requested), and (optionally) the
@@ -414,7 +414,7 @@ def decompose_comm(comm=None, gpu=False, ranks_per_bundle=None):
 
     return bundle_comm, frame_comm
 
-# @cupy.prof.TimeRangeDecorator("extract_frame")
+# @time_range("extract_frame")
 def extract_frame(img, psf, bundlesize, specmin, nspec, wavelength=None, nwavestep=50, nsubbundles=1,
     model=None, regularize=0, psferr=None, comm=None, gpu=None, loglevel=None, timing=None, 
     wavepad=10, pixpad_frac=0.8, wavepad_frac=0.2, batch_subbundle=True, ranks_per_bundle=None):
