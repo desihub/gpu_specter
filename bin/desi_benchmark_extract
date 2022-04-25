@@ -74,6 +74,8 @@ parser.add_argument("--wavepad-frac", type=float, default=0,
     help="fraction of a PSF spotsize to pad in wavelengths when extracting")
 parser.add_argument("--ranks-per-bundle", type=int, default=None, 
     help="number of ranks per bundle")
+parser.add_argument("--extract-subcomm-size", type=int, default=None,
+    help="number of extraction groups")
 args = parser.parse_args()
 
 start_time = args.start_time
@@ -106,22 +108,33 @@ else:
     node = socket.gethostname()
 
 if comm is not None:
+
+    extract_subcomm_size = args.extract_subcomm_size
     if args.cpu_specter:
         #- Split communicator by 20 (number of bundles per frame)
-        group_size = 20
+        if extract_subcomm_size is None:
+            group_size = 20
+        else:
+            group_size = extract_subcomm_size
         group = rank // group_size
         ngroups = size // group_size
         groups = list(range(ngroups))
     else:
-        #- Divide MPI ranks into per node communication groups
-        group = node
-        if args.use_gpu:
-            assert cupy_available, f"--use-gpu specified but failed to import cupy"
-            gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-            group += ":" + gpus
-        groups = comm.allgather(group)
-        ngroups = len(set(groups))
-        group_size = size // ngroups
+        if extract_subcomm_size is None:
+            #- Divide MPI ranks into per node communication groups
+            group = node
+            if args.use_gpu:
+                assert cupy_available, f"--use-gpu specified but failed to import cupy"
+                gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+                group += ":" + gpus
+            groups = comm.allgather(group)
+            ngroups = len(set(groups))
+            group_size = size // ngroups
+        else:
+            group_size = extract_subcomm_size
+            group = rank // group_size
+            ngroups = size // group_size
+            groups = list(range(ngroups))
 
     if (rank == 0) and (size%group_size != 0):
         print(f'Warning: MPI size={size} should be evenly divisible by {group_size}')
