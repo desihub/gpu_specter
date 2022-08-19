@@ -64,6 +64,9 @@ fi
 # Run the command
 "$@"
 
+# Store return value
+retval=$?
+
 # Stop MPS on each node from local rank 0
 if [ $SLURM_LOCALID -eq 0 ]; then
     # Stop if running
@@ -80,3 +83,6 @@ if [ $SLURM_LOCALID -eq 0 ]; then
         killall nvidia-cuda-mps-server
     fi
 fi
+
+# Return value from the command
+exit $retval
