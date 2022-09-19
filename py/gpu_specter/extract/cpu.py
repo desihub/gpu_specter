@@ -403,11 +403,11 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
         xyslice = np.s_[ymin:ymin+ny, xmin:xmin+nx]
         patchpixels = image[xyslice]
         patchivar = imageivar[xyslice]
-        fx, ivarfx, R = ex2d_patch(patchpixels, patchivar, A4, regularize=regularize)
+        flux, fluxivar, R, xflux = ex2d_patch(patchpixels, patchivar, A4, regularize=regularize)
 
         #- Select the non-padded spectra x wavelength core region
-        specflux = fx[specslice]
-        specivar = ivarfx[specslice]
+        specflux = flux[specslice]
+        specivar = fluxivar[specslice]
 
         #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
         Rdiags = get_resolution_diags(R, ndiag, ispec-specmin, nspec, nwave, wavepad)
@@ -415,7 +415,8 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
     else:
         #- TODO: this zeros out the entire patch if any of it is off the edge
         #- of the image; we can do better than that
-        fx = np.zeros((nspecpad, nwavetot))
+        flux = np.zeros((nspecpad, nwavetot))
+        xflux = np.zeros((nspecpad, nwavetot))
         specflux = np.zeros((nspec, nwave))
         specivar = np.zeros((nspec, nwave))
         Rdiags = np.zeros( (nspec, 2*ndiag+1, nwave) )
@@ -437,7 +438,7 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
     pixmask_fraction = Apatch.T.dot(patchivar.ravel() == 0)
     pixmask_fraction = pixmask_fraction.reshape(nspec, nwave)
 
-    modelpadded = Apadded.dot(fx.ravel()).reshape(ny, nx)
+    modelpadded = Apadded.dot(xflux.ravel()).reshape(ny, nx)
     modelivar = (modelpadded*psferr + 1e-32)**-2
     ii = (modelivar > 0 ) & (patchivar > 0)
     totpix_ivar = np.zeros((ny, nx))
@@ -458,7 +459,6 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
     else:
         modelimage = None
 
-    #- TODO: add chi2pix, pixmask_fraction, optionally modelimage; see specter
     result = dict(
         flux = specflux,
         ivar = specivar,
@@ -671,10 +671,11 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', regularize=0, deb
         imgweights[ny,nx] : inverse variance weights of input image
         A4[ny, nx, nspec, nwave] : projection matrix for p = A f
 
-    Returns (f, vf, R) where
+    Returns (flux, fluxivar, R, xflux) where
         flux (nspec, nwave): extracted resolution convolved flux
-        ivar (nspec, nwave): uncorrelated flux inverse variances
+        fluxivar (nspec, nwave): uncorrelated flux inverse variances
         R (nspec*nwave, nspec*nwave): dense resolution matrix
+        xflux (nspec, nwave): raw extracted flux (unconvolved)
     '''
     ny, nx, nspec, nwave = A4.shape
     assert noisyimg.shape == (ny, nx)
@@ -685,7 +686,7 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', regularize=0, deb
     A = A4.reshape(ny*nx, nspec*nwave)
 
     #- Solve f (B&S eq 4)
-    deconvolved, iCov = deconvolve(noisyimg.ravel(), imgweights.ravel(), A, regularize=regularize)
+    xflux, iCov = deconvolve(noisyimg.ravel(), imgweights.ravel(), A, regularize=regularize)
 
     #- Calculate the decorrelated errors and resolution matrix.
     if decorrelate == 'signal':
@@ -696,7 +697,7 @@ def ex2d_patch(noisyimg, imgweights, A4, decorrelate='signal', regularize=0, deb
         raise ValueError(f'{decorrelate} is not a valid value for decorrelate')
     
     #- Convolve the reduced flux (BS eq 16)
-    flux = resolution.dot(deconvolved).reshape(nspec, nwave)
+    flux = resolution.dot(xflux).reshape(nspec, nwave)
     fluxivar = fluxivar.reshape(nspec, nwave)
     
-    return flux, fluxivar, resolution
+    return flux, fluxivar, resolution, xflux

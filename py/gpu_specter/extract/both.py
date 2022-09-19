@@ -172,6 +172,7 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', regularize=0, debug=False
         flux (nspec, nwave): extracted resolution convolved flux
         ivar (nspec, nwave): uncorrelated flux inverse variances
         R (nspec*nwave, nspec*nwave): dense resolution matrix
+        xflux (nspec, nwave): raw extracted flux (unconvolved)
     """
     # timer = Timer()
     xp = get_array_module(A4)
@@ -186,7 +187,7 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', regularize=0, debug=False
     # timer.split('init')
     # Deconvole fiber traces
     safe_range_push(xp, 'deconvolve')
-    deconvolved, iCov = xp_deconvolve(pixel_values, pixel_ivar, A, regularize=regularize, debug=debug)
+    xflux, iCov = xp_deconvolve(pixel_values, pixel_ivar, A, regularize=regularize, debug=debug)
     safe_range_pop(xp)
     # timer.split('deconvolve')
     # Calculate the decorrelated errors and resolution matrix.
@@ -201,10 +202,10 @@ def xp_ex2d_patch(img, ivar, A4, decorrelate='signal', regularize=0, debug=False
     # timer.split('decorrelate')
     # Convolve the reduced flux (BS eq 16)
     safe_range_push(xp, 'reconvolve')
-    flux = resolution.dot(deconvolved).reshape(nspec, nwave)
+    flux = resolution.dot(xflux).reshape(nspec, nwave)
     fluxivar = fluxivar.reshape(nspec, nwave)
     safe_range_pop(xp)
     # timer.split('reconvolve')
     # timer.print_splits()
     safe_range_pop(xp)
-    return flux, fluxivar, resolution
+    return flux, fluxivar, resolution, xflux

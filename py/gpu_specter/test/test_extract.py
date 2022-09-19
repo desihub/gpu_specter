@@ -82,10 +82,10 @@ class TestExtract(unittest.TestCase):
         img = np.random.randn(ny, nx)
         imgivar = np.ones((ny, nx))
 
-        flux, varflux, R = ex2d_patch(img, imgivar, self.A4)
+        flux, fluxivar, R, xflux = ex2d_patch(img, imgivar, self.A4)
 
         self.assertEqual(flux.shape, (nspec, nwave))
-        self.assertEqual(varflux.shape, (nspec, nwave))
+        self.assertEqual(fluxivar.shape, (nspec, nwave))
         self.assertEqual(R.shape, (nspec*nwave, nspec*nwave))
 
     def test_ex2d_padded(self):
@@ -135,8 +135,8 @@ class TestExtract(unittest.TestCase):
 
     def test_compare_xp_cpu(self):
         # Compare the "signal" decorrelation method
-        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
-        flux1, ivar1, R1 = xp_ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+        flux0, ivar0, R0, xflux0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+        flux1, ivar1, R1, xflux1 = xp_ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
 
         self.assertTrue(np.allclose(flux0, flux1))
         self.assertTrue(np.allclose(ivar0, ivar1))
@@ -144,8 +144,8 @@ class TestExtract(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
         # Compare the "noise" decorrelation method
-        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
-        flux1, ivar1, R1 = xp_ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
+        flux0, ivar0, R0, xflux0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
+        flux1, ivar1, R1, xflux1 = xp_ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
 
         self.assertTrue(np.allclose(flux0, flux1))
         self.assertTrue(np.allclose(ivar0, ivar1))
@@ -287,8 +287,8 @@ class TestExtract(unittest.TestCase):
         A4_gpu = cp.asarray(self.A4)
 
         # Compare the "signal" decorrelation method
-        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
-        flux1_gpu, ivar1_gpu, R1_gpu = xp_ex2d_patch(noisyimg_gpu, imgivar_gpu, A4_gpu, decorrelate='signal')
+        flux0, ivar0, R0, xflux0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+        flux1_gpu, ivar1_gpu, R1_gpu, xflux1_gpu = xp_ex2d_patch(noisyimg_gpu, imgivar_gpu, A4_gpu, decorrelate='signal')
 
         flux1 = cp.asnumpy(flux1_gpu)
         ivar1 = cp.asnumpy(ivar1_gpu)
@@ -303,8 +303,8 @@ class TestExtract(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
 
         # Compare the "noise" decorrelation method
-        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
-        flux1_gpu, ivar1_gpu, R1_gpu = xp_ex2d_patch(noisyimg_gpu, imgivar_gpu, A4_gpu, decorrelate='noise')
+        flux0, ivar0, R0, xflux0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
+        flux1_gpu, ivar1_gpu, R1_gpu, xflux1_gpu = xp_ex2d_patch(noisyimg_gpu, imgivar_gpu, A4_gpu, decorrelate='noise')
 
         flux1 = cp.asnumpy(flux1_gpu)
         ivar1 = cp.asnumpy(ivar1_gpu)
@@ -323,11 +323,11 @@ class TestExtract(unittest.TestCase):
         A4_gpu = cp.asarray(self.A4)
 
         # Compare the "signal" decorrelation method
-        flux0, ivar0, R0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+        flux0, ivar0, R0, xflux0 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
 
         ny, nx, nspec, nwave = self.A4.shape
         icov, y = _apply_weights(noisyimg_gpu.ravel(), imgivar_gpu.ravel(), A4_gpu.reshape(ny*nx, nspec*nwave), regularize=0)
-        flux1_gpu, ivar1_gpu, R1_gpu = _batch_extraction(icov, y, nwave)
+        flux1_gpu, ivar1_gpu, R1_gpu, xflux1_gpu = _batch_extraction(icov, y, nwave)
         # Rdiags = get_resolution_diags(R, ndiag, nspectot, nwave, wavepad)[specslice[0]]
 
         flux1 = cp.asnumpy(flux1_gpu.reshape(nspec, nwave))
@@ -354,7 +354,7 @@ class TestExtract(unittest.TestCase):
         #- Compare the "signal" decorrelation method
         flux0, ivar0, R0 = specter.extract.ex2d_patch(self.noisyimg, self.imgivar, psf, 0, nspec,
             self.wavelengths, xyrange=self.xyrange, ndecorr=False)
-        flux1, ivar1, R1 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
+        flux1, ivar1, R1, xflux1 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='signal')
 
         #- Note that specter is using it's version of the projection matrix
         # A = psf.projection_matrix((0, nspec), self.wavelengths, self.xyrange).toarray()
@@ -369,7 +369,7 @@ class TestExtract(unittest.TestCase):
         # Compare the "noise" decorrelation method
         flux0, ivar0, R0 = specter.extract.ex2d_patch(self.noisyimg, self.imgivar, psf, 0, nspec,
             self.wavelengths, xyrange=self.xyrange, ndecorr=True)
-        flux1, ivar1, R1 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
+        flux1, ivar1, R1, xflux1 = ex2d_patch(self.noisyimg, self.imgivar, self.A4, decorrelate='noise')
 
         self.assertTrue(np.allclose(flux0, flux1))
         self.assertTrue(np.allclose(ivar0, ivar1))
