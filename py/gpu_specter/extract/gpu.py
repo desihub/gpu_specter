@@ -412,12 +412,12 @@ def ex2d_padded(image, imageivar, patch, spots, corners, pixpad_frac, regularize
     )
     #- Perform the extraction
     nwavetot = nwave + 2*wavepad
-    flux, fluxivar, resolution = _batch_extraction(icov, y, nwavetot)
+    flux, fluxivar, resolution, xflux = _batch_extraction(icov, y, nwavetot)
     #- Finalize the output for this patch
     ndiag = spots.shape[2]//2
     result = _finalize_patch(
         patchpixels, patchivar, patchA4, xyslice,
-        flux, fluxivar, resolution,
+        flux, fluxivar, resolution, xflux,
         ispec-specmin, nspec,
         nwave, wavepad, ndiag, psferr, patch, model=model
     )
@@ -551,7 +551,7 @@ def _batch_extraction(icov, y, nwavetot):
     # cp.cuda.nvtx.RangePop() # apply_weights
 
     cp.cuda.nvtx.RangePush('deconvolve')
-    deconvolved = cholesky_solve(icov, y)
+    xflux = cholesky_solve(icov, y)
     cp.cuda.nvtx.RangePop() # deconvolve
 
     cp.cuda.nvtx.RangePush('decorrelate')
@@ -561,10 +561,10 @@ def _batch_extraction(icov, y, nwavetot):
     cp.cuda.nvtx.RangePop() # decorrelate
 
     cp.cuda.nvtx.RangePush('apply_resolution')
-    flux, fluxivar, resolution = _batch_apply_resolution(deconvolved, Q)
+    flux, fluxivar, resolution = _batch_apply_resolution(xflux, Q)
     cp.cuda.nvtx.RangePop() # apply_resolution
 
-    return flux, fluxivar, resolution
+    return flux, fluxivar, resolution, xflux
 
 @cp.fuse()
 def compute_chisq(patchpixels, patchivar, patchmodel, psferr):
@@ -580,7 +580,7 @@ def reweight_chisq(chi2pix, weight):
     return (chi2pix * ~bad) / (weight + bad)
 
 @time_range("_finalize_patch")
-def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
+def _finalize_patch(patchpixels, patchivar, A4, xyslice, flux, fluxivar, R, xflux,
     ispec, nspec, nwave, wavepad, ndiag, psferr, patch, model=None):
     """This is essentially the postamble of gpu_specter.extract.gpu.ex2d_padded."""
 
@@ -588,8 +588,8 @@ def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
 
     #- Select the non-padded spectra x wavelength core region
     specslice = np.s_[ispec:ispec+nspec,wavepad:wavepad+nwave]
-    specflux = fx.reshape(nspectot, nwavetot)[specslice]
-    specivar = ivarfx.reshape(nspectot, nwavetot)[specslice]
+    specflux = flux.reshape(nspectot, nwavetot)[specslice]
+    specivar = fluxivar.reshape(nspectot, nwavetot)[specslice]
     #- Diagonals of R in a form suited for creating scipy.sparse.dia_matrix
     Rdiags = get_resolution_diags(R, ndiag, nspectot, nwave, wavepad)[specslice[0]]
 
@@ -619,7 +619,7 @@ def _finalize_patch(patchpixels, patchivar, A4, xyslice, fx, ivarfx, R,
     cp.cuda.nvtx.RangePush('chi2pix')
     cp.cuda.nvtx.RangePush('modelpadded')
     Apadded = A4.reshape(ny*nx, nspectot*nwavetot)
-    patchmodel = Apadded.dot(fx.ravel())
+    patchmodel = Apadded.dot(xflux.ravel())
     cp.cuda.nvtx.RangePop()
     cp.cuda.nvtx.RangePush('chi2')
     chi2 = compute_chisq(patchpixels, patchivar, patchmodel, psferr)
@@ -717,7 +717,7 @@ def ex2d_subbundle(image, imageivar, patches, spots, corners, pixpad_frac, regul
 
     # perform batch extraction
     cp.cuda.nvtx.RangePush('batch_extraction')
-    batch_flux, batch_fluxivar, batch_resolution = _batch_extraction(
+    batch_flux, batch_fluxivar, batch_resolution, batch_xflux = _batch_extraction(
         batch_icov, batch_y, nwavetot
     )
     cp.cuda.nvtx.RangePop()
@@ -728,7 +728,7 @@ def ex2d_subbundle(image, imageivar, patches, spots, corners, pixpad_frac, regul
     for i, patch in enumerate(patches):
         result = _finalize_patch(
             batch_pixels[i], batch_ivar[i], batch_A4[i], batch_xyslice[i],
-            batch_flux[i], batch_fluxivar[i], batch_resolution[i],
+            batch_flux[i], batch_fluxivar[i], batch_resolution[i], batch_xflux[i],
             patch.ispec-patch.bspecmin-specmin, patch.nspectra_per_patch,
             patch.nwavestep, patch.wavepad, patch.ndiag, psferr, patch, model=model
         )
