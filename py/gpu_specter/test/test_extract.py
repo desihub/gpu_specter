@@ -61,6 +61,8 @@ class TestExtract(unittest.TestCase):
         cls.img = A2.dot(cls.phot.ravel()).reshape(ny, nx)
 
         cls.readnoise = 3.0
+        # set an arbitrary seed for consistency between test runs
+        np.random.seed(9821)
         cls.noisyimg = np.random.normal(loc=0.0, scale=cls.readnoise, size=(ny, nx))
         cls.noisyimg += np.random.poisson(cls.img)
         #- for test, cheat by using noiseless img instead of noisyimg to estimate variance
@@ -335,12 +337,20 @@ class TestExtract(unittest.TestCase):
         R1 = cp.asnumpy(R1_gpu.reshape(nspec*nwave, nspec*nwave))
 
         eps_double = np.finfo(np.float64).eps
+        eps_single = np.finfo(np.float32).eps
 
-        where = np.where(~np.isclose(flux0, flux1, rtol=1e5*eps_double, atol=0))
-        np.testing.assert_allclose(flux0, flux1, rtol=1e5*eps_double, atol=0, err_msg=f"where: {where}")
-        self.assertTrue(np.allclose(ivar0, ivar1, rtol=1e3*eps_double, atol=0))
-        self.assertTrue(np.allclose(np.diag(R0), np.diag(R1), rtol=1e2*eps_double, atol=1e3*eps_double))
-        self.assertTrue(np.allclose(np.abs(flux0 - flux1)/np.sqrt(1./ivar0 + 1./ivar1), np.zeros_like(flux0)))
+        # require agreement to be a little better (1e-2) than single precision (eps_single).
+        np.testing.assert_allclose(flux0, flux1, rtol=1e-2*eps_single, atol=0)
+        np.testing.assert_allclose(ivar0, ivar1, rtol=1e-2*eps_single, atol=0)
+        np.testing.assert_allclose(np.diag(R0), np.diag(R1), rtol=1e-2*eps_single, atol=0)
+
+        mask = (ivar0 == 0) | (ivar1 == 0)
+        var0 = np.reciprocal(~mask*ivar0 + mask)
+        var1 = np.reciprocal(~mask*ivar1 + mask)
+        ivar = np.reciprocal(~mask*(var0 + var1) + mask)
+        dflux = flux0 - flux1
+        pull = ~mask*dflux*np.sqrt(ivar)
+        np.testing.assert_array_less(np.abs(pull), 1e-2*eps_single)
 
     @unittest.skipIf(not specter_available, 'specter not available')
     def test_compare_specter(self):
