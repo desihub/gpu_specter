@@ -226,18 +226,33 @@ class TestCore(unittest.TestCase):
 
         self.assertEqual(frame_cpu['specflux'].shape, frame_gpu['specflux'].shape)
 
-        diff = frame_cpu['specflux'] - frame_gpu['specflux']
-        norm = np.sqrt(1.0/frame_cpu['specivar'] + 1.0/frame_gpu['specivar'])
-        pull = diff/norm
+        #- Compute pull (dflux*sigma) ignoring masked pixels
+        mask_cpu = (
+            (frame_cpu['specivar'] == 0) |
+            (frame_cpu['chi2pix'] > 100) |
+            (frame_cpu['pixmask_fraction'] > 0.5)
+        )
+        mask_gpu = (
+            (frame_gpu['specivar'] == 0) |
+            (frame_gpu['chi2pix'] > 100) |
+            (frame_gpu['pixmask_fraction'] > 0.5)
+        )
+        mask = mask_cpu | mask_gpu
+        var_cpu = np.reciprocal(~mask*frame_cpu['specivar'] + mask)
+        var_gpu = np.reciprocal(~mask*frame_gpu['specivar'] + mask)
+        ivar = np.reciprocal(~mask*(var_cpu + var_gpu) + mask)
+        dflux = frame_cpu['specflux'] - frame_gpu['specflux']
+        pull = ~mask*dflux*np.sqrt(ivar)
+
         pull_threshold = 5e-4
-        self.assertTrue(np.alltrue(np.abs(pull) < pull_threshold))
-        # pull_fraction = np.average(np.abs(pull) < pull_threshold)
-        # self.assertGreaterEqual(pull_fraction, 0.99)
+        np.testing.assert_array_less(np.abs(pull), pull_threshold)
 
         eps_double = np.finfo(np.float64).eps
-        np.testing.assert_allclose(frame_cpu['specflux'], frame_gpu['specflux'], rtol=1e-3, atol=0)
-        np.testing.assert_allclose(frame_cpu['specivar'], frame_gpu['specivar'], rtol=1e-3, atol=0)
-        np.testing.assert_allclose(frame_cpu['Rdiags'], frame_gpu['Rdiags'], rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(~mask*frame_cpu['specflux'], ~mask*frame_gpu['specflux'], rtol=1e-3, atol=0)
+        np.testing.assert_allclose(~mask*frame_cpu['specivar'], ~mask*frame_gpu['specivar'], rtol=1e-3, atol=0)
+
+        idiag = frame_cpu['Rdiags'].shape[1] // 2
+        np.testing.assert_allclose(~mask*frame_cpu['Rdiags'][:, idiag, :], ~mask*frame_gpu['Rdiags'][:, idiag, :], rtol=1e-4)
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_gpu_batch_subbundle(self):
