@@ -12,9 +12,10 @@
 
 import os, glob, re
 from setuptools import setup, find_packages
+from distutils.command.sdist import sdist as DistutilsSdist
 
 def _get_version():
-    for line in open('py/gpu_specter/__init__.py').readlines():
+    for line in open('py/gpu_specter/_version.py').readlines():
         m = re.match("__version__\s*=\s*'(.*)'", line)
         if m is not None:
             version = m.groups()[0]
@@ -38,11 +39,12 @@ setup_keywords = dict(
 
 #- boilerplate, not sure if this is needed
 setup_keywords['zip_safe'] = False
-setup_keywords['use_2to3'] = False
+# setup_keywords['use_2to3'] = False
 
 #- What to install
 setup_keywords['packages'] = find_packages('py')
 setup_keywords['package_dir'] = {'':'py'}
+setup_keywords['cmdclass'] = {'sdist': DistutilsSdist}
 
 #- Treat everything in bin/ as a script to be installed
 setup_keywords['scripts'] = glob.glob(os.path.join('bin', '*'))
@@ -55,6 +57,13 @@ setup_keywords['package_data'] = {
 
 #- Testing
 setup_keywords['test_suite'] = 'gpu_specter.test.test_suite'
+
+#- Use desiutil if available; enables "python setup.py version"
+try:
+    from desiutil.setup import DesiVersion
+    setup_keywords['cmdclass'].update({'version': DesiVersion})
+except ImportError:
+    pass
 
 #- Go!
 setup(**setup_keywords)

@@ -1,7 +1,12 @@
 gpu_specter change log
 ======================
 
-0.2.0 (unreleased)
+0.2.1 (unreleased)
+------------------
+
+* No changes yet
+
+0.2.0 (2023-01-12)
 ------------------
 
 * Use desi_proc mpi logic for cpu specter in benchmark (PR #64)
