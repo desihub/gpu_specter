@@ -1,5 +1,4 @@
 import unittest, os, shutil, uuid
-import pkg_resources
 from astropy.table import Table
 import numpy as np
 from scipy.ndimage.measurements import center_of_mass
