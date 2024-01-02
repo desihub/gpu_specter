@@ -20,7 +20,7 @@ def clipped_eigh(a, clip_scale=1e-14):
     w, v = cupy.linalg.eigh(a)
     #- clip eigenvalues relative to maximum eigenvalue
     #- TODO: assuming w is sorted, can skip cupy.max and use the appropriate index
-    w = cupy.clip(w, a_min=clip_scale*cupy.max(w))
+    w = cupy.clip(w, a_min=clip_scale*cupy.max(w), a_max=None)
     return w, v
 
 @time_range("compose_eigh")

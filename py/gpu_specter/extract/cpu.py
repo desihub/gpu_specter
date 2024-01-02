@@ -224,7 +224,7 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
 
     return spots, corners, p
 
-@numba.jit
+@numba.jit(nopython=True)
 def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     """
     Find xy ranges that these spectra cover
@@ -253,7 +253,7 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     return xmin, xmax, ymin, ymax
     
 
-@numba.jit
+@numba.jit(nopython=True)
 def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     '''
     Create the projection matrix A for p = Af

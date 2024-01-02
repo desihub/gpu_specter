@@ -3,7 +3,7 @@ Utilities to support tests
 """
 
 import os
-from pkg_resources import resource_filename
+import importlib.resources
 
 def find_test_file(filetype):
     """
@@ -11,11 +11,11 @@ def find_test_file(filetype):
 
     Returns filepath or None if unavailable
     """
-    nerscdir = '/global/cfs/cdirs/desi/spectro/redux/cascades'
-    nerscurl = 'https://data.desi.lbl.gov/desi/spectro/redux/cascades'
+    nerscdir = '/global/cfs/cdirs/desi/spectro/redux/daily'
+    nerscurl = 'https://data.desi.lbl.gov/desi/spectro/redux/daily'
     if filetype == 'psf':
         #- PSF is small enough to be included with the repo
-        return resource_filename('gpu_specter', 'test/data/psf-r0-00051060.fits')
+        return importlib.resources.files('gpu_specter') / 'test/data/psf-r0-00051060.fits'
     elif filetype == 'preproc':
         if 'NERSC_HOST' in os.environ:
             return f'{nerscdir}/preproc/20200219/00051060/preproc-r0-00051060.fits'
