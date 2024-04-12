@@ -83,7 +83,7 @@ def assemble_bundle_patches(rankresults):
         rankresults: list of lists containing individual patch extraction results
 
     Returns:
-        (spexflux, specivar, Rdiags) tuple
+        (specflux, specivar, Rdiags, pixmask_fraction, chi2pix, modelimage, xyslice) tuple
     """
 
     #- flatten list of lists into single list

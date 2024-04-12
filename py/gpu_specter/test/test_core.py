@@ -1,5 +1,4 @@
 import unittest, os
-import pkg_resources
 from astropy.table import Table
 import numpy as np
 
@@ -298,7 +297,7 @@ class TestCore(unittest.TestCase):
         norm = np.sqrt(1.0/patch_gpu_frame['specivar'] + 1.0/subbundle_gpu_frame['specivar'])
         pull = diff/norm
         pull_threshold = 5e-4
-        self.assertTrue(np.alltrue(np.abs(pull) < pull_threshold))
+        self.assertTrue(np.all(np.abs(pull) < pull_threshold))
         # pull_fraction = np.average(np.abs(pull) < pull_threshold)
         # self.assertGreaterEqual(pull_fraction, 0.99)
 

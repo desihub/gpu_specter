@@ -224,7 +224,7 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
 
     return spots, corners, p
 
-@numba.jit
+@numba.jit(nopython=True)
 def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     """
     Find xy ranges that these spectra cover
@@ -253,7 +253,7 @@ def get_xyrange(ispec, nspec, iwave, nwave, spots, corners):
     return xmin, xmax, ymin, ymax
     
 
-@numba.jit
+@numba.jit(nopython=True)
 def projection_matrix(ispec, nspec, iwave, nwave, spots, corners):
     '''
     Create the projection matrix A for p = Af
@@ -567,10 +567,10 @@ def deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     #- TODO: review this; compare to specter
     minweight = 1e-4*np.max(fluxweight)
     ibad = fluxweight < minweight
-    lambda_squared = regularize*regularize*np.ones_like(y)
-    lambda_squared[ibad] = minweight - fluxweight[ibad]
-    if np.any(lambda_squared):
-        iCov += np.diag(lambda_squared)
+    alpha = regularize*np.ones_like(y)
+    alpha[ibad] = minweight - fluxweight[ibad]
+    iCov += np.diag(alpha*alpha + 1e-15)
+
     #- Solve the linear least-squares problem.
     deconvolved = scipy.linalg.solve(iCov, y)
     return deconvolved, iCov
