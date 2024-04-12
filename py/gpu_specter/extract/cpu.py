@@ -567,10 +567,10 @@ def deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     #- TODO: review this; compare to specter
     minweight = 1e-4*np.max(fluxweight)
     ibad = fluxweight < minweight
-    lambda_squared = regularize*regularize*np.ones_like(y)
-    lambda_squared[ibad] = minweight - fluxweight[ibad]
-    if np.any(lambda_squared):
-        iCov += np.diag(lambda_squared)
+    alpha = regularize*np.ones_like(y)
+    alpha[ibad] = minweight - fluxweight[ibad]
+    iCov += np.diag(alpha*alpha + 1e-15)
+
     #- Solve the linear least-squares problem.
     deconvolved = scipy.linalg.solve(iCov, y)
     return deconvolved, iCov
