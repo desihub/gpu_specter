@@ -4,7 +4,9 @@ gpu_specter change log
 0.2.1 (unreleased)
 ------------------
 
-* No changes yet
+* Maintenance updates for dependency deprecations (PR #80)
+* Make extract.cpu.deconvolve and extract.both.xp_deconvolve
+  regularization match extract.gpu.deconvolve (PR #80)
 
 0.2.0 (2023-01-12)
 ------------------
