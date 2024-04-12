@@ -47,10 +47,10 @@ def xp_deconvolve(pixel_values, pixel_ivar, A, regularize=0, debug=False):
     #- TODO: review this; compare to specter
     minweight = 1e-4*xp.max(fluxweight)
     ibad = fluxweight < minweight
-    lambda_squared = regularize*regularize*xp.ones_like(y)
-    lambda_squared[ibad] = minweight - fluxweight[ibad]
-    if xp.any(lambda_squared):
-        iCov += xp.diag(lambda_squared)
+    alpha = regularize*xp.ones_like(y)
+    alpha[ibad] = minweight - fluxweight[ibad]
+    iCov += xp.diag(alpha*alpha + 1e-15)
+
     safe_range_pop(xp)
 
     #- Solve the linear least-squares problem.
