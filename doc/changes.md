@@ -1,7 +1,12 @@
 gpu_specter change log
 ======================
 
-0.2.1 (unreleased)
+0.2.2 (unreleased)
+------------------
+
+* No changes yet
+
+0.2.1 (2024-04-30)
 ------------------
 
 * Maintenance updates for dependency deprecations (PR #80)
