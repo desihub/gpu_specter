@@ -17,7 +17,8 @@ def native_endian(data):
     if data.dtype.isnative:
         return data
     else:
-        return data.byteswap().newbyteorder()
+        data = data.byteswap()
+        return data.view(data.dtype.newbyteorder())
 
 def read_psf(filename):
     """
