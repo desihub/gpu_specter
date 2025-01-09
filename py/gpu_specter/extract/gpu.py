@@ -58,7 +58,7 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     if nspec is None:
         nspec = psfdata['PSF']['COEFF'].shape[1]
 
-    p = dict(WAVE=wavelengths)
+    p = dict()
 
     #- Evaluate X and Y which have different dimensionality from the
     #- PSF coefficients (and might have different WAVEMIN, WAVEMAX)
@@ -80,10 +80,8 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
     ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
     L = legvander(ww, meta['LEGDEG'])
-
-    nparam = psfdata['PSF']['COEFF'].shape[0]
-    ndeg = psfdata['PSF']['COEFF'].shape[2]
-
+    # L has a shape of either nspec,nwave,ndeg or nwave, ndeg
+    
     nwave = L.shape[0]
     nghx = meta['GHDEGX']+1
     nghy = meta['GHDEGY']+1

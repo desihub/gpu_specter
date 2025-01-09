@@ -34,20 +34,25 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     '''
     if nspec is None:
         nspec = psfdata['PSF']['COEFF'].shape[1]
-
-    p = dict(WAVE=wavelengths)
+    if wavelengths.ndim == 2:
+        wave2d = True
+    else:
+        wave2d = False
+    p = dict()
 
     #- Evaluate X and Y which have different dimensionality from the
     #- PSF coefficients (and might have different WAVEMIN, WAVEMAX)
-    meta = psfdata['XTRACE'].meta
-    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
-    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
-    p['X'] = legval(ww, psfdata['XTRACE']['X'][specmin:specmin+nspec].T)
-
-    meta = psfdata['YTRACE'].meta
-    wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
-    ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
-    p['Y'] = legval(ww, psfdata['YTRACE']['Y'][specmin:specmin+nspec].T)
+    for k in ['X', 'Y']:
+        meta = psfdata[k + 'TRACE'].meta
+        wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
+        ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+        if wave2d:
+            ww = ww[specmin:specmin+nspec]
+            p[k]  = np.zeros((nspec, ww.shape[-1]))
+            for i in range(nspec):
+                p[k][i] = legval(ww[i], psfdata[k+'TRACE'][k][specmin+i])
+        else:
+            p[k] = legval(ww.T, psfdata[k+'TRACE'][k][specmin:specmin+nspec].T)
 
     #- Evaluate the remaining PSF coefficients with a shared dimensionality
     #- and WAVEMIN, WAVEMAX
@@ -56,21 +61,22 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
     L = np.polynomial.legendre.legvander(ww, meta['LEGDEG'])
 
-    nparam = psfdata['PSF']['COEFF'].shape[0]
-    ndeg = psfdata['PSF']['COEFF'].shape[2]
-
-    nwave = L.shape[0]
+    nwave = wavelengths.shape[-1]
     nghx = meta['GHDEGX']+1
     nghy = meta['GHDEGY']+1
     p['GH'] = np.zeros((nghx, nghy, nspec, nwave))
     for name, coeff in zip(psfdata['PSF']['PARAM'], psfdata['PSF']['COEFF']):
         name = name.strip()
         coeff = coeff[specmin:specmin+nspec]
+        if wave2d:
+            curv = np.einsum('kji,ki->kj', L, coeff) # L.dot(coeff.T).T
+        else:
+            curv = np.einsum('ji,ki->kj', L, coeff) # L.dot(coeff.T).T
         if name.startswith('GH-'):
             i, j = map(int, name.split('-')[1:3])
-            p['GH'][i,j] = L.dot(coeff.T).T
+            p['GH'][i,j] = curv
         else:
-            p[name] = L.dot(coeff.T).T
+            p[name] = curv
 
     #- Include some additional keywords that we'll need
     for key in ['HSIZEX', 'HSIZEY', 'GHDEGX', 'GHDEGY']:
