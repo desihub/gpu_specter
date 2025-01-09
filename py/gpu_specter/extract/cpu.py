@@ -62,7 +62,6 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     if wave2d:
         ww = ww[specmin:specmin+nspec]
     L = np.polynomial.legendre.legvander(ww, meta['LEGDEG'])
-    print ('a',L.shape)
     nwave = wavelengths.shape[-1]
     nghx = meta['GHDEGX']+1
     nghy = meta['GHDEGY']+1
