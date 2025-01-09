@@ -16,7 +16,9 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
 
     Args:
         psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
-        wavelengths: 1D array of wavelengths
+        wavelengths: 1D or 2D array of wavelengths. if 2d the shape should be
+                     (nspec0, nwave) where nspec0 is the number of 
+                     fibers in psfdata
 
     Options:
         specmin: first spectrum to include
@@ -63,19 +65,20 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
         ww = ww[specmin:specmin+nspec]
     L = np.polynomial.legendre.legvander(ww, meta['LEGDEG'])
     nwave = wavelengths.shape[-1]
-    nghx = meta['GHDEGX']+1
-    nghy = meta['GHDEGY']+1
+    nghx = meta['GHDEGX'] + 1
+    nghy = meta['GHDEGY'] + 1
     p['GH'] = np.zeros((nghx, nghy, nspec, nwave))
     for name, coeff in zip(psfdata['PSF']['PARAM'], psfdata['PSF']['COEFF']):
         name = name.strip()
         coeff = coeff[specmin:specmin+nspec]
         if wave2d:
-            curv = np.einsum('kji,ki->kj', L, coeff) # L.dot(coeff.T).T
+            curv = np.einsum('kji,ki->kj', L, coeff)
         else:
-            curv = np.einsum('ji,ki->kj', L, coeff) # L.dot(coeff.T).T
+            curv = np.einsum('ji,ki->kj', L, coeff)
+            # L.dot(coeff.T).T
         if name.startswith('GH-'):
             i, j = map(int, name.split('-')[1:3])
-            p['GH'][i,j] = curv
+            p['GH'][i, j] = curv
         else:
             p[name] = curv
 
@@ -92,7 +95,8 @@ def calc_pgh(ispec, wavelengths, psfparams):
     
     Args:
         ispec : integer spectrum number
-        wavelengths : array of wavelengths to evaluate
+        wavelengths : array of wavelengths to evaluate 
+                      either 1d (nwave,) or 2d (nspec,nwave)
         psfparams : dictionary of PSF parameters returned by evalcoeffs
 
     returns pGHx, pGHy
@@ -199,7 +203,9 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
     Args:
         specmin: first spectrum to include
         nspec: number of spectra to evaluate spots for
-        wavelengths: 1D array of wavelengths
+        wavelengths: 1D or 2D array of wavelengths. if 2D the wavelength shape
+                      needs to be (nspec0, nwave) where nspec0 is the number
+                      of spectra in psfdata
         psfdata: PSF data from io.read_psf() of Gauss Hermite PSF file
 
     Returns:
