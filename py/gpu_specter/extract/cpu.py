@@ -111,7 +111,7 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- spot size (ny,nx)
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
-    nwave = len(wavelengths)
+    nwave = wavelengths.shape[-1]
     # print('Spot size (ny,nx) = {},{}'.format(ny, nx))
     # print('nwave = {}'.format(nwave))
 

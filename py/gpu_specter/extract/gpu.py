@@ -144,7 +144,7 @@ def calc_pgh(ispec, wavelengths, psfparams):
     #- spot size (ny,nx)
     nx = 2*p['HSIZEX'] + 1
     ny = 2*p['HSIZEY'] + 1
-    nwave = len(wavelengths)
+    nwave = wavelengths.shape[-1]
     #- convert to cupy arrays
     for k in ['X', 'Y', 'GHSIGX', 'GHSIGY']:
         p[k] = cp.asarray(p[k])
