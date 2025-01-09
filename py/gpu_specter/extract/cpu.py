@@ -59,8 +59,10 @@ def evalcoeffs(psfdata, wavelengths, specmin=0, nspec=None):
     meta = psfdata['PSF'].meta
     wavemin, wavemax = meta['WAVEMIN'], meta['WAVEMAX']
     ww = (wavelengths - wavemin) * (2.0 / (wavemax - wavemin)) - 1.0
+    if wave2d:
+        ww = ww[specmin:specmin+nspec]
     L = np.polynomial.legendre.legvander(ww, meta['LEGDEG'])
-
+    print ('a',L.shape)
     nwave = wavelengths.shape[-1]
     nghx = meta['GHDEGX']+1
     nghy = meta['GHDEGY']+1
