@@ -207,7 +207,7 @@ def get_spots(specmin, nspec, wavelengths, psfdata):
         corners: (xc,yc) where each is 2D array[ispec,iwave] lower left corner of spot
 
     '''
-    nwave = len(wavelengths)
+    nwave = wavelengths.shape[-1]
     p = evalcoeffs(psfdata, wavelengths, specmin, nspec)
     nx = 2*p['HSIZEX']+1
     ny = 2*p['HSIZEY']+1
