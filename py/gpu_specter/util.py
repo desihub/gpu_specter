@@ -136,7 +136,7 @@ class Timer(object):
     def _gen_split_summary(self):
         """Split summary generator.
         """
-        start_iso = datetime.datetime.utcfromtimestamp(self.start).isoformat()
+        start_iso = datetime.datetime.fromtimestamp(self.start, datetime.timezone.utc).isoformat()
         yield '{name:>{n}s}:{time}'.format(name='start', time=start_iso, n=self._max_name_length)
         last = self.start
         fmt = '{name:>{n}s}:{delta:>22.2f}'
