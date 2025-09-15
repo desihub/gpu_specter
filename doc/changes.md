@@ -4,7 +4,9 @@ gpu_specter change log
 0.2.2 (unreleased)
 ------------------
 
-* No changes yet
+* Add numpy 2.x support, including test updates (PRs #81, #82, #83, #88).
+* Python 3.12 UTC timezone support; update test matrix to cover more
+  numpy versions (PR #88).
 
 0.2.1 (2024-04-30)
 ------------------
