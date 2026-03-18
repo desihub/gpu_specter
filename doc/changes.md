@@ -1,7 +1,12 @@
 gpu_specter change log
 ======================
 
-0.2.2 (unreleased)
+0.3.1 (unreleased)
+------------------
+
+* No changes yet.
+
+0.3.0 (2026-03-18)
 ------------------
 
 * Add numpy 2.x support, including test updates (PRs #81, #82, #83, #88).
