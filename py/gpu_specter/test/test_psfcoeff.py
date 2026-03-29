@@ -56,6 +56,10 @@ class TestPSFCoeff(unittest.TestCase):
         self.assertEqual(psfparams['X'].shape, (25, nwave))
         psfparams = evalcoeffs(psfdata, wavelengths, specmin=25, nspec=5)
         self.assertEqual(psfparams['Y'].shape, (5, nwave))
+        wavelengths = np.linspace(meta['WAVEMIN']-10, meta['WAVEMAX']+10, nwave)
+        psfparams = evalcoeffs(psfdata, wavelengths[None, :] + np.zeros(nspec)[:,
+                                                                            None], specmin=0) #, nspec=25)
+        self.assertEqual(psfparams['X'].shape, (nspec, nwave))
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_gpu_basics(self):
@@ -72,6 +76,10 @@ class TestPSFCoeff(unittest.TestCase):
         self.assertEqual(psfparams['X'].shape, (25, nwave))
         psfparams = gpu_evalcoeffs(psfdata, wavelengths, specmin=25, nspec=5)
         self.assertEqual(psfparams['Y'].shape, (5, nwave))
+        wavelengths = np.linspace(meta['WAVEMIN']-10, meta['WAVEMAX']+10, nwave)
+        psfparams = gpu_evalcoeffs(psfdata, wavelengths[None, :] + np.zeros(nspec)[:,
+                                                                            None], specmin=0) #, nspec=25)
+        self.assertEqual(psfparams['X'].shape, (nspec, nwave))
 
     @unittest.skipIf(not gpu_available, 'gpu not available')
     def test_compare_gpu(self):
